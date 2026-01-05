@@ -186,33 +186,36 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			return
 		}
 
-		log.Infof("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
-
 		// Get provider info for token extraction
 		providerInfo := ProviderInfoFromChannel(channel)
 
-		// Create RequestTrace for logging (only if ProxyConfig exists)
+		// Create RequestTrace for logging (only for model invocations)
 		var trace *RequestTrace
-		if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
-			trace = NewRequestTrace(
-				uuid.New().String(),
-				cfg.UserID,
-				cfg.APIKeyID,
-				c.Request.Method,
-				c.Request.URL.Path,
-			)
-			// Set channel info
-			trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
-			// Set model info
-			mappedModel := channelCfg.Model
-			if IsModelMappingApplied(c) {
-				if m := GetMappedModel(c); m != "" {
-					mappedModel = m
+		if IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
+			if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+				trace = NewRequestTrace(
+					uuid.New().String(),
+					cfg.UserID,
+					cfg.APIKeyID,
+					c.Request.Method,
+					c.Request.URL.Path,
+				)
+				// Set channel info
+				trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
+				// Set model info
+				mappedModel := channelCfg.Model
+				if IsModelMappingApplied(c) {
+					if m := GetMappedModel(c); m != "" {
+						mappedModel = m
+					}
 				}
+				trace.SetModels(originalModel, mappedModel)
+				// Store trace in context
+				c.Request = c.Request.WithContext(WithRequestTrace(c.Request.Context(), trace))
+				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
 			}
-			trace.SetModels(originalModel, mappedModel)
-			// Store trace in context
-			c.Request = c.Request.WithContext(WithRequestTrace(c.Request.Context(), trace))
+		} else {
+			log.Debugf("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
 		}
 
 		proxy := &httputil.ReverseProxy{

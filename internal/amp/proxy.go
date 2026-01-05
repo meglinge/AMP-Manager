@@ -132,24 +132,27 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 			req.URL.Host = parsed.Host
 			req.Host = parsed.Host
 
-			log.Infof("amp proxy: %s %s -> %s%s", req.Method, req.URL.Path, req.URL.Host, req.URL.Path)
+			log.Debugf("amp proxy: %s %s -> %s%s", req.Method, req.URL.Path, req.URL.Host, req.URL.Path)
 
-			// Create RequestTrace for logging
-			trace := NewRequestTrace(
-				uuid.New().String(),
-				cfg.UserID,
-				cfg.APIKeyID,
-				req.Method,
-				req.URL.Path,
-			)
-			// Set provider info (amp upstream defaults to Anthropic)
-			trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
-			// Get model info from context if available
-			if modelInfo := GetModelInfo(req.Context()); modelInfo != nil {
-				trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)
+			// Only create trace for model invocation requests
+			if IsModelInvocation(req.Method, req.URL.Path) {
+				trace := NewRequestTrace(
+					uuid.New().String(),
+					cfg.UserID,
+					cfg.APIKeyID,
+					req.Method,
+					req.URL.Path,
+				)
+				// Set provider info (amp upstream defaults to Anthropic)
+				trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
+				// Get model info from context if available
+				if modelInfo := GetModelInfo(req.Context()); modelInfo != nil {
+					trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)
+				}
+				// Store trace in context
+				*req = *req.WithContext(WithRequestTrace(req.Context(), trace))
+				log.Infof("amp proxy: model invocation %s %s -> %s", req.Method, req.URL.Path, req.URL.Host)
 			}
-			// Store trace in context
-			*req = *req.WithContext(WithRequestTrace(req.Context(), trace))
 
 			// Remove client auth headers and hop-by-hop headers
 			req.Header.Del("Authorization")
