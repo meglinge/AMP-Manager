@@ -71,7 +71,10 @@ mcp__shadcn__get_add_command_for_items  # 获取添加命令
 # 例如: npx shadcn@latest add button card
 ```
 
-## 提交规范
+## Git 规范
+
+### 主分支
+- 主分支为 `main`，推送时使用 `git push origin master:main` 或切换到 main 分支
 
 ### Commit 格式
 ```
