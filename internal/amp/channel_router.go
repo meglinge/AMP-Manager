@@ -69,19 +69,33 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 	}
 }
 
+// extractModelFromPathPart extracts model name from path segment like "gemini-3-flash:generateContent"
+func extractModelFromPathPart(modelPart string) string {
+	if idx := strings.Index(modelPart, ":"); idx > 0 {
+		return modelPart[:idx]
+	}
+	if idx := strings.Index(modelPart, "/"); idx > 0 {
+		return modelPart[:idx]
+	}
+	return modelPart
+}
+
 func extractModelName(c *gin.Context) string {
 	path := c.Request.URL.Path
+
+	// Handle v1beta1/publishers/google/models/ path (used by Amp CLI sub-agents)
+	if strings.Contains(path, "/v1beta1/publishers/google/models/") {
+		parts := strings.Split(path, "/v1beta1/publishers/google/models/")
+		if len(parts) > 1 {
+			return extractModelFromPathPart(parts[1])
+		}
+	}
+
+	// Handle v1beta/models/ path
 	if strings.Contains(path, "/v1beta/models/") {
 		parts := strings.Split(path, "/v1beta/models/")
 		if len(parts) > 1 {
-			modelPart := parts[1]
-			if idx := strings.Index(modelPart, ":"); idx > 0 {
-				return modelPart[:idx]
-			}
-			if idx := strings.Index(modelPart, "/"); idx > 0 {
-				return modelPart[:idx]
-			}
-			return modelPart
+			return extractModelFromPathPart(parts[1])
 		}
 	}
 
@@ -247,6 +261,13 @@ func getEndpointPath(channel *model.Channel, req *http.Request) string {
 		return "/v1/messages"
 
 	case model.ChannelTypeGemini:
+		// Convert v1beta1/publishers/google/models/X:action to v1beta/models/X:action
+		if strings.Contains(originalPath, "/v1beta1/publishers/google/models/") {
+			parts := strings.Split(originalPath, "/v1beta1/publishers/google/models/")
+			if len(parts) > 1 {
+				return "/v1beta/models/" + parts[1]
+			}
+		}
 		if strings.Contains(originalPath, "/v1beta/models/") {
 			return originalPath
 		}
