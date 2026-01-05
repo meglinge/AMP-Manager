@@ -15,13 +15,20 @@ var (
 func Init(dbPath string) error {
 	var err error
 	once.Do(func() {
-		db, err = sql.Open("sqlite", dbPath)
+		// 添加连接参数：WAL模式、忙等待超时、共享缓存
+		dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+		db, err = sql.Open("sqlite", dsn)
 		if err != nil {
 			return
 		}
 		if err = db.Ping(); err != nil {
 			return
 		}
+
+		// 限制连接池大小，SQLite 单写多读
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+
 		err = createTables()
 		if err != nil {
 			return
