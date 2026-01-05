@@ -14,8 +14,8 @@ func RegisterProxyRoutes(engine *gin.Engine, proxy *httputil.ReverseProxy) {
 	// Register amp proxy routes at root level
 	registerAmpProxyAPI(engine, proxyHandler, channelHandler, modelsHandler)
 
-	// Redirect /threads/T-xxx to official Amp threads
-	engine.GET("/threads/:threadID", ThreadRedirectHandler())
+	// Register management routes (user, auth, threads, etc.) - proxied to ampcode.com
+	registerManagementRoutes(engine, proxyHandler)
 }
 
 // ThreadRedirectHandler redirects /threads/T-xxx to official Amp threads
@@ -63,6 +63,51 @@ func createProviderHandler(upstreamHandler, channelHandler, modelsHandler gin.Ha
 func isModelsEndpoint(path string) bool {
 	// /models, /v1/models, /v1beta/models
 	return path == "/models" || path == "/v1/models" || path == "/v1beta/models"
+}
+
+// registerManagementRoutes registers Amp management proxy routes
+// These routes proxy through to ampcode.com for OAuth, user management, threads, etc.
+func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) {
+	// Management routes under /api/* - proxied to ampcode.com
+	api := engine.Group("/api")
+	api.Use(APIKeyAuthMiddleware())
+
+	// User and auth management
+	api.Any("/user", proxyHandler)
+	api.Any("/user/*path", proxyHandler)
+	api.Any("/auth", proxyHandler)
+	api.Any("/auth/*path", proxyHandler)
+
+	// Metadata and telemetry
+	api.Any("/meta", proxyHandler)
+	api.Any("/meta/*path", proxyHandler)
+	api.Any("/ads", proxyHandler)
+	api.Any("/telemetry", proxyHandler)
+	api.Any("/telemetry/*path", proxyHandler)
+
+	// Thread management
+	api.Any("/threads", proxyHandler)
+	api.Any("/threads/*path", proxyHandler)
+
+	// OpenTelemetry and tab
+	api.Any("/otel", proxyHandler)
+	api.Any("/otel/*path", proxyHandler)
+	api.Any("/tab", proxyHandler)
+	api.Any("/tab/*path", proxyHandler)
+
+	// Root-level routes that AMP CLI expects without /api prefix
+	engine.GET("/threads", proxyHandler)
+	engine.GET("/threads/*path", proxyHandler)
+	engine.GET("/docs", proxyHandler)
+	engine.GET("/docs/*path", proxyHandler)
+	engine.GET("/settings", proxyHandler)
+	engine.GET("/settings/*path", proxyHandler)
+	engine.GET("/threads.rss", proxyHandler)
+	engine.GET("/news.rss", proxyHandler)
+
+	// Root-level auth routes for CLI login flow
+	engine.Any("/auth", proxyHandler)
+	engine.Any("/auth/*path", proxyHandler)
 }
 
 // registerAmpProxyAPI registers amp proxy routes at root /api/* level
