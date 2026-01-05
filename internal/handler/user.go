@@ -85,7 +85,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 }
 
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	userID := c.GetString("userID")
+	userID := c.GetString("user_id")
 
 	var req model.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -102,7 +102,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 }
 
 func (h *UserHandler) ChangeUsername(c *gin.Context) {
-	userID := c.GetString("userID")
+	userID := c.GetString("user_id")
 
 	var req model.ChangeUsernameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -151,7 +151,7 @@ func (h *UserHandler) SetAdmin(c *gin.Context) {
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	userID := c.Param("id")
-	currentUserID := c.GetString("userID")
+	currentUserID := c.GetString("user_id")
 
 	if userID == currentUserID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除自己"})
