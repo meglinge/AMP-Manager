@@ -32,10 +32,11 @@ func Setup() *gin.Engine {
 
 	api := r.Group("/api")
 	{
-		auth := api.Group("/auth")
+		// Local management auth (using /manage/auth to avoid conflict with proxy /api/auth/*)
+		manageAuth := api.Group("/manage/auth")
 		{
-			auth.POST("/register", userHandler.Register)
-			auth.POST("/login", userHandler.Login)
+			manageAuth.POST("/register", userHandler.Register)
+			manageAuth.POST("/login", userHandler.Login)
 		}
 
 		me := api.Group("/me")
