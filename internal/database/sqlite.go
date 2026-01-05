@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -15,6 +17,14 @@ var (
 func Init(dbPath string) error {
 	var err error
 	once.Do(func() {
+		// 确保数据目录存在
+		dir := filepath.Dir(dbPath)
+		if dir != "" && dir != "." {
+			if err = os.MkdirAll(dir, 0755); err != nil {
+				return
+			}
+		}
+
 		// 添加连接参数：WAL模式、忙等待超时、共享缓存
 		dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 		db, err = sql.Open("sqlite", dsn)
