@@ -177,6 +177,10 @@ AMPManager/
 - 用户名: `admin`
 - 密码: `admin123` (可通过 `ADMIN_PASSWORD` 环境变量修改)
 
+## 致谢
+
+本项目的代理核心实现参考了 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)，感谢原作者的开源贡献。
+
 ## 许可证
 
 MIT License
