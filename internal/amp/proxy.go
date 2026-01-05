@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -133,6 +134,23 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 
 			log.Infof("amp proxy: %s %s -> %s%s", req.Method, req.URL.Path, req.URL.Host, req.URL.Path)
 
+			// Create RequestTrace for logging
+			trace := NewRequestTrace(
+				uuid.New().String(),
+				cfg.UserID,
+				cfg.APIKeyID,
+				req.Method,
+				req.URL.Path,
+			)
+			// Set provider info (amp upstream defaults to Anthropic)
+			trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
+			// Get model info from context if available
+			if modelInfo := GetModelInfo(req.Context()); modelInfo != nil {
+				trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)
+			}
+			// Store trace in context
+			*req = *req.WithContext(WithRequestTrace(req.Context(), trace))
+
 			// Remove client auth headers and hop-by-hop headers
 			req.Header.Del("Authorization")
 			req.Header.Del("X-Api-Key")
@@ -171,16 +189,26 @@ func modifyResponse(resp *http.Response) error {
 		if trace != nil {
 			trace.SetStreaming(true)
 			resp.Body = NewSSETokenExtractor(resp.Body, trace, info)
+			// Wrap for logging on close
+			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 		}
 		return nil
 	}
 
+	// Handle non-2xx responses
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if trace != nil {
+			trace.SetError("upstream_error")
+			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+		}
 		return nil
 	}
 
 	// Skip if already marked as gzip
 	if resp.Header.Get("Content-Encoding") != "" {
+		if trace != nil {
+			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+		}
 		return nil
 	}
 
@@ -211,6 +239,9 @@ func modifyResponse(resp *http.Response) error {
 		if err != nil {
 			_ = originalBody.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(gzippedData))
+			if trace != nil {
+				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+			}
 			return nil
 		}
 
@@ -219,6 +250,9 @@ func modifyResponse(resp *http.Response) error {
 		if err != nil {
 			_ = originalBody.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(gzippedData))
+			if trace != nil {
+				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+			}
 			return nil
 		}
 
@@ -244,6 +278,9 @@ func modifyResponse(resp *http.Response) error {
 		_ = originalBody.Close()
 		if err != nil {
 			resp.Body = io.NopCloser(bytes.NewReader(header[:n]))
+			if trace != nil {
+				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+			}
 			return nil
 		}
 
@@ -259,6 +296,11 @@ func modifyResponse(resp *http.Response) error {
 		resp.Body = io.NopCloser(bytes.NewReader(fullBody))
 	}
 
+	// Wrap for logging on close
+	if trace != nil {
+		resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+	}
+
 	return nil
 }
 
@@ -269,6 +311,14 @@ func isStreamingResponse(resp *http.Response) bool {
 
 func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 	log.Errorf("amp upstream proxy error for %s %s: %v", req.Method, req.URL.Path, err)
+	// Write error log
+	if trace := GetRequestTrace(req.Context()); trace != nil {
+		trace.SetError("upstream_request_failed")
+		trace.SetResponse(http.StatusBadGateway)
+		if writer := GetLogWriter(); writer != nil {
+			writer.WriteFromTrace(trace)
+		}
+	}
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusBadGateway)
 	_, _ = rw.Write([]byte(`{"error":"amp_upstream_proxy_error","message":"Failed to reach Amp upstream"}`))

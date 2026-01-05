@@ -14,6 +14,7 @@ import (
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -190,6 +191,30 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Get provider info for token extraction
 		providerInfo := ProviderInfoFromChannel(channel)
 
+		// Create RequestTrace for logging (only if ProxyConfig exists)
+		var trace *RequestTrace
+		if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+			trace = NewRequestTrace(
+				uuid.New().String(),
+				cfg.UserID,
+				cfg.APIKeyID,
+				c.Request.Method,
+				c.Request.URL.Path,
+			)
+			// Set channel info
+			trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
+			// Set model info
+			mappedModel := channelCfg.Model
+			if IsModelMappingApplied(c) {
+				if m := GetMappedModel(c); m != "" {
+					mappedModel = m
+				}
+			}
+			trace.SetModels(originalModel, mappedModel)
+			// Store trace in context
+			c.Request = c.Request.WithContext(WithRequestTrace(c.Request.Context(), trace))
+		}
+
 		proxy := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				req.URL.Scheme = parsed.Scheme
@@ -238,24 +263,39 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			},
 			FlushInterval: -1, // Flush immediately for SSE streaming support
 			ModifyResponse: func(resp *http.Response) error {
-				// Log non-2xx responses for debugging
+				trace := GetRequestTrace(resp.Request.Context())
+
+				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, targetURL)
+					if trace != nil {
+						trace.SetError("upstream_error")
+						resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+					}
 					return nil
 				}
 
-				// Extract token usage from response
-				trace := GetRequestTrace(resp.Request.Context())
+				// Extract token usage from response and wrap for logging
 				if trace != nil {
 					info, _ := GetProviderInfo(resp.Request.Context())
 					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
+					// Wrap again for logging on close
+					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 				}
 
 				return nil
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 				log.Errorf("channel proxy: upstream request failed: %v", err)
+				// Write error log
+				if trace != nil {
+					trace.SetError("upstream_request_failed")
+					trace.SetResponse(http.StatusBadGateway)
+					if writer := GetLogWriter(); writer != nil {
+						writer.WriteFromTrace(trace)
+					}
+				}
 				rw.Header().Set("Content-Type", "application/json")
 				rw.WriteHeader(http.StatusBadGateway)
 				_, _ = rw.Write([]byte(`{"error":"upstream request failed"}`))

@@ -2,6 +2,7 @@ package amp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"regexp"
@@ -14,12 +15,39 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Context keys for model mapping
+// Context keys for model mapping (gin.Context)
 const (
 	OriginalModelContextKey = "original_model"
 	MappedModelContextKey   = "mapped_model"
 	ModelMappingAppliedKey  = "model_mapping_applied"
 )
+
+// modelInfoKey 用于在 req.Context() 中存储模型信息
+type modelInfoKey struct{}
+
+// ModelInfo 存储在 context 中的模型信息
+type ModelInfo struct {
+	OriginalModel string
+	MappedModel   string
+}
+
+// WithModelInfo 将模型信息存入 context
+func WithModelInfo(ctx context.Context, original, mapped string) context.Context {
+	return context.WithValue(ctx, modelInfoKey{}, &ModelInfo{
+		OriginalModel: original,
+		MappedModel:   mapped,
+	})
+}
+
+// GetModelInfo 从 context 获取模型信息
+func GetModelInfo(ctx context.Context) *ModelInfo {
+	if val := ctx.Value(modelInfoKey{}); val != nil {
+		if info, ok := val.(*ModelInfo); ok {
+			return info
+		}
+	}
+	return nil
+}
 
 type MappingResult struct {
 	OriginalModel string
@@ -108,10 +136,12 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Store original and mapped model in context
+		// Store original and mapped model in context (both gin.Context and req.Context)
 		c.Set(OriginalModelContextKey, result.OriginalModel)
 		c.Set(MappedModelContextKey, result.MappedModel)
 		c.Set(ModelMappingAppliedKey, true)
+		// Also store in req.Context for upstream layers
+		c.Request = c.Request.WithContext(WithModelInfo(c.Request.Context(), result.OriginalModel, result.MappedModel))
 
 		log.Infof("model mapping: %s -> %s (source: %s)", result.OriginalModel, result.MappedModel, modelSource)
 

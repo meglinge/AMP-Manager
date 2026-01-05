@@ -2,6 +2,7 @@ package amp
 
 import (
 	"database/sql"
+	"io"
 	"sync"
 	"time"
 
@@ -252,4 +253,35 @@ func StopLogWriter() {
 		globalLogWriter.Stop()
 		log.Info("log writer: stopped")
 	}
+}
+
+// LoggingBodyWrapper 包装响应体，在 Close 时写入日志
+type LoggingBodyWrapper struct {
+	io.ReadCloser
+	trace      *RequestTrace
+	statusCode int
+	once       sync.Once
+}
+
+// NewLoggingBodyWrapper 创建日志包装器
+func NewLoggingBodyWrapper(body io.ReadCloser, trace *RequestTrace, statusCode int) *LoggingBodyWrapper {
+	return &LoggingBodyWrapper{
+		ReadCloser: body,
+		trace:      trace,
+		statusCode: statusCode,
+	}
+}
+
+// Close 关闭并写入日志
+func (w *LoggingBodyWrapper) Close() error {
+	err := w.ReadCloser.Close()
+	w.once.Do(func() {
+		if w.trace != nil {
+			w.trace.SetResponse(w.statusCode)
+			if writer := GetLogWriter(); writer != nil {
+				writer.WriteFromTrace(w.trace)
+			}
+		}
+	})
+	return err
 }
