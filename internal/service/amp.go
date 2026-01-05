@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"ampmanager/internal/config"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 )
@@ -259,8 +258,6 @@ func (s *AmpService) RevokeAPIKey(userID, keyID string) error {
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {
-	cfg := config.Get()
-
 	settings, err := s.settingsRepo.GetByUserID(userID)
 	if err != nil {
 		return nil, err
@@ -271,23 +268,9 @@ func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, erro
 		return nil, err
 	}
 
-	proxyBaseURL := cfg.ProxyBaseURL
-	if proxyBaseURL == "" {
-		proxyBaseURL = "http://localhost:" + cfg.ServerPort
-	}
-
-	configExample := `# 在 Amp 客户端中配置:
-# 1. 创建一个 API Key
-# 2. 设置环境变量:
-export AMP_URL="` + proxyBaseURL + `"
-export AMP_API_KEY="{YOUR_API_KEY}"
-`
-
 	return &model.BootstrapResponse{
-		ProxyBaseURL:  proxyBaseURL,
-		ConfigExample: configExample,
-		HasSettings:   settings != nil && settings.UpstreamAPIKey != "",
-		HasAPIKey:     hasAPIKey,
+		HasSettings: settings != nil && settings.UpstreamAPIKey != "",
+		HasAPIKey:   hasAPIKey,
 	}, nil
 }
 

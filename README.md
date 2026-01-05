@@ -90,9 +90,6 @@ JWT_SECRET=your-secret-key-change-in-production
 
 # 管理员初始密码
 ADMIN_PASSWORD=admin123
-
-# 对外访问地址 (用于生成配置示例)
-PROXY_BASE_URL=http://your-domain:16823
 ```
 
 ## 客户端配置

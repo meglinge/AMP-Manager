@@ -84,8 +84,6 @@ type APIKeyListItem struct {
 }
 
 type BootstrapResponse struct {
-	ProxyBaseURL  string `json:"proxyBaseUrl"`
-	ConfigExample string `json:"configExample"`
-	HasSettings   bool   `json:"hasSettings"`
-	HasAPIKey     bool   `json:"hasApiKey"`
+	HasSettings bool `json:"hasSettings"`
+	HasAPIKey   bool `json:"hasApiKey"`
 }

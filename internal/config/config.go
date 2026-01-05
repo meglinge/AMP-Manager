@@ -9,7 +9,6 @@ type Config struct {
 	AdminPassword string
 	ServerPort    string
 	JWTSecret     string
-	ProxyBaseURL  string
 }
 
 var cfg *Config
@@ -20,7 +19,6 @@ func Load() *Config {
 		AdminPassword: getEnv("ADMIN_PASSWORD", "admin123"),
 		ServerPort:    getEnv("SERVER_PORT", "16823"),
 		JWTSecret:     getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
-		ProxyBaseURL:  getEnv("PROXY_BASE_URL", ""),
 	}
 	return cfg
 }

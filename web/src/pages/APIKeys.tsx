@@ -3,10 +3,8 @@ import {
   getAPIKeys,
   createAPIKey,
   revokeAPIKey,
-  getAmpBootstrap,
   APIKey,
   CreateAPIKeyResponse,
-  BootstrapInfo,
 } from '../api/amp'
 
 export default function APIKeys() {
@@ -18,7 +16,6 @@ export default function APIKeys() {
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-  const [bootstrap, setBootstrap] = useState<BootstrapInfo | null>(null)
 
   useEffect(() => {
     loadData()
@@ -26,12 +23,8 @@ export default function APIKeys() {
 
   const loadData = async () => {
     try {
-      const [keysData, bootstrapData] = await Promise.all([
-        getAPIKeys(),
-        getAmpBootstrap(),
-      ])
+      const keysData = await getAPIKeys()
       setKeys(keysData)
-      setBootstrap(bootstrapData)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -122,15 +115,15 @@ export default function APIKeys() {
               </div>
             </div>
 
-            {bootstrap && (
+            {newKey && (
               <div>
                 <label className="block text-sm font-medium text-gray-700">使用方法 (Linux/macOS)</label>
                 <div className="mt-1 rounded bg-gray-800 p-3 text-sm font-mono text-green-400">
-                  <div>export AMP_URL="{bootstrap.proxyBaseUrl}"</div>
+                  <div>export AMP_URL="{window.location.origin}"</div>
                   <div>export AMP_API_KEY="{newKey.apiKey}"</div>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(`export AMP_URL="${bootstrap.proxyBaseUrl}"\nexport AMP_API_KEY="${newKey.apiKey}"`, 'env')}
+                  onClick={() => copyToClipboard(`export AMP_URL="${window.location.origin}"\nexport AMP_API_KEY="${newKey.apiKey}"`, 'env')}
                   className="mt-2 rounded bg-gray-600 px-3 py-1 text-sm text-white hover:bg-gray-700"
                 >
                   {copied === 'env' ? '已复制' : '复制环境变量'}
@@ -138,11 +131,11 @@ export default function APIKeys() {
 
                 <label className="mt-4 block text-sm font-medium text-gray-700">Windows PowerShell (永久)</label>
                 <div className="mt-1 rounded bg-gray-800 p-3 text-sm font-mono text-green-400">
-                  <div>[Environment]::SetEnvironmentVariable("AMP_URL", "{bootstrap.proxyBaseUrl}", "User")</div>
+                  <div>[Environment]::SetEnvironmentVariable("AMP_URL", "{window.location.origin}", "User")</div>
                   <div>[Environment]::SetEnvironmentVariable("AMP_API_KEY", "{newKey.apiKey}", "User")</div>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(`[Environment]::SetEnvironmentVariable("AMP_URL", "${bootstrap.proxyBaseUrl}", "User")\n[Environment]::SetEnvironmentVariable("AMP_API_KEY", "${newKey.apiKey}", "User")`, 'ps')}
+                  onClick={() => copyToClipboard(`[Environment]::SetEnvironmentVariable("AMP_URL", "${window.location.origin}", "User")\n[Environment]::SetEnvironmentVariable("AMP_API_KEY", "${newKey.apiKey}", "User")`, 'ps')}
                   className="mt-2 rounded bg-gray-600 px-3 py-1 text-sm text-white hover:bg-gray-700"
                 >
                   {copied === 'ps' ? '已复制' : '复制 PowerShell 命令'}
@@ -281,24 +274,22 @@ export default function APIKeys() {
         <div className="space-y-3 text-sm text-gray-600">
           <p>1. 创建一个 API Key 用于 Amp CLI 认证</p>
           <p>2. 在终端配置环境变量：</p>
-          {bootstrap && (
-            <div className="space-y-4">
-              <div>
-                <p className="mb-1 font-medium text-gray-700">Linux/macOS:</p>
-                <div className="rounded bg-gray-800 p-3 font-mono text-green-400">
-                  <div>export AMP_URL="{bootstrap.proxyBaseUrl}"</div>
-                  <div>export AMP_API_KEY="your-api-key-here"</div>
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 font-medium text-gray-700">Windows PowerShell (永久):</p>
-                <div className="rounded bg-gray-800 p-3 font-mono text-green-400">
-                  <div>[Environment]::SetEnvironmentVariable("AMP_URL", "{bootstrap.proxyBaseUrl}", "User")</div>
-                  <div>[Environment]::SetEnvironmentVariable("AMP_API_KEY", "your-api-key-here", "User")</div>
-                </div>
+          <div className="space-y-4">
+            <div>
+              <p className="mb-1 font-medium text-gray-700">Linux/macOS:</p>
+              <div className="rounded bg-gray-800 p-3 font-mono text-green-400">
+                <div>export AMP_URL="{window.location.origin}"</div>
+                <div>export AMP_API_KEY="your-api-key-here"</div>
               </div>
             </div>
-          )}
+            <div>
+              <p className="mb-1 font-medium text-gray-700">Windows PowerShell (永久):</p>
+              <div className="rounded bg-gray-800 p-3 font-mono text-green-400">
+                <div>[Environment]::SetEnvironmentVariable("AMP_URL", "{window.location.origin}", "User")</div>
+                <div>[Environment]::SetEnvironmentVariable("AMP_API_KEY", "your-api-key-here", "User")</div>
+              </div>
+            </div>
+          </div>
           <p>3. Amp CLI 会自动使用这些环境变量连接到反代服务</p>
         </div>
       </div>
