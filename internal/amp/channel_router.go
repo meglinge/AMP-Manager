@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 
@@ -98,6 +99,8 @@ func extractModelName(c *gin.Context) string {
 		return ""
 	}
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	c.Request.ContentLength = int64(len(bodyBytes))
+	c.Request.TransferEncoding = nil
 
 	var payload struct {
 		Model string `json:"model"`
@@ -109,6 +112,29 @@ func extractModelName(c *gin.Context) string {
 	return payload.Model
 }
 
+// rewritingResponseWriter wraps gin.ResponseWriter to rewrite model names in responses
+type rewritingResponseWriter struct {
+	gin.ResponseWriter
+	rewriter *ResponseRewriter
+}
+
+func newRewritingResponseWriter(w gin.ResponseWriter, originalModel string) *rewritingResponseWriter {
+	return &rewritingResponseWriter{
+		ResponseWriter: w,
+		rewriter:       NewResponseRewriter(w, originalModel),
+	}
+}
+
+func (rw *rewritingResponseWriter) Write(data []byte) (int, error) {
+	return rw.rewriter.Write(data)
+}
+
+func (rw *rewritingResponseWriter) Flush() {
+	rw.rewriter.Flush()
+	rw.ResponseWriter.Flush()
+}
+
+// ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
 func ChannelProxyHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		channelCfg := GetChannelConfig(c)
@@ -120,7 +146,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		channel := channelCfg.Channel
-		originalModel := channelCfg.Model // Store original model for response rewriting
+		originalModel := channelCfg.Model
 
 		targetURL, err := buildUpstreamURL(channel, c.Request)
 		if err != nil {
@@ -129,79 +155,61 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			return
 		}
 
-		log.Infof("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
-
-		proxyReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, c.Request.Body)
+		parsed, err := url.Parse(targetURL)
 		if err != nil {
-			log.Errorf("channel proxy: failed to create request: %v", err)
+			log.Errorf("channel proxy: failed to parse target URL: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
 
-		for key, values := range c.Request.Header {
-			for _, value := range values {
-				proxyReq.Header.Add(key, value)
-			}
-		}
+		log.Infof("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
 
-		proxyReq.Header.Del("Authorization")
-		proxyReq.Header.Del("X-Api-Key")
-		proxyReq.Header.Del("x-api-key")
-		proxyReq.Header.Del("Transfer-Encoding")
+		proxy := &httputil.ReverseProxy{
+			Director: func(req *http.Request) {
+				req.URL.Scheme = parsed.Scheme
+				req.URL.Host = parsed.Host
+				req.URL.Path = parsed.Path
+				req.URL.RawQuery = parsed.RawQuery
+				req.Host = parsed.Host
 
-		// Filter Anthropic-Beta header for local/channel handling paths
-		// This prevents 1M context from being used when going through local channels
-		filterAntropicBetaHeader(proxyReq)
+				// Remove client auth headers (ReverseProxy handles hop-by-hop headers automatically)
+				req.Header.Del("Authorization")
+				req.Header.Del("X-Api-Key")
+				req.Header.Del("x-api-key")
 
-		applyChannelAuth(channel, proxyReq)
+				// Filter Anthropic-Beta header for local/channel handling paths
+				filterAntropicBetaHeader(req)
 
-		var headersMap map[string]string
-		if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
-			for k, v := range headersMap {
-				proxyReq.Header.Set(k, v)
-			}
-		}
+				// Apply channel-specific authentication
+				applyChannelAuth(channel, req)
 
-		client := &http.Client{}
-		resp, err := client.Do(proxyReq)
-		if err != nil {
-			log.Errorf("channel proxy: upstream request failed: %v", err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "upstream request failed"})
-			return
-		}
-		defer resp.Body.Close()
-
-		for key, values := range resp.Header {
-			for _, value := range values {
-				c.Writer.Header().Add(key, value)
-			}
-		}
-		c.Writer.WriteHeader(resp.StatusCode)
-
-		// Use ResponseRewriter to rewrite model name back to original
-		// This is the key mechanism: Amp client uses the returned model name to determine context length
-		rewriter := NewResponseRewriter(c.Writer, originalModel)
-
-		if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-			flusher, ok := c.Writer.(http.Flusher)
-			buf := make([]byte, 4096)
-			for {
-				n, err := resp.Body.Read(buf)
-				if n > 0 {
-					rewriter.Write(buf[:n])
-					if ok {
-						flusher.Flush()
+				// Apply custom headers from channel config
+				var headersMap map[string]string
+				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
+					for k, v := range headersMap {
+						req.Header.Set(k, v)
 					}
 				}
-				if err != nil {
-					break
+			},
+			FlushInterval: -1, // Flush immediately for SSE streaming support
+			ModifyResponse: func(resp *http.Response) error {
+				// Log non-2xx responses for debugging
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, targetURL)
 				}
-			}
-		} else {
-			body, _ := io.ReadAll(resp.Body)
-			rewriter.Write(body)
-			rewriter.Flush()
+				return nil
+			},
+			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+				log.Errorf("channel proxy: upstream request failed: %v", err)
+				rw.Header().Set("Content-Type", "application/json")
+				rw.WriteHeader(http.StatusBadGateway)
+				_, _ = rw.Write([]byte(`{"error":"upstream request failed"}`))
+			},
 		}
+
+		// Wrap ResponseWriter to rewrite model names in responses
+		wrappedWriter := newRewritingResponseWriter(c.Writer, originalModel)
+		proxy.ServeHTTP(wrappedWriter, c.Request)
 	}
 }
 

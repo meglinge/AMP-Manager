@@ -77,6 +77,7 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 			req.Header.Del("Authorization")
 			req.Header.Del("X-Api-Key")
 			req.Header.Del("Transfer-Encoding")
+			req.TransferEncoding = nil
 
 			// NOTE: Following CLIProxyAPI pattern - we do NOT filter Anthropic-Beta headers here
 			// Users going through ampcode.com proxy are paying for the service and should get all features
