@@ -83,3 +83,102 @@ func (h *UserHandler) Login(c *gin.Context) {
 		Message:  "登录成功",
 	})
 }
+
+func (h *UserHandler) ChangePassword(c *gin.Context) {
+	userID := c.GetString("userID")
+
+	var req model.ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.userService.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "密码修改成功"})
+}
+
+func (h *UserHandler) ChangeUsername(c *gin.Context) {
+	userID := c.GetString("userID")
+
+	var req model.ChangeUsernameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.userService.ChangeUsername(userID, req.NewUsername); err != nil {
+		if errors.Is(err, service.ErrUsernameExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "修改失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "用户名修改成功"})
+}
+
+func (h *UserHandler) ListUsers(c *gin.Context) {
+	users, err := h.userService.ListUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, users)
+}
+
+func (h *UserHandler) SetAdmin(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req model.SetAdminRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.userService.SetAdmin(userID, req.IsAdmin); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置权限失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "权限设置成功"})
+}
+
+func (h *UserHandler) DeleteUser(c *gin.Context) {
+	userID := c.Param("id")
+	currentUserID := c.GetString("userID")
+
+	if userID == currentUserID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除自己"})
+		return
+	}
+
+	if err := h.userService.DeleteUser(userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除用户失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "用户已删除"})
+}
+
+func (h *UserHandler) ResetPassword(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req model.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.userService.ResetPassword(userID, req.NewPassword); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "重置密码失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "密码已重置"})
+}

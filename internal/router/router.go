@@ -41,6 +41,9 @@ func Setup() *gin.Engine {
 		me := api.Group("/me")
 		me.Use(middleware.JWTAuthMiddleware())
 		{
+			me.PUT("/password", userHandler.ChangePassword)
+			me.PUT("/username", userHandler.ChangeUsername)
+
 			ampGroup := me.Group("/amp")
 			{
 				ampGroup.GET("/settings", ampHandler.GetSettings)
@@ -99,6 +102,14 @@ func Setup() *gin.Engine {
 				system.GET("/database/backups", systemHandler.ListBackups)
 				system.POST("/database/restore", systemHandler.RestoreBackup)
 				system.DELETE("/database/backups/:filename", systemHandler.DeleteBackup)
+			}
+
+			users := admin.Group("/users")
+			{
+				users.GET("", userHandler.ListUsers)
+				users.PATCH("/:id/admin", userHandler.SetAdmin)
+				users.POST("/:id/reset-password", userHandler.ResetPassword)
+				users.DELETE("/:id", userHandler.DeleteUser)
 			}
 		}
 	}

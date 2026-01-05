@@ -104,3 +104,70 @@ func (s *UserService) EnsureAdmin() error {
 	log.Printf("管理员账户已创建: %s", cfg.AdminUsername)
 	return nil
 }
+
+func (s *UserService) ListUsers() ([]*model.UserInfo, error) {
+	users, err := s.repo.List()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*model.UserInfo, len(users))
+	for i, u := range users {
+		result[i] = &model.UserInfo{
+			ID:        u.ID,
+			Username:  u.Username,
+			IsAdmin:   u.IsAdmin,
+			CreatedAt: u.CreatedAt,
+			UpdatedAt: u.UpdatedAt,
+		}
+	}
+	return result, nil
+}
+
+func (s *UserService) ChangePassword(userID string, oldPassword, newPassword string) error {
+	user, err := s.repo.GetByID(userID)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors.New("用户不存在")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return errors.New("旧密码错误")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdatePassword(userID, string(hashedPassword))
+}
+
+func (s *UserService) ChangeUsername(userID string, newUsername string) error {
+	exists, err := s.repo.ExistsByUsername(newUsername)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return ErrUsernameExists
+	}
+	return s.repo.UpdateUsername(userID, newUsername)
+}
+
+func (s *UserService) SetAdmin(userID string, isAdmin bool) error {
+	return s.repo.SetAdmin(userID, isAdmin)
+}
+
+func (s *UserService) DeleteUser(userID string) error {
+	return s.repo.Delete(userID)
+}
+
+func (s *UserService) ResetPassword(userID string, newPassword string) error {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePassword(userID, string(hashedPassword))
+}

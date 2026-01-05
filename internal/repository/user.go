@@ -62,3 +62,57 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 	}
 	return user, err
 }
+
+func (r *UserRepository) List() ([]*model.User, error) {
+	db := database.GetDB()
+	rows, err := db.Query(
+		`SELECT id, username, password_hash, is_admin, created_at, updated_at FROM users ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		user := &model.User{}
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+
+func (r *UserRepository) UpdatePassword(id string, passwordHash string) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+		passwordHash, time.Now(), id,
+	)
+	return err
+}
+
+func (r *UserRepository) UpdateUsername(id string, username string) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
+		username, time.Now(), id,
+	)
+	return err
+}
+
+func (r *UserRepository) SetAdmin(id string, isAdmin bool) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?`,
+		isAdmin, time.Now(), id,
+	)
+	return err
+}
+
+func (r *UserRepository) Delete(id string) error {
+	db := database.GetDB()
+	_, err := db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	return err
+}

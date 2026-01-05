@@ -5,6 +5,8 @@ import Channels from './Channels'
 import Models from './Models'
 import ModelMetadata from './ModelMetadata'
 import SystemSettings from './SystemSettings'
+import UserManagement from './UserManagement'
+import AccountSettings from './AccountSettings'
 
 interface Props {
   username: string
@@ -12,17 +14,20 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'amp-settings' | 'api-keys' | 'channels' | 'models' | 'model-metadata' | 'system-settings'
+type Page = 'amp-settings' | 'api-keys' | 'channels' | 'models' | 'model-metadata' | 'system-settings' | 'user-management' | 'account-settings'
 
-export default function Dashboard({ username, isAdmin, onLogout }: Props) {
+export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('amp-settings')
+  const [username, setUsername] = useState(initialUsername)
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'amp-settings', label: 'Amp 设置' },
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'models', label: '可用模型' },
+    { key: 'account-settings', label: '账户设置' },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
+    { key: 'user-management', label: '用户管理', adminOnly: true },
     { key: 'system-settings', label: '系统设置', adminOnly: true },
   ]
 
@@ -85,8 +90,10 @@ export default function Dashboard({ username, isAdmin, onLogout }: Props) {
           {currentPage === 'amp-settings' && <AmpSettings />}
           {currentPage === 'api-keys' && <APIKeys />}
           {currentPage === 'models' && <Models isAdmin={isAdmin} />}
+          {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
           {currentPage === 'channels' && isAdmin && <Channels />}
           {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+          {currentPage === 'user-management' && isAdmin && <UserManagement />}
           {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
         </main>
       </div>

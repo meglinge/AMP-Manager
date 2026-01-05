@@ -28,3 +28,28 @@ type AuthResponse struct {
 	IsAdmin  bool   `json:"isAdmin"`
 	Message  string `json:"message"`
 }
+
+type UserInfo struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	IsAdmin   bool      `json:"isAdmin"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type ChangePasswordRequest struct {
+	OldPassword string `json:"oldPassword" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required,min=6,max=128"`
+}
+
+type ChangeUsernameRequest struct {
+	NewUsername string `json:"newUsername" binding:"required,min=3,max=32"`
+}
+
+type SetAdminRequest struct {
+	IsAdmin bool `json:"isAdmin"`
+}
+
+type ResetPasswordRequest struct {
+	NewPassword string `json:"newPassword" binding:"required,min=6,max=128"`
+}
