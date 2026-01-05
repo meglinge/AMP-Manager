@@ -187,6 +187,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 		log.Infof("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
 
+		// Get provider info for token extraction
+		providerInfo := ProviderInfoFromChannel(channel)
+
 		proxy := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				req.URL.Scheme = parsed.Scheme
@@ -194,6 +197,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				req.URL.Path = parsed.Path
 				req.URL.RawQuery = parsed.RawQuery
 				req.Host = parsed.Host
+
+				// Inject ProviderInfo into request context for token extraction
+				*req = *req.WithContext(WithProviderInfo(req.Context(), providerInfo))
 
 				// Remove client auth headers (ReverseProxy handles hop-by-hop headers automatically)
 				req.Header.Del("Authorization")
@@ -207,6 +213,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Apply channel-specific authentication
 				applyChannelAuth(channel, req)
+
+				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
+				if channel.Type == model.ChannelTypeOpenAI && channel.Endpoint != model.ChannelEndpointResponses {
+					injectOpenAIStreamOptions(req)
+				}
 
 				// Apply custom headers from channel config
 				var headersMap map[string]string
@@ -230,7 +241,17 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Log non-2xx responses for debugging
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, targetURL)
+					return nil
 				}
+
+				// Extract token usage from response
+				trace := GetRequestTrace(resp.Request.Context())
+				if trace != nil {
+					info, _ := GetProviderInfo(resp.Request.Context())
+					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
+				}
+
 				return nil
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
@@ -306,4 +327,62 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	case model.ChannelTypeGemini:
 	}
+}
+
+// injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true
+// 这是获取 streaming 响应中 usage 数据的必要条件
+func injectOpenAIStreamOptions(req *http.Request) {
+	if req.Body == nil || req.ContentLength == 0 {
+		return
+	}
+
+	contentType := req.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		return
+	}
+	req.Body.Close()
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	// 检查是否为流式请求
+	stream, ok := payload["stream"].(bool)
+	if !ok || !stream {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	// 检查 stream_options 是否已存在
+	streamOptions, ok := payload["stream_options"].(map[string]interface{})
+	if !ok {
+		streamOptions = make(map[string]interface{})
+		payload["stream_options"] = streamOptions
+	}
+
+	// 设置 include_usage = true
+	if _, exists := streamOptions["include_usage"]; !exists {
+		streamOptions["include_usage"] = true
+		log.Debugf("channel proxy: injected stream_options.include_usage=true for OpenAI streaming")
+	}
+
+	newBody, err := json.Marshal(payload)
+	if err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	req.Body = io.NopCloser(bytes.NewReader(newBody))
+	req.ContentLength = int64(len(newBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 }

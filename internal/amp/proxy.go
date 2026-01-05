@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,11 +51,66 @@ type readCloser struct {
 func (rc *readCloser) Read(p []byte) (int, error) { return rc.r.Read(p) }
 func (rc *readCloser) Close() error               { return rc.c.Close() }
 
+// 全局 RetryTransport 实例，支持动态配置更新
+var globalRetryTransport *RetryTransport
+
+// GetRetryTransport 获取全局 RetryTransport 实例
+func GetRetryTransport() *RetryTransport {
+	return globalRetryTransport
+}
+
+// InitRetryTransportConfig 初始化重试配置（从数据库加载）
+// 需要在 CreateDynamicReverseProxy 之后调用
+func InitRetryTransportConfig(configJSON string) {
+	if globalRetryTransport == nil || configJSON == "" {
+		return
+	}
+
+	var cfg struct {
+		Enabled           bool  `json:"enabled"`
+		MaxAttempts       int   `json:"maxAttempts"`
+		GateTimeoutMs     int64 `json:"gateTimeoutMs"`
+		MaxBodyBytes      int64 `json:"maxBodyBytes"`
+		BackoffBaseMs     int64 `json:"backoffBaseMs"`
+		BackoffMaxMs      int64 `json:"backoffMaxMs"`
+		RetryOn429        bool  `json:"retryOn429"`
+		RetryOn5xx        bool  `json:"retryOn5xx"`
+		RespectRetryAfter bool  `json:"respectRetryAfter"`
+	}
+
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		log.Warnf("retry: 解析配置失败，使用默认配置: %v", err)
+		return
+	}
+
+	globalRetryTransport.UpdateConfig(&RetryConfig{
+		Enabled:           cfg.Enabled,
+		MaxAttempts:       cfg.MaxAttempts,
+		GateTimeout:       time.Duration(cfg.GateTimeoutMs) * time.Millisecond,
+		MaxBodyBytes:      cfg.MaxBodyBytes,
+		BackoffBase:       time.Duration(cfg.BackoffBaseMs) * time.Millisecond,
+		BackoffMax:        time.Duration(cfg.BackoffMaxMs) * time.Millisecond,
+		RetryOn429:        cfg.RetryOn429,
+		RetryOn5xx:        cfg.RetryOn5xx,
+		RespectRetryAfter: cfg.RespectRetryAfter,
+	})
+
+	log.WithFields(log.Fields{
+		"enabled":     cfg.Enabled,
+		"maxAttempts": cfg.MaxAttempts,
+	}).Info("retry: 已加载保存的重试配置")
+}
+
 // CreateDynamicReverseProxy creates a reverse proxy for ampcode.com upstream
 // Following CLIProxyAPI pattern: does NOT filter Anthropic-Beta headers
 // Users going through ampcode.com are paying for the service and should get all features
 func CreateDynamicReverseProxy() *httputil.ReverseProxy {
+	// 初始化全局 RetryTransport
+	globalRetryTransport = NewRetryTransport(http.DefaultTransport, DefaultRetryConfig())
+
 	proxy := &httputil.ReverseProxy{
+		// 使用带重试功能的 Transport
+		Transport: globalRetryTransport,
 		// FlushInterval 确保流式响应（SSE）立即刷新到客户端
 		// 防止 Oracle 等子代理因响应缓冲导致 terminated
 		FlushInterval: 10 * time.Millisecond,
@@ -104,11 +160,17 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 func modifyResponse(resp *http.Response) error {
 	trace := GetRequestTrace(resp.Request.Context())
 
+	// 获取 provider 信息（amp upstream 默认为 Anthropic）
+	info, ok := GetProviderInfo(resp.Request.Context())
+	if !ok {
+		info = ProviderInfo{Provider: ProviderAnthropic}
+	}
+
 	// 处理流式响应 - 包装 body 以提取 token
 	if isStreamingResponse(resp) {
 		if trace != nil {
 			trace.SetStreaming(true)
-			resp.Body = NewSSETokenExtractor(resp.Body, trace)
+			resp.Body = NewSSETokenExtractor(resp.Body, trace, info)
 		}
 		return nil
 	}
@@ -164,7 +226,7 @@ func modifyResponse(resp *http.Response) error {
 
 		// 提取 token 使用量
 		if trace != nil {
-			if usage := ExtractTokenUsage(decompressed); usage != nil {
+			if usage := ExtractTokenUsage(decompressed, info); usage != nil {
 				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
 			}
 		}
@@ -189,7 +251,7 @@ func modifyResponse(resp *http.Response) error {
 
 		// 提取 token 使用量
 		if trace != nil {
-			if usage := ExtractTokenUsage(fullBody); usage != nil {
+			if usage := ExtractTokenUsage(fullBody, info); usage != nil {
 				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
 			}
 		}
