@@ -147,6 +147,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		proxyReq.Header.Del("Authorization")
 		proxyReq.Header.Del("X-Api-Key")
 		proxyReq.Header.Del("x-api-key")
+		proxyReq.Header.Del("Transfer-Encoding")
 
 		// Filter Anthropic-Beta header for local/channel handling paths
 		// This prevents 1M context from being used when going through local channels
