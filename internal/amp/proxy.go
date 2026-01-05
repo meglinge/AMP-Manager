@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -54,6 +55,9 @@ func (rc *readCloser) Close() error               { return rc.c.Close() }
 // Users going through ampcode.com are paying for the service and should get all features
 func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
+		// FlushInterval 确保流式响应（SSE）立即刷新到客户端
+		// 防止 Oracle 等子代理因响应缓冲导致 terminated
+		FlushInterval: 10 * time.Millisecond,
 		Director: func(req *http.Request) {
 			cfg := GetProxyConfig(req.Context())
 			if cfg == nil {
@@ -95,13 +99,21 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 	return proxy
 }
 
-// modifyResponse handles gzip decompression only (following CLIProxyAPI pattern)
+// modifyResponse handles gzip decompression and token extraction
 // Does NOT attempt to rewrite context_length as that's not where Amp gets the value
 func modifyResponse(resp *http.Response) error {
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	trace := GetRequestTrace(resp.Request.Context())
+
+	// 处理流式响应 - 包装 body 以提取 token
+	if isStreamingResponse(resp) {
+		if trace != nil {
+			trace.SetStreaming(true)
+			resp.Body = NewSSETokenExtractor(resp.Body, trace)
+		}
 		return nil
 	}
-	if isStreamingResponse(resp) {
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
 
@@ -149,6 +161,14 @@ func modifyResponse(resp *http.Response) error {
 		}
 
 		_ = originalBody.Close()
+
+		// 提取 token 使用量
+		if trace != nil {
+			if usage := ExtractTokenUsage(decompressed); usage != nil {
+				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			}
+		}
+
 		resp.Body = io.NopCloser(bytes.NewReader(decompressed))
 		resp.ContentLength = int64(len(decompressed))
 		resp.Header.Del("Content-Encoding")
@@ -157,11 +177,24 @@ func modifyResponse(resp *http.Response) error {
 
 		log.Debugf("amp proxy: decompressed gzip response (%d -> %d bytes)", len(gzippedData), len(decompressed))
 	} else {
-		// Not gzip - restore peeked bytes
-		resp.Body = &readCloser{
-			r: io.MultiReader(bytes.NewReader(header[:n]), originalBody),
-			c: originalBody,
+		// Not gzip - 读取完整响应以提取 token
+		rest, err := io.ReadAll(originalBody)
+		_ = originalBody.Close()
+		if err != nil {
+			resp.Body = io.NopCloser(bytes.NewReader(header[:n]))
+			return nil
 		}
+
+		fullBody := append(header[:n], rest...)
+
+		// 提取 token 使用量
+		if trace != nil {
+			if usage := ExtractTokenUsage(fullBody); usage != nil {
+				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			}
+		}
+
+		resp.Body = io.NopCloser(bytes.NewReader(fullBody))
 	}
 
 	return nil
