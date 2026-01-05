@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 
@@ -85,7 +86,11 @@ func (h *UserHandler) Login(c *gin.Context) {
 }
 
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
 
 	var req model.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -102,7 +107,11 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 }
 
 func (h *UserHandler) ChangeUsername(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
 
 	var req model.ChangeUsernameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -151,7 +160,7 @@ func (h *UserHandler) SetAdmin(c *gin.Context) {
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	userID := c.Param("id")
-	currentUserID := c.GetString("user_id")
+	currentUserID := middleware.GetUserID(c)
 
 	if userID == currentUserID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除自己"})

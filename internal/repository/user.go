@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"time"
 
 	"ampmanager/internal/database"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 )
+
+var ErrUserNotFound = errors.New("用户不存在")
 
 type UserRepository struct{}
 
@@ -86,20 +89,40 @@ func (r *UserRepository) List() ([]*model.User, error) {
 
 func (r *UserRepository) UpdatePassword(id string, passwordHash string) error {
 	db := database.GetDB()
-	_, err := db.Exec(
+	result, err := db.Exec(
 		`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
 		passwordHash, time.Now(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) UpdateUsername(id string, username string) error {
 	db := database.GetDB()
-	_, err := db.Exec(
+	result, err := db.Exec(
 		`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
 		username, time.Now(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) SetAdmin(id string, isAdmin bool) error {
