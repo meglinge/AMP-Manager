@@ -1,5 +1,11 @@
 import { useState } from 'react'
 import { changePassword, changeUsername } from '../api/users'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { CheckCircle2, XCircle } from 'lucide-react'
 
 interface Props {
   username: string
@@ -74,86 +80,86 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   return (
     <div className="space-y-6">
       {message && (
-        <div
-          className={`rounded-md p-4 ${
-            message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {message.text}
-        </div>
+        <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
+          {message.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <XCircle className="h-4 w-4" />
+          )}
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
       )}
 
-      {/* 修改密码 */}
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h3 className="mb-4 text-lg font-bold text-gray-800">修改密码</h3>
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">当前密码</label>
-            <input
-              type="password"
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">新密码</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              required
-              minLength={6}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">确认新密码</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={changingPassword}
-            className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:bg-gray-400"
-          >
-            {changingPassword ? '修改中...' : '修改密码'}
-          </button>
-        </form>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>修改密码</CardTitle>
+          <CardDescription>更新您的账户密码</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="oldPassword">当前密码</Label>
+              <Input
+                id="oldPassword"
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">新密码</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">确认新密码</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={changingPassword}>
+              {changingPassword ? '修改中...' : '修改密码'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
-      {/* 修改用户名 */}
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h3 className="mb-4 text-lg font-bold text-gray-800">修改用户名</h3>
-        <p className="mb-4 text-sm text-gray-500">当前用户名: {username}</p>
-        <form onSubmit={handleChangeUsername} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">新用户名</label>
-            <input
-              type="text"
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              required
-              minLength={3}
-              maxLength={32}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={changingUsername}
-            className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:bg-gray-400"
-          >
-            {changingUsername ? '修改中...' : '修改用户名'}
-          </button>
-        </form>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>修改用户名</CardTitle>
+          <CardDescription>当前用户名: {username}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleChangeUsername} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="newUsername">新用户名</Label>
+              <Input
+                id="newUsername"
+                type="text"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                required
+                minLength={3}
+                maxLength={32}
+              />
+            </div>
+            <Button type="submit" disabled={changingUsername}>
+              {changingUsername ? '修改中...' : '修改用户名'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

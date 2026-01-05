@@ -7,6 +7,14 @@ import {
   ModelMapping,
 } from '../api/amp'
 import ModelMappingEditor from '../components/ModelMappingEditor'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Separator } from '@/components/ui/separator'
 
 export default function AmpSettings() {
   const [settings, setSettings] = useState<AmpSettingsType | null>(null)
@@ -85,120 +93,119 @@ export default function AmpSettings() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="text-gray-500">加载中...</div>
+        <div className="text-muted-foreground">加载中...</div>
       </div>
     )
   }
 
   return (
     <div className="mx-auto max-w-2xl">
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h2 className="mb-6 text-xl font-bold text-gray-800">Amp 设置</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Amp 设置</CardTitle>
+          <CardDescription>配置 Amp 代理服务的上游连接和模型映射</CardDescription>
+        </CardHeader>
 
-        {error && (
-          <div className="mb-4 rounded bg-red-100 p-3 text-red-700">{error}</div>
-        )}
-        {success && (
-          <div className="mb-4 rounded bg-green-100 p-3 text-green-700">{success}</div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="enabled"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="enabled" className="text-sm font-medium text-gray-700">
-              启用代理
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Upstream URL
-            </label>
-            <input
-              type="url"
-              value={upstreamUrl}
-              onChange={(e) => setUpstreamUrl(e.target.value)}
-              placeholder="https://ampcode.com"
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Upstream API Key
-            </label>
-            <div className="mt-1 flex items-center gap-3">
-              <input
-                type="password"
-                value={upstreamApiKey}
-                onChange={(e) => setUpstreamApiKey(e.target.value)}
-                placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
-                className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span
-                className={`rounded-full px-3 py-1 text-xs ${
-                  settings?.apiKeySet
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-yellow-100 text-yellow-700'
-                }`}
-              >
-                {settings?.apiKeySet ? '已设置' : '未设置'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="forceModelMappings"
-              checked={forceModelMappings}
-              onChange={(e) => setForceModelMappings(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="forceModelMappings" className="text-sm font-medium text-gray-700">
-              Force Model Mappings
-            </label>
-          </div>
-
-          <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
-
-          <div className="flex items-center gap-4 border-t pt-6">
-            <button
-              type="button"
-              onClick={handleTest}
-              disabled={testing}
-              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
-            >
-              {testing ? '测试中...' : '测试连接'}
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:bg-blue-300"
-            >
-              {saving ? '保存中...' : '保存设置'}
-            </button>
-          </div>
-
-          {testResult && (
-            <div
-              className={`rounded p-3 ${
-                testResult.success
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {testResult.message}
-            </div>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
-        </form>
-      </div>
+          {success && (
+            <Alert className="mb-4 border-green-200 bg-green-50 text-green-800">
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="enabled">启用代理</Label>
+                <p className="text-sm text-muted-foreground">开启后将启用 Amp 代理服务</p>
+              </div>
+              <Switch
+                id="enabled"
+                checked={enabled}
+                onCheckedChange={setEnabled}
+              />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label htmlFor="upstreamUrl">Upstream URL</Label>
+              <Input
+                id="upstreamUrl"
+                type="url"
+                value={upstreamUrl}
+                onChange={(e) => setUpstreamUrl(e.target.value)}
+                placeholder="https://ampcode.com"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="upstreamApiKey">Upstream API Key</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  id="upstreamApiKey"
+                  type="password"
+                  value={upstreamApiKey}
+                  onChange={(e) => setUpstreamApiKey(e.target.value)}
+                  placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
+                  className="flex-1"
+                />
+                <Badge variant={settings?.apiKeySet ? 'default' : 'secondary'}>
+                  {settings?.apiKeySet ? '已设置' : '未设置'}
+                </Badge>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="forceModelMappings">Force Model Mappings</Label>
+                <p className="text-sm text-muted-foreground">强制使用模型映射规则</p>
+              </div>
+              <Switch
+                id="forceModelMappings"
+                checked={forceModelMappings}
+                onCheckedChange={setForceModelMappings}
+              />
+            </div>
+
+            <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
+
+            {testResult && (
+              <Alert
+                variant={testResult.success ? 'default' : 'destructive'}
+                className={testResult.success ? 'border-green-200 bg-green-50 text-green-800' : ''}
+              >
+                <AlertDescription>{testResult.message}</AlertDescription>
+              </Alert>
+            )}
+          </form>
+        </CardContent>
+
+        <CardFooter className="flex justify-between border-t pt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing}
+          >
+            {testing ? '测试中...' : '测试连接'}
+          </Button>
+          <Button
+            type="submit"
+            disabled={saving}
+            onClick={handleSubmit}
+          >
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   )
 }

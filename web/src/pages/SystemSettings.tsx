@@ -7,6 +7,18 @@ import {
   deleteBackup,
   Backup,
 } from '../api/system'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 
 export default function SystemSettings() {
   const [backups, setBackups] = useState<Backup[]>([])
@@ -118,20 +130,17 @@ export default function SystemSettings() {
   return (
     <div className="space-y-6">
       {message && (
-        <div
-          className={`rounded-md p-4 ${
-            message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {message.text}
-        </div>
+        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
       )}
 
-      {/* 数据库操作 */}
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h3 className="mb-4 text-lg font-bold text-gray-800">数据库管理</h3>
-
-        <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>数据库管理</CardTitle>
+          <CardDescription>上传、下载和管理系统数据库</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-4">
             <div>
               <input
@@ -143,81 +152,83 @@ export default function SystemSettings() {
                 id="db-upload"
                 disabled={loading}
               />
-              <label
-                htmlFor="db-upload"
-                className={`inline-block cursor-pointer rounded-md px-4 py-2 text-white ${
-                  loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                上传数据库
-              </label>
+              <Button asChild disabled={loading}>
+                <label htmlFor="db-upload" className="cursor-pointer">
+                  上传数据库
+                </label>
+              </Button>
             </div>
 
-            <button
-              onClick={handleDownload}
-              disabled={loading}
-              className={`rounded-md px-4 py-2 text-white ${
-                loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-              }`}
-            >
+            <Button variant="secondary" onClick={handleDownload} disabled={loading}>
               下载当前数据库
-            </button>
+            </Button>
           </div>
 
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             上传新数据库将自动备份当前数据库。更改生效需要重启服务。
           </p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* 备份列表 */}
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h3 className="mb-4 text-lg font-bold text-gray-800">备份列表</h3>
-
-        {backups.length === 0 ? (
-          <p className="text-gray-500">暂无备份</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-gray-700">文件名</th>
-                  <th className="px-4 py-3 font-medium text-gray-700">大小</th>
-                  <th className="px-4 py-3 font-medium text-gray-700">备份时间</th>
-                  <th className="px-4 py-3 font-medium text-gray-700">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {backups.map((backup) => (
-                  <tr key={backup.filename} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs">{backup.filename}</td>
-                    <td className="px-4 py-3">{formatSize(backup.size)}</td>
-                    <td className="px-4 py-3">{formatDate(backup.modTime)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleRestore(backup.filename)}
-                          disabled={loading}
-                          className="rounded bg-yellow-500 px-3 py-1 text-xs text-white hover:bg-yellow-600 disabled:bg-gray-400"
-                        >
-                          恢复
-                        </button>
-                        <button
-                          onClick={() => handleDelete(backup.filename)}
-                          disabled={loading}
-                          className="rounded bg-red-500 px-3 py-1 text-xs text-white hover:bg-red-600 disabled:bg-gray-400"
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>备份列表</CardTitle>
+          <CardDescription>查看和管理数据库备份</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {backups.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
+              暂无备份
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>文件名</TableHead>
+                    <TableHead>大小</TableHead>
+                    <TableHead>备份时间</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {backups.map((backup) => (
+                    <TableRow key={backup.filename}>
+                      <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{formatSize(backup.size)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDate(backup.modTime)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRestore(backup.filename)}
+                            disabled={loading}
+                          >
+                            恢复
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDelete(backup.filename)}
+                            disabled={loading}
+                          >
+                            删除
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

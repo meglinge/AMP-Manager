@@ -1,5 +1,17 @@
 import { useState, FormEvent } from 'react'
 import { login, LoginRequest } from '../api/auth'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 interface Props {
   onSwitch: () => void
@@ -30,63 +42,62 @@ export default function Login({ onSwitch, onSuccess }: Props) {
   }
 
   return (
-    <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-md">
-      <h2 className="mb-6 text-center text-2xl font-bold text-gray-800">
-        用户登录
-      </h2>
+    <Card className="w-full max-w-md">
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">用户登录</CardTitle>
+        <CardDescription>请输入您的账号信息</CardDescription>
+      </CardHeader>
 
-      {error && (
-        <div className="mb-4 rounded bg-red-100 p-3 text-red-700">{error}</div>
-      )}
+      <CardContent>
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            用户名
-          </label>
-          <input
-            type="text"
-            required
-            value={formData.username}
-            onChange={(e) =>
-              setFormData({ ...formData, username: e.target.value })
-            }
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            placeholder="请输入用户名"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="username">用户名</Label>
+            <Input
+              id="username"
+              type="text"
+              required
+              value={formData.username}
+              onChange={(e) =>
+                setFormData({ ...formData, username: e.target.value })
+              }
+              placeholder="请输入用户名"
+            />
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            密码
-          </label>
-          <input
-            type="password"
-            required
-            value={formData.password}
-            onChange={(e) =>
-              setFormData({ ...formData, password: e.target.value })
-            }
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            placeholder="请输入密码"
-          />
-        </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">密码</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              value={formData.password}
+              onChange={(e) =>
+                setFormData({ ...formData, password: e.target.value })
+              }
+              placeholder="请输入密码"
+            />
+          </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-blue-600 py-2 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-blue-300"
-        >
-          {loading ? '登录中...' : '登录'}
-        </button>
-      </form>
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? '登录中...' : '登录'}
+          </Button>
+        </form>
+      </CardContent>
 
-      <p className="mt-4 text-center text-sm text-gray-600">
-        没有账号？{' '}
-        <button onClick={onSwitch} className="text-blue-600 hover:underline">
-          立即注册
-        </button>
-      </p>
-    </div>
+      <CardFooter className="justify-center">
+        <p className="text-sm text-muted-foreground">
+          没有账号？{' '}
+          <Button variant="link" className="h-auto p-0" onClick={onSwitch}>
+            立即注册
+          </Button>
+        </p>
+      </CardFooter>
+    </Card>
   )
 }

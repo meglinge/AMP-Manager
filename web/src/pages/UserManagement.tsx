@@ -6,6 +6,30 @@ import {
   resetUserPassword,
   UserInfo,
 } from '../api/users'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
+import { CheckCircle2, XCircle, Trash2, KeyRound } from 'lucide-react'
 
 export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
@@ -13,6 +37,7 @@ export default function UserManagement() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [resetPasswordModal, setResetPasswordModal] = useState<{ userId: string; username: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<UserInfo | null>(null)
 
   useEffect(() => {
     fetchUsers()
@@ -44,12 +69,13 @@ export default function UserManagement() {
     }
   }
 
-  const handleDelete = async (user: UserInfo) => {
-    if (!confirm(`确定要删除用户 ${user.username} 吗？`)) return
+  const handleDelete = async () => {
+    if (!deleteConfirmModal) return
 
     try {
-      await deleteUser(user.id)
+      await deleteUser(deleteConfirmModal.id)
       showMessage('success', '用户已删除')
+      setDeleteConfirmModal(null)
       fetchUsers()
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '删除失败')
@@ -74,119 +100,142 @@ export default function UserManagement() {
   }
 
   if (loading) {
-    return <div className="text-center text-gray-500">加载中...</div>
+    return <div className="text-center text-muted-foreground">加载中...</div>
   }
 
   return (
     <div className="space-y-6">
       {message && (
-        <div
-          className={`rounded-md p-4 ${
-            message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {message.text}
-        </div>
+        <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
+          {message.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <XCircle className="h-4 w-4" />
+          )}
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
       )}
 
-      <div className="rounded-lg bg-white p-6 shadow-md">
-        <h3 className="mb-4 text-lg font-bold text-gray-800">用户列表</h3>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 font-medium text-gray-700">用户名</th>
-                <th className="px-4 py-3 font-medium text-gray-700">角色</th>
-                <th className="px-4 py-3 font-medium text-gray-700">创建时间</th>
-                <th className="px-4 py-3 font-medium text-gray-700">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
+      <Card>
+        <CardHeader>
+          <CardTitle>用户列表</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>用户名</TableHead>
+                <TableHead>角色</TableHead>
+                <TableHead>管理员权限</TableHead>
+                <TableHead>创建时间</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {users.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{user.username}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2 py-1 text-xs ${
-                        user.isAdmin
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium">{user.username}</TableCell>
+                  <TableCell>
+                    <Badge variant={user.isAdmin ? 'default' : 'secondary'}>
                       {user.isAdmin ? '管理员' : '普通用户'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{formatDate(user.createdAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleToggleAdmin(user)}
-                        className={`rounded px-3 py-1 text-xs text-white ${
-                          user.isAdmin
-                            ? 'bg-yellow-500 hover:bg-yellow-600'
-                            : 'bg-blue-500 hover:bg-blue-600'
-                        }`}
-                      >
-                        {user.isAdmin ? '取消管理员' : '设为管理员'}
-                      </button>
-                      <button
-                        onClick={() => setResetPasswordModal({ userId: user.id, username: user.username })}
-                        className="rounded bg-gray-500 px-3 py-1 text-xs text-white hover:bg-gray-600"
-                      >
-                        重置密码
-                      </button>
-                      <button
-                        onClick={() => handleDelete(user)}
-                        className="rounded bg-red-500 px-3 py-1 text-xs text-white hover:bg-red-600"
-                      >
-                        删除
-                      </button>
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={user.isAdmin}
+                        onCheckedChange={() => handleToggleAdmin(user)}
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {user.isAdmin ? '已启用' : '已禁用'}
+                      </span>
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(user.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setResetPasswordModal({ userId: user.id, username: user.username })}
+                      >
+                        <KeyRound className="mr-1 h-4 w-4" />
+                        重置密码
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setDeleteConfirmModal(user)}
+                      >
+                        <Trash2 className="mr-1 h-4 w-4" />
+                        删除
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-      {/* 重置密码弹窗 */}
-      {resetPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="w-96 rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-bold">重置密码</h3>
-            <p className="mb-4 text-sm text-gray-600">
-              为用户 <span className="font-medium">{resetPasswordModal.username}</span> 设置新密码
-            </p>
-            <input
-              type="password"
-              placeholder="新密码 (至少6位)"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="mb-4 w-full rounded-md border px-3 py-2"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setResetPasswordModal(null)
-                  setNewPassword('')
-                }}
-                className="rounded bg-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-400"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleResetPassword}
-                disabled={newPassword.length < 6}
-                className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:bg-gray-400"
-              >
-                确认重置
-              </button>
+      <Dialog open={!!resetPasswordModal} onOpenChange={(open) => !open && setResetPasswordModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重置密码</DialogTitle>
+            <DialogDescription>
+              为用户 <span className="font-medium">{resetPasswordModal?.username}</span> 设置新密码
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">新密码</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                placeholder="至少6位字符"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResetPasswordModal(null)
+                setNewPassword('')
+              }}
+            >
+              取消
+            </Button>
+            <Button onClick={handleResetPassword} disabled={newPassword.length < 6}>
+              确认重置
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteConfirmModal} onOpenChange={(open) => !open && setDeleteConfirmModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+            <DialogDescription>
+              确定要删除用户 <span className="font-medium">{deleteConfirmModal?.username}</span> 吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmModal(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -7,6 +7,16 @@ import ModelMetadata from './ModelMetadata'
 import SystemSettings from './SystemSettings'
 import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 
 interface Props {
   username: string
@@ -34,67 +44,78 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
   const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin)
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
+    <div className="flex min-h-screen bg-muted/40">
       {/* 侧边栏 */}
-      <aside className="w-64 bg-white shadow-md">
-        <div className="flex h-16 items-center justify-center border-b">
-          <h1 className="text-xl font-bold text-gray-800">AMPManager</h1>
+      <aside className="w-64 border-r bg-background">
+        <div className="flex h-16 items-center justify-center border-b px-4">
+          <h1 className="text-xl font-bold tracking-tight">AMPManager</h1>
         </div>
 
-        <nav className="p-4">
-          <ul className="space-y-2">
-            {visibleNavItems.map((item) => (
-              <li key={item.key}>
-                <button
-                  onClick={() => setCurrentPage(item.key)}
-                  className={`w-full rounded-md px-4 py-2 text-left transition-colors ${
-                    currentPage === item.key
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  {item.label}
-                  {item.adminOnly && (
-                    <span className="ml-2 text-xs opacity-70">(管理员)</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <nav className="flex flex-col gap-1 p-4">
+          {visibleNavItems.map((item) => (
+            <Button
+              key={item.key}
+              variant={currentPage === item.key ? 'default' : 'ghost'}
+              className="w-full justify-start gap-2"
+              onClick={() => setCurrentPage(item.key)}
+            >
+              {item.label}
+              {item.adminOnly && (
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  管理员
+                </Badge>
+              )}
+            </Button>
+          ))}
         </nav>
       </aside>
 
       {/* 主内容区 */}
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col">
         {/* 顶部导航 */}
-        <header className="flex h-16 items-center justify-between border-b bg-white px-6 shadow-sm">
-          <h2 className="text-lg font-medium text-gray-800">
+        <header className="flex h-16 items-center justify-between border-b bg-background px-6">
+          <h2 className="text-lg font-semibold">
             {visibleNavItems.find((item) => item.key === currentPage)?.label}
           </h2>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              欢迎, {username}
-              {isAdmin && <span className="ml-1 text-blue-600">(管理员)</span>}
-            </span>
-            <button
-              onClick={onLogout}
-              className="rounded-md bg-gray-600 px-4 py-2 text-sm text-white hover:bg-gray-700"
-            >
-              退出登录
-            </button>
+          <div className="flex items-center gap-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <span>{username}</span>
+                  {isAdmin && (
+                    <Badge variant="default" className="text-xs">
+                      管理员
+                    </Badge>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setCurrentPage('account-settings')}>
+                  账户设置
+                </DropdownMenuItem>
+                <Separator className="my-1" />
+                <DropdownMenuItem onClick={onLogout} className="text-destructive">
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
         {/* 页面内容 */}
-        <main className="p-6">
-          {currentPage === 'amp-settings' && <AmpSettings />}
-          {currentPage === 'api-keys' && <APIKeys />}
-          {currentPage === 'models' && <Models isAdmin={isAdmin} />}
-          {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
-          {currentPage === 'channels' && isAdmin && <Channels />}
-          {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
-          {currentPage === 'user-management' && isAdmin && <UserManagement />}
-          {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
+        <main className="flex-1 p-6">
+          <Card className="h-full">
+            <CardContent className="p-6">
+              {currentPage === 'amp-settings' && <AmpSettings />}
+              {currentPage === 'api-keys' && <APIKeys />}
+              {currentPage === 'models' && <Models isAdmin={isAdmin} />}
+              {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
+              {currentPage === 'channels' && isAdmin && <Channels />}
+              {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+              {currentPage === 'user-management' && isAdmin && <UserManagement />}
+              {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
+            </CardContent>
+          </Card>
         </main>
       </div>
     </div>
