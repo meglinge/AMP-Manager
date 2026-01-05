@@ -21,35 +21,64 @@ Amp 反向代理管理系统 - 一个用于管理 Amp CLI 代理服务的 Web �
 
 ## 快速开始
 
-### Docker 部署 (推荐)
+### Docker Compose 部署 (推荐)
 
 ```bash
 # 克隆仓库
-git clone <仓库地址>
-cd AMPManager
+git clone https://github.com/meglinge/AMP-Manager.git
+cd AMP-Manager
 
 # 启动服务
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f
+
+# 停止服务
+docker-compose down
+
+# 重新构建并启动
+docker-compose up -d --build
 ```
 
 访问 http://localhost:16823 即可使用
 
-### 使用管理脚本
+### 一键管理脚本
+
+项目提供了便捷的管理脚本 `manage.sh`：
 
 ```bash
+# 添加执行权限
 chmod +x manage.sh
+
+# 运行脚本
 ./manage.sh
 ```
 
-脚本提供以下功能：
+脚本菜单：
+
+```
+==============================
+   AMP Manager 管理脚本
+==============================
 1. 启动服务
 2. 停止服务
 3. 更新并重启 (拉取代码 + 重新构建)
 4. 查看日志
 5. 查看状态
+0. 退出
+==============================
+```
+
+**功能说明：**
+
+| 选项 | 功能 | 说明 |
+|------|------|------|
+| 1 | 启动服务 | 执行 `docker-compose up -d` |
+| 2 | 停止服务 | 执行 `docker-compose down` |
+| 3 | 更新并重启 | 拉取最新代码 → 停止服务 → 重新构建 → 启动服务 |
+| 4 | 查看日志 | 实时显示容器日志，Ctrl+C 退出 |
+| 5 | 查看状态 | 显示容器运行状态 |
 
 ## 环境变量配置
 
