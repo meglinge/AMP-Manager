@@ -45,9 +45,23 @@ func (h *UserHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// 注册成功后自动生成 token
+	jwtService := service.NewJWTService()
+	token, err := jwtService.GenerateToken(user.ID, user.Username)
+	if err != nil {
+		c.JSON(http.StatusCreated, model.AuthResponse{
+			ID:       user.ID,
+			Username: user.Username,
+			Message:  "注册成功，请登录",
+		})
+		return
+	}
+
 	c.JSON(http.StatusCreated, model.AuthResponse{
 		ID:       user.ID,
 		Username: user.Username,
+		Token:    token,
+		IsAdmin:  user.IsAdmin,
 		Message:  "注册成功",
 	})
 }
