@@ -109,6 +109,10 @@ func Setup() *gin.Engine {
 				system.GET("/database/backups", systemHandler.ListBackups)
 				system.POST("/database/restore", systemHandler.RestoreBackup)
 				system.DELETE("/database/backups/:filename", systemHandler.DeleteBackup)
+
+				// 重试配置
+				system.GET("/retry-config", systemHandler.GetRetryConfig)
+				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
 			}
 
 			users := admin.Group("/users")

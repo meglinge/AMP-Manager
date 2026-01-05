@@ -162,6 +162,12 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model_time ON request_logs(mapped_model, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS system_config (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 	_, err := db.Exec(schema)
 	return err

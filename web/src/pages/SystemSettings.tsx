@@ -6,6 +6,9 @@ import {
   restoreBackup,
   deleteBackup,
   Backup,
+  getRetryConfig,
+  updateRetryConfig,
+  RetryConfig,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -19,15 +22,21 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export default function SystemSettings() {
   const [backups, setBackups] = useState<Backup[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
+  const [retryLoading, setRetryLoading] = useState(false)
 
   useEffect(() => {
     fetchBackups()
+    fetchRetryConfig()
   }, [])
 
   const fetchBackups = async () => {
@@ -36,6 +45,35 @@ export default function SystemSettings() {
       setBackups(data)
     } catch (err) {
       console.error('获取备份列表失败:', err)
+    }
+  }
+
+  const fetchRetryConfig = async () => {
+    try {
+      const data = await getRetryConfig()
+      setRetryConfig(data)
+    } catch (err) {
+      console.error('获取重试配置失败:', err)
+    }
+  }
+
+  const handleRetryConfigChange = (key: keyof RetryConfig, value: boolean | number) => {
+    if (retryConfig) {
+      setRetryConfig({ ...retryConfig, [key]: value })
+    }
+  }
+
+  const handleSaveRetryConfig = async () => {
+    if (!retryConfig) return
+    
+    setRetryLoading(true)
+    try {
+      await updateRetryConfig(retryConfig)
+      showMessage('success', '重试配置已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setRetryLoading(false)
     }
   }
 
@@ -226,6 +264,111 @@ export default function SystemSettings() {
                 </TableBody>
               </Table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>重试配置</CardTitle>
+          <CardDescription>配置请求失败时的自动重试策略（首包门控）</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {retryConfig ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>启用重试</Label>
+                  <p className="text-sm text-muted-foreground">在首包到达前自动重试失败的请求</p>
+                </div>
+                <Switch
+                  checked={retryConfig.enabled}
+                  onCheckedChange={(checked) => handleRetryConfigChange('enabled', checked)}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>最大重试次数</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={retryConfig.maxAttempts}
+                    onChange={(e) => handleRetryConfigChange('maxAttempts', parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>首包超时 (毫秒)</Label>
+                  <Input
+                    type="number"
+                    min={1000}
+                    max={60000}
+                    value={retryConfig.gateTimeoutMs}
+                    onChange={(e) => handleRetryConfigChange('gateTimeoutMs', parseInt(e.target.value) || 10000)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>退避基数 (毫秒)</Label>
+                  <Input
+                    type="number"
+                    min={50}
+                    max={5000}
+                    value={retryConfig.backoffBaseMs}
+                    onChange={(e) => handleRetryConfigChange('backoffBaseMs', parseInt(e.target.value) || 100)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>退避上限 (毫秒)</Label>
+                  <Input
+                    type="number"
+                    min={500}
+                    max={30000}
+                    value={retryConfig.backoffMaxMs}
+                    onChange={(e) => handleRetryConfigChange('backoffMaxMs', parseInt(e.target.value) || 2000)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>429 时重试</Label>
+                    <p className="text-sm text-muted-foreground">请求被限流时自动重试</p>
+                  </div>
+                  <Switch
+                    checked={retryConfig.retryOn429}
+                    onCheckedChange={(checked) => handleRetryConfigChange('retryOn429', checked)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>5xx 时重试</Label>
+                    <p className="text-sm text-muted-foreground">服务端错误时自动重试</p>
+                  </div>
+                  <Switch
+                    checked={retryConfig.retryOn5xx}
+                    onCheckedChange={(checked) => handleRetryConfigChange('retryOn5xx', checked)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>尊重 Retry-After</Label>
+                    <p className="text-sm text-muted-foreground">按服务器返回的等待时间退避</p>
+                  </div>
+                  <Switch
+                    checked={retryConfig.respectRetryAfter}
+                    onCheckedChange={(checked) => handleRetryConfigChange('respectRetryAfter', checked)}
+                  />
+                </div>
+              </div>
+
+              <Button onClick={handleSaveRetryConfig} disabled={retryLoading}>
+                {retryLoading ? '保存中...' : '保存配置'}
+              </Button>
+            </>
+          ) : (
+            <div className="text-center text-muted-foreground py-4">加载中...</div>
           )}
         </CardContent>
       </Card>

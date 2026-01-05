@@ -94,3 +94,49 @@ export async function deleteBackup(filename: string): Promise<{ message: string 
 
   return res.json()
 }
+
+// 重试配置接口
+export interface RetryConfig {
+  enabled: boolean
+  maxAttempts: number
+  gateTimeoutMs: number
+  maxBodyBytes: number
+  backoffBaseMs: number
+  backoffMaxMs: number
+  retryOn429: boolean
+  retryOn5xx: boolean
+  respectRetryAfter: boolean
+}
+
+// 获取重试配置
+export async function getRetryConfig(): Promise<RetryConfig> {
+  const res = await fetch(`${API_BASE}/admin/system/retry-config`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+// 更新重试配置
+export async function updateRetryConfig(config: RetryConfig): Promise<{ message: string; config: RetryConfig }> {
+  const res = await fetch(`${API_BASE}/admin/system/retry-config`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}

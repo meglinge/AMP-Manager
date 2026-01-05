@@ -37,6 +37,12 @@ func main() {
 
 	r := router.Setup()
 
+	// 加载重试配置
+	sysConfigService := service.NewSystemConfigService()
+	if configJSON, err := sysConfigService.GetRetryConfigJSON(); err == nil && configJSON != "" {
+		amp.InitRetryTransportConfig(configJSON)
+	}
+
 	port := cfg.ServerPort
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort
