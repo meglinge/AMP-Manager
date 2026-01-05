@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed dist/*
+//go:embed all:dist
 var staticFS embed.FS
 
 // RegisterStaticRoutes registers routes to serve the embedded frontend
