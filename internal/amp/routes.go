@@ -115,7 +115,6 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) 
 func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, modelsHandler gin.HandlerFunc) {
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
-	api.Use(RequestLoggingMiddleware())
 	api.Use(ApplyModelMappingMiddleware())
 	api.Use(ChannelRouterMiddleware())
 
