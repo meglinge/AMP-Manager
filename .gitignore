@@ -1,0 +1,38 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ampmanager
+
+# Data
+data/
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Frontend
+web/node_modules/
+
+# Embedded frontend (regenerated during build)
+internal/web/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# CLI Proxy API reference (read-only, external)
+CLIProxyAPI/
+
+# Temp
+*.log
+*.tmp

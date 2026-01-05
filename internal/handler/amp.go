@@ -1,0 +1,139 @@
+package handler
+
+import (
+	"errors"
+	"net/http"
+
+	"ampmanager/internal/middleware"
+	"ampmanager/internal/model"
+	"ampmanager/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+type AmpHandler struct {
+	ampService *service.AmpService
+}
+
+func NewAmpHandler() *AmpHandler {
+	return &AmpHandler{
+		ampService: service.NewAmpService(),
+	}
+}
+
+func (h *AmpHandler) GetSettings(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	settings, err := h.ampService.GetSettings(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, settings)
+}
+
+func (h *AmpHandler) UpdateSettings(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var req model.AmpSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	settings, err := h.ampService.UpdateSettings(userID, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, settings)
+}
+
+func (h *AmpHandler) TestConnection(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	result, err := h.ampService.TestConnection(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "测试连接失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *AmpHandler) ListAPIKeys(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	keys, err := h.ampService.ListAPIKeys(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 API Key 列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"apiKeys": keys})
+}
+
+func (h *AmpHandler) CreateAPIKey(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var req model.CreateAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	key, err := h.ampService.CreateAPIKey(userID, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建 API Key 失败"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, key)
+}
+
+func (h *AmpHandler) RevokeAPIKey(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	keyID := c.Param("id")
+
+	err := h.ampService.RevokeAPIKey(userID, keyID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "撤销 API Key 失败"
+
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusForbidden
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrAPIKeyRevoked) {
+			status = http.StatusConflict
+			msg = err.Error()
+		}
+
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "API Key 已撤销"})
+}
+
+func (h *AmpHandler) GetBootstrap(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	bootstrap, err := h.ampService.GetBootstrap(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取引导信息失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, bootstrap)
+}

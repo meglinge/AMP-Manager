@@ -1,0 +1,14 @@
+services:
+  ampmanager:
+    build: .
+    container_name: ampmanager
+    restart: unless-stopped
+    ports:
+      - "16823:16823"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - SERVER_PORT=16823
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - PROXY_BASE_URL=${PROXY_BASE_URL:-}

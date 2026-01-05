@@ -1,0 +1,197 @@
+package repository
+
+import (
+	"database/sql"
+	"time"
+
+	"ampmanager/internal/database"
+	"ampmanager/internal/model"
+
+	"github.com/google/uuid"
+)
+
+type AmpSettingsRepository struct{}
+
+func NewAmpSettingsRepository() *AmpSettingsRepository {
+	return &AmpSettingsRepository{}
+}
+
+func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, error) {
+	db := database.GetDB()
+	settings := &model.AmpSettings{}
+
+	err := db.QueryRow(
+		`SELECT id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
+		        force_model_mappings, enabled, created_at, updated_at 
+		 FROM user_amp_settings WHERE user_id = ?`,
+		userID,
+	).Scan(
+		&settings.ID, &settings.UserID, &settings.UpstreamURL, &settings.UpstreamAPIKey,
+		&settings.ModelMappingsJSON, &settings.ForceModelMappings, &settings.Enabled,
+		&settings.CreatedAt, &settings.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
+	db := database.GetDB()
+	now := time.Now()
+	settings.UpdatedAt = now
+
+	existing, err := r.GetByUserID(settings.UserID)
+	if err != nil {
+		return err
+	}
+
+	if existing == nil {
+		settings.ID = uuid.New().String()
+		settings.CreatedAt = now
+		_, err = db.Exec(
+			`INSERT INTO user_amp_settings 
+			 (id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
+			  force_model_mappings, enabled, created_at, updated_at) 
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			settings.ID, settings.UserID, settings.UpstreamURL, settings.UpstreamAPIKey,
+			settings.ModelMappingsJSON, settings.ForceModelMappings, settings.Enabled,
+			settings.CreatedAt, settings.UpdatedAt,
+		)
+	} else {
+		settings.ID = existing.ID
+		settings.CreatedAt = existing.CreatedAt
+		_, err = db.Exec(
+			`UPDATE user_amp_settings 
+			 SET upstream_url = ?, upstream_api_key = ?, model_mappings_json = ?, 
+			     force_model_mappings = ?, enabled = ?, updated_at = ? 
+			 WHERE user_id = ?`,
+			settings.UpstreamURL, settings.UpstreamAPIKey, settings.ModelMappingsJSON,
+			settings.ForceModelMappings, settings.Enabled, settings.UpdatedAt, settings.UserID,
+		)
+	}
+	return err
+}
+
+type APIKeyRepository struct{}
+
+func NewAPIKeyRepository() *APIKeyRepository {
+	return &APIKeyRepository{}
+}
+
+func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
+	db := database.GetDB()
+	apiKey.ID = uuid.New().String()
+	apiKey.CreatedAt = time.Now()
+
+	_, err := db.Exec(
+		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, created_at) 
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.CreatedAt,
+	)
+	return err
+}
+
+func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, error) {
+	db := database.GetDB()
+	rows, err := db.Query(
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		 FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*model.UserAPIKey
+	for rows.Next() {
+		key := &model.UserAPIKey{}
+		var revokedAt, lastUsed sql.NullTime
+		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+		if err != nil {
+			return nil, err
+		}
+		if revokedAt.Valid {
+			key.RevokedAt = &revokedAt.Time
+		}
+		if lastUsed.Valid {
+			key.LastUsed = &lastUsed.Time
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
+	db := database.GetDB()
+	key := &model.UserAPIKey{}
+	var revokedAt, lastUsed sql.NullTime
+	err := db.QueryRow(
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		 FROM user_api_keys WHERE id = ?`,
+		id,
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if revokedAt.Valid {
+		key.RevokedAt = &revokedAt.Time
+	}
+	if lastUsed.Valid {
+		key.LastUsed = &lastUsed.Time
+	}
+	return key, nil
+}
+
+func (r *APIKeyRepository) Revoke(id string) error {
+	db := database.GetDB()
+	now := time.Now()
+	_, err := db.Exec(`UPDATE user_api_keys SET revoked_at = ? WHERE id = ?`, now, id)
+	return err
+}
+
+func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, error) {
+	db := database.GetDB()
+	key := &model.UserAPIKey{}
+	var revokedAt, lastUsed sql.NullTime
+	err := db.QueryRow(
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		 FROM user_api_keys WHERE key_hash = ?`,
+		keyHash,
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if revokedAt.Valid {
+		key.RevokedAt = &revokedAt.Time
+	}
+	if lastUsed.Valid {
+		key.LastUsed = &lastUsed.Time
+	}
+	return key, nil
+}
+
+func (r *APIKeyRepository) UpdateLastUsed(id string) error {
+	db := database.GetDB()
+	now := time.Now()
+	_, err := db.Exec(`UPDATE user_api_keys SET last_used_at = ? WHERE id = ?`, now, id)
+	return err
+}
+
+func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {
+	db := database.GetDB()
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM user_api_keys WHERE user_id = ? AND revoked_at IS NULL`, userID).Scan(&count)
+	return count > 0, err
+}
