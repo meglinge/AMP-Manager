@@ -160,7 +160,16 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		channel := channelCfg.Channel
+
+		// Use original model from context if mapping was applied, otherwise use channelCfg.Model
+		// This ensures response rewriting uses the original requested model name
 		originalModel := channelCfg.Model
+		if IsModelMappingApplied(c) {
+			if origModel := GetOriginalModel(c); origModel != "" {
+				originalModel = origModel
+				log.Debugf("channel proxy: using original model '%s' for response rewriting (mapped to '%s')", origModel, GetMappedModel(c))
+			}
+		}
 
 		targetURL, err := buildUpstreamURL(channel, c.Request)
 		if err != nil {

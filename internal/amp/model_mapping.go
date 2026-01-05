@@ -8,9 +8,17 @@ import (
 	"strings"
 
 	"ampmanager/internal/model"
+	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
+)
+
+// Context keys for model mapping
+const (
+	OriginalModelContextKey = "original_model"
+	MappedModelContextKey   = "mapped_model"
+	ModelMappingAppliedKey  = "model_mapping_applied"
 )
 
 type MappingResult struct {
@@ -20,6 +28,9 @@ type MappingResult struct {
 	Applied       bool
 }
 
+// channelService for checking model availability
+var mappingChannelService = service.NewChannelService()
+
 func ApplyModelMappingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := GetProxyConfig(c.Request.Context())
@@ -28,70 +39,209 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		contentType := c.GetHeader("Content-Type")
-		if !strings.Contains(contentType, "application/json") {
-			c.Next()
-			return
-		}
-
-		if c.Request.Body == nil || c.Request.ContentLength == 0 {
-			c.Next()
-			return
-		}
-
-		bodyBytes, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			c.Next()
-			return
-		}
-
-		var payload map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			c.Next()
-			return
-		}
-
-		modelName, ok := payload["model"].(string)
-		if !ok || modelName == "" {
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			c.Next()
-			return
-		}
-
 		var mappings []model.ModelMapping
 		if err := json.Unmarshal([]byte(cfg.ModelMappingsJSON), &mappings); err != nil {
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			c.Next()
 			return
 		}
 
+		if len(mappings) == 0 {
+			c.Next()
+			return
+		}
+
+		// Try to extract model from URL path first (for Gemini)
+		modelName, modelSource := extractModelFromRequestPath(c)
+
+		// Read body for non-Gemini requests or if path extraction failed
+		var bodyBytes []byte
+		var payload map[string]interface{}
+
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			var err error
+			bodyBytes, err = io.ReadAll(c.Request.Body)
+			if err == nil {
+				contentType := c.GetHeader("Content-Type")
+				if strings.Contains(contentType, "application/json") {
+					if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+						if modelName == "" {
+							if bodyModel, ok := payload["model"].(string); ok && bodyModel != "" {
+								modelName = bodyModel
+								modelSource = "body"
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// No model found, restore body and continue
+		if modelName == "" {
+			if bodyBytes != nil {
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+			c.Next()
+			return
+		}
+
+		// Apply mapping
 		result := applyMapping(modelName, mappings)
 
-		if result.Applied {
-			payload["model"] = result.MappedModel
-			log.Infof("model mapping: %s -> %s", result.OriginalModel, result.MappedModel)
-
-			if result.ThinkingLevel != "" {
-				applyThinkingLevel(payload, result.ThinkingLevel)
-				log.Infof("model mapping: applied thinking level '%s'", result.ThinkingLevel)
-			}
-
-			newBody, err := json.Marshal(payload)
-			if err != nil {
+		if !result.Applied {
+			if bodyBytes != nil {
 				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+			c.Next()
+			return
+		}
+
+		// Validate that the mapped model has available channels (optional but recommended)
+		if result.MappedModel != modelName {
+			channel, err := mappingChannelService.SelectChannelForModel(result.MappedModel)
+			if err != nil || channel == nil {
+				log.Warnf("model mapping: target model '%s' has no available channel, skipping mapping", result.MappedModel)
+				if bodyBytes != nil {
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				}
 				c.Next()
 				return
 			}
+		}
 
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(newBody))
-			c.Request.ContentLength = int64(len(newBody))
-		} else {
+		// Store original and mapped model in context
+		c.Set(OriginalModelContextKey, result.OriginalModel)
+		c.Set(MappedModelContextKey, result.MappedModel)
+		c.Set(ModelMappingAppliedKey, true)
+
+		log.Infof("model mapping: %s -> %s (source: %s)", result.OriginalModel, result.MappedModel, modelSource)
+
+		// Apply mapping based on source
+		if modelSource == "path" {
+			// Rewrite URL path for Gemini requests
+			newPath := rewriteModelInPath(c.Request.URL.Path, result.OriginalModel, result.MappedModel)
+			if newPath != c.Request.URL.Path {
+				log.Debugf("model mapping: path rewrite %s -> %s", c.Request.URL.Path, newPath)
+				c.Request.URL.Path = newPath
+				c.Request.RequestURI = newPath
+				if c.Request.URL.RawQuery != "" {
+					c.Request.RequestURI = newPath + "?" + c.Request.URL.RawQuery
+				}
+			}
+		}
+
+		// Also update body if it contains model field
+		if payload != nil {
+			if _, hasModel := payload["model"]; hasModel {
+				payload["model"] = result.MappedModel
+
+				if result.ThinkingLevel != "" {
+					applyThinkingLevel(payload, result.ThinkingLevel)
+					log.Infof("model mapping: applied thinking level '%s'", result.ThinkingLevel)
+				}
+
+				newBody, err := json.Marshal(payload)
+				if err == nil {
+					bodyBytes = newBody
+				}
+			}
+		}
+
+		// Restore body
+		if bodyBytes != nil {
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			c.Request.ContentLength = int64(len(bodyBytes))
 		}
 
 		c.Next()
 	}
+}
+
+// extractModelFromRequestPath extracts model name from URL path (for Gemini requests)
+// Returns the model name and source ("path" or "")
+func extractModelFromRequestPath(c *gin.Context) (string, string) {
+	path := c.Request.URL.Path
+
+	// Handle v1beta1/publishers/google/models/ path (used by Amp CLI)
+	// Example: /api/provider/google/v1beta1/publishers/google/models/gemini-3-flash-preview:generateContent
+	if idx := strings.Index(path, "/v1beta1/publishers/google/models/"); idx >= 0 {
+		modelPart := path[idx+len("/v1beta1/publishers/google/models/"):]
+		if model := extractModelFromPathPart(modelPart); model != "" {
+			return model, "path"
+		}
+	}
+
+	// Handle v1beta/models/ path
+	// Example: /v1beta/models/gemini-3-flash-preview:generateContent
+	if idx := strings.Index(path, "/v1beta/models/"); idx >= 0 {
+		modelPart := path[idx+len("/v1beta/models/"):]
+		if model := extractModelFromPathPart(modelPart); model != "" {
+			return model, "path"
+		}
+	}
+
+	// Handle /models/ path (generic)
+	if idx := strings.Index(path, "/models/"); idx >= 0 {
+		modelPart := path[idx+len("/models/"):]
+		if model := extractModelFromPathPart(modelPart); model != "" {
+			return model, "path"
+		}
+	}
+
+	return "", ""
+}
+
+// Note: extractModelFromPathPart is defined in channel_router.go and reused here
+
+// rewriteModelInPath rewrites the model name in URL path
+func rewriteModelInPath(path, oldModel, newModel string) string {
+	if oldModel == newModel {
+		return path
+	}
+
+	// Try different path patterns
+
+	// Pattern 1: /v1beta1/publishers/google/models/{model}:method
+	if idx := strings.Index(path, "/v1beta1/publishers/google/models/"); idx >= 0 {
+		prefix := path[:idx+len("/v1beta1/publishers/google/models/")]
+		rest := path[idx+len("/v1beta1/publishers/google/models/"):]
+		return prefix + replaceModelInSegment(rest, oldModel, newModel)
+	}
+
+	// Pattern 2: /v1beta/models/{model}:method
+	if idx := strings.Index(path, "/v1beta/models/"); idx >= 0 {
+		prefix := path[:idx+len("/v1beta/models/")]
+		rest := path[idx+len("/v1beta/models/"):]
+		return prefix + replaceModelInSegment(rest, oldModel, newModel)
+	}
+
+	// Pattern 3: /models/{model}:method (generic)
+	if idx := strings.Index(path, "/models/"); idx >= 0 {
+		prefix := path[:idx+len("/models/")]
+		rest := path[idx+len("/models/"):]
+		return prefix + replaceModelInSegment(rest, oldModel, newModel)
+	}
+
+	return path
+}
+
+// replaceModelInSegment replaces model name in a path segment like "gemini-3-flash:generateContent"
+func replaceModelInSegment(segment, oldModel, newModel string) string {
+	// Check if segment starts with the old model name
+	if strings.HasPrefix(segment, oldModel) {
+		suffix := segment[len(oldModel):]
+		// Ensure it's a complete model name (followed by : or / or end)
+		if suffix == "" || suffix[0] == ':' || suffix[0] == '/' {
+			return newModel + suffix
+		}
+	}
+	// Fallback: try case-insensitive replacement
+	if strings.HasPrefix(strings.ToLower(segment), strings.ToLower(oldModel)) {
+		suffix := segment[len(oldModel):]
+		if suffix == "" || suffix[0] == ':' || suffix[0] == '/' {
+			return newModel + suffix
+		}
+	}
+	return segment
 }
 
 func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult {
@@ -102,7 +252,9 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 
 		matched := false
 		if m.Regex {
-			re, err := regexp.Compile(m.From)
+			// Case-insensitive regex matching
+			pattern := "(?i)" + m.From
+			re, err := regexp.Compile(pattern)
 			if err == nil && re.MatchString(modelName) {
 				matched = true
 			}
@@ -215,4 +367,34 @@ func thinkingLevelToBudget(level string, provider string) int {
 	}
 
 	return 0
+}
+
+// GetOriginalModel returns the original model name from context (before mapping)
+func GetOriginalModel(c *gin.Context) string {
+	if val, exists := c.Get(OriginalModelContextKey); exists {
+		if model, ok := val.(string); ok {
+			return model
+		}
+	}
+	return ""
+}
+
+// GetMappedModel returns the mapped model name from context
+func GetMappedModel(c *gin.Context) string {
+	if val, exists := c.Get(MappedModelContextKey); exists {
+		if model, ok := val.(string); ok {
+			return model
+		}
+	}
+	return ""
+}
+
+// IsModelMappingApplied returns whether model mapping was applied
+func IsModelMappingApplied(c *gin.Context) bool {
+	if val, exists := c.Get(ModelMappingAppliedKey); exists {
+		if applied, ok := val.(bool); ok {
+			return applied
+		}
+	}
+	return false
 }
