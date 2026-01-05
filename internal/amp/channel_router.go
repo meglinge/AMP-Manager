@@ -190,6 +190,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				req.Header.Del("Authorization")
 				req.Header.Del("X-Api-Key")
 				req.Header.Del("x-api-key")
+				req.Header.Del("X-Goog-Api-Key")
+				req.Header.Del("x-goog-api-key")
 
 				// Filter Anthropic-Beta header for local/channel handling paths
 				filterAntropicBetaHeader(req)
@@ -203,6 +205,15 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					for k, v := range headersMap {
 						req.Header.Set(k, v)
 					}
+				}
+
+				// For Gemini, ensure no auth headers conflict with query key
+				if channel.Type == model.ChannelTypeGemini {
+					req.Header.Del("Authorization")
+					req.Header.Del("X-Api-Key")
+					req.Header.Del("x-api-key")
+					req.Header.Del("X-Goog-Api-Key")
+					req.Header.Del("x-goog-api-key")
 				}
 			},
 			FlushInterval: -1, // Flush immediately for SSE streaming support
