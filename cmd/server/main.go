@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"ampmanager/internal/amp"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
 	"ampmanager/internal/router"
@@ -24,6 +25,10 @@ func main() {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}
 	defer database.Close()
+
+	// 初始化日志写入器
+	amp.InitLogWriter(database.GetDB())
+	defer amp.StopLogWriter()
 
 	userService := service.NewUserService()
 	if err := userService.EnsureAdmin(); err != nil {

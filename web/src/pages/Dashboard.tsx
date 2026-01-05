@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AmpSettings from './AmpSettings'
 import APIKeys from './APIKeys'
+import RequestLogs from './RequestLogs'
 import Channels from './Channels'
 import Models from './Models'
 import ModelMetadata from './ModelMetadata'
@@ -24,7 +25,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'amp-settings' | 'api-keys' | 'channels' | 'models' | 'model-metadata' | 'system-settings' | 'user-management' | 'account-settings'
+type Page = 'amp-settings' | 'api-keys' | 'request-logs' | 'channels' | 'models' | 'model-metadata' | 'system-settings' | 'user-management' | 'account-settings'
 
 export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('amp-settings')
@@ -33,6 +34,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'amp-settings', label: 'Amp 设置' },
     { key: 'api-keys', label: 'API Key 管理' },
+    { key: 'request-logs', label: '请求日志' },
     { key: 'models', label: '可用模型' },
     { key: 'account-settings', label: '账户设置' },
     { key: 'channels', label: '渠道管理', adminOnly: true },
@@ -108,6 +110,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
             <CardContent className="p-6">
               {currentPage === 'amp-settings' && <AmpSettings />}
               {currentPage === 'api-keys' && <APIKeys />}
+              {currentPage === 'request-logs' && <RequestLogs />}
               {currentPage === 'models' && <Models isAdmin={isAdmin} />}
               {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
               {currentPage === 'channels' && isAdmin && <Channels />}

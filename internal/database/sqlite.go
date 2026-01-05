@@ -135,6 +135,33 @@ func createTables() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_model_metadata_pattern ON model_metadata(model_pattern);
 	CREATE INDEX IF NOT EXISTS idx_model_metadata_provider ON model_metadata(provider);
+
+	CREATE TABLE IF NOT EXISTS request_logs (
+		id TEXT PRIMARY KEY,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		user_id TEXT NOT NULL,
+		api_key_id TEXT NOT NULL,
+		original_model TEXT,
+		mapped_model TEXT,
+		provider TEXT,
+		channel_id TEXT,
+		endpoint TEXT,
+		method TEXT NOT NULL,
+		path TEXT NOT NULL,
+		status_code INTEGER NOT NULL,
+		latency_ms INTEGER NOT NULL,
+		is_streaming INTEGER NOT NULL DEFAULT 0,
+		input_tokens INTEGER,
+		output_tokens INTEGER,
+		cache_read_input_tokens INTEGER,
+		cache_creation_input_tokens INTEGER,
+		error_type TEXT,
+		request_id TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_user_time ON request_logs(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_model_time ON request_logs(mapped_model, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
 	`
 	_, err := db.Exec(schema)
 	return err

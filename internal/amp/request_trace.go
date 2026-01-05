@@ -1,0 +1,162 @@
+package amp
+
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+type requestTraceKey struct{}
+
+// RequestTrace 记录请求的追踪信息，用于日志记录
+// 使用指针存储在 context 中，可以在请求的不同阶段更新
+type RequestTrace struct {
+	mu sync.Mutex
+
+	// 请求基本信息
+	RequestID     string
+	StartTime     time.Time
+	UserID        string
+	APIKeyID      string
+	Method        string
+	Path          string
+	OriginalModel string
+	MappedModel   string
+	Provider      string
+	ChannelID     string
+	Endpoint      string
+	IsStreaming   bool
+
+	// 响应信息
+	StatusCode int
+	LatencyMs  int64
+
+	// Token 使用量
+	InputTokens              *int
+	OutputTokens             *int
+	CacheReadInputTokens     *int
+	CacheCreationInputTokens *int
+
+	// 错误信息
+	ErrorType string
+}
+
+// NewRequestTrace 创建新的请求追踪
+func NewRequestTrace(requestID, userID, apiKeyID, method, path string) *RequestTrace {
+	return &RequestTrace{
+		RequestID: requestID,
+		StartTime: time.Now(),
+		UserID:    userID,
+		APIKeyID:  apiKeyID,
+		Method:    method,
+		Path:      path,
+	}
+}
+
+// WithRequestTrace 将 RequestTrace 存入 context
+func WithRequestTrace(ctx context.Context, trace *RequestTrace) context.Context {
+	return context.WithValue(ctx, requestTraceKey{}, trace)
+}
+
+// GetRequestTrace 从 context 获取 RequestTrace
+func GetRequestTrace(ctx context.Context) *RequestTrace {
+	if val := ctx.Value(requestTraceKey{}); val != nil {
+		if trace, ok := val.(*RequestTrace); ok {
+			return trace
+		}
+	}
+	return nil
+}
+
+// SetModels 设置模型信息
+func (t *RequestTrace) SetModels(original, mapped string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.OriginalModel = original
+	t.MappedModel = mapped
+}
+
+// SetChannel 设置渠道信息
+func (t *RequestTrace) SetChannel(channelID, provider, endpoint string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ChannelID = channelID
+	t.Provider = provider
+	t.Endpoint = endpoint
+}
+
+// SetStreaming 设置是否流式
+func (t *RequestTrace) SetStreaming(streaming bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.IsStreaming = streaming
+}
+
+// SetResponse 设置响应信息
+func (t *RequestTrace) SetResponse(statusCode int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.StatusCode = statusCode
+	t.LatencyMs = time.Since(t.StartTime).Milliseconds()
+}
+
+// SetUsage 设置 token 使用量
+func (t *RequestTrace) SetUsage(input, output, cacheRead, cacheCreation *int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if input != nil {
+		t.InputTokens = input
+	}
+	if output != nil {
+		t.OutputTokens = output
+	}
+	if cacheRead != nil {
+		t.CacheReadInputTokens = cacheRead
+	}
+	if cacheCreation != nil {
+		t.CacheCreationInputTokens = cacheCreation
+	}
+}
+
+// UpdateOutputTokens 更新输出 token（流式时多次调用取最大值）
+func (t *RequestTrace) UpdateOutputTokens(output int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.OutputTokens == nil || output > *t.OutputTokens {
+		t.OutputTokens = &output
+	}
+}
+
+// SetError 设置错误类型
+func (t *RequestTrace) SetError(errorType string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ErrorType = errorType
+}
+
+// Clone 获取当前状态的快照
+func (t *RequestTrace) Clone() RequestTrace {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return RequestTrace{
+		RequestID:                t.RequestID,
+		StartTime:                t.StartTime,
+		UserID:                   t.UserID,
+		APIKeyID:                 t.APIKeyID,
+		Method:                   t.Method,
+		Path:                     t.Path,
+		OriginalModel:            t.OriginalModel,
+		MappedModel:              t.MappedModel,
+		Provider:                 t.Provider,
+		ChannelID:                t.ChannelID,
+		Endpoint:                 t.Endpoint,
+		IsStreaming:              t.IsStreaming,
+		StatusCode:               t.StatusCode,
+		LatencyMs:                t.LatencyMs,
+		InputTokens:              t.InputTokens,
+		OutputTokens:             t.OutputTokens,
+		CacheReadInputTokens:     t.CacheReadInputTokens,
+		CacheCreationInputTokens: t.CacheCreationInputTokens,
+		ErrorType:                t.ErrorType,
+	}
+}

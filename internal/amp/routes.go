@@ -115,6 +115,7 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) 
 func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, modelsHandler gin.HandlerFunc) {
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
+	api.Use(RequestLoggingMiddleware())
 	api.Use(ApplyModelMappingMiddleware())
 	api.Use(ChannelRouterMiddleware())
 
@@ -126,6 +127,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	// Root level v1/v1beta routes for OpenAI/Anthropic/Gemini compatible endpoints
 	v1 := engine.Group("/v1")
 	v1.Use(APIKeyAuthMiddleware())
+	v1.Use(RequestLoggingMiddleware())
 	v1.Use(ApplyModelMappingMiddleware())
 	v1.Use(ChannelRouterMiddleware())
 
@@ -137,6 +139,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 
 	v1beta := engine.Group("/v1beta")
 	v1beta.Use(APIKeyAuthMiddleware())
+	v1beta.Use(RequestLoggingMiddleware())
 	v1beta.Use(ApplyModelMappingMiddleware())
 	v1beta.Use(ChannelRouterMiddleware())
 

@@ -133,3 +133,91 @@ export async function getAmpBootstrap(): Promise<BootstrapInfo> {
   })
   return handleResponse<BootstrapInfo>(response)
 }
+
+// Request Logs Types
+export interface RequestLog {
+  id: string
+  createdAt: string
+  userId: string
+  apiKeyId: string
+  originalModel?: string
+  mappedModel?: string
+  provider?: string
+  channelId?: string
+  endpoint?: string
+  method: string
+  path: string
+  statusCode: number
+  latencyMs: number
+  isStreaming: boolean
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
+  errorType?: string
+  requestId?: string
+}
+
+export interface RequestLogListResponse {
+  items: RequestLog[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface UsageSummary {
+  groupKey: string
+  inputTokensSum: number
+  outputTokensSum: number
+  cacheReadInputTokensSum: number
+  cacheCreationInputTokensSum: number
+  requestCount: number
+  errorCount: number
+}
+
+export interface UsageSummaryResponse {
+  items: UsageSummary[]
+}
+
+export interface RequestLogListParams {
+  page?: number
+  pageSize?: number
+  apiKeyId?: string
+  model?: string
+  status?: number
+  isStreaming?: boolean
+  from?: string
+  to?: string
+}
+
+// Request Logs API
+export async function getRequestLogs(params: RequestLogListParams = {}): Promise<RequestLogListResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.page) searchParams.set('page', params.page.toString())
+  if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
+  if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
+  if (params.model) searchParams.set('model', params.model)
+  if (params.status !== undefined) searchParams.set('status', params.status.toString())
+  if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
+  if (params.from) searchParams.set('from', params.from)
+  if (params.to) searchParams.set('to', params.to)
+
+  const query = searchParams.toString()
+  const response = await fetch(`${API_BASE}/request-logs${query ? `?${query}` : ''}`, {
+    headers: getAuthHeader(),
+  })
+  return handleResponse<RequestLogListResponse>(response)
+}
+
+export async function getUsageSummary(params: { from?: string; to?: string; groupBy?: string } = {}): Promise<UsageSummaryResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.from) searchParams.set('from', params.from)
+  if (params.to) searchParams.set('to', params.to)
+  if (params.groupBy) searchParams.set('groupBy', params.groupBy)
+
+  const query = searchParams.toString()
+  const response = await fetch(`${API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
+    headers: getAuthHeader(),
+  })
+  return handleResponse<UsageSummaryResponse>(response)
+}

@@ -25,6 +25,7 @@ func Setup() *gin.Engine {
 
 	userHandler := handler.NewUserHandler()
 	ampHandler := handler.NewAmpHandler()
+	requestLogHandler := handler.NewRequestLogHandler()
 	channelHandler := handler.NewChannelHandler()
 	modelHandler := handler.NewModelHandler()
 	modelMetadataHandler := handler.NewModelMetadataHandler()
@@ -56,6 +57,11 @@ func Setup() *gin.Engine {
 				ampGroup.POST("/api-keys/:id/revoke", ampHandler.RevokeAPIKey)
 
 				ampGroup.GET("/bootstrap", ampHandler.GetBootstrap)
+
+				// 请求日志
+				ampGroup.GET("/request-logs", requestLogHandler.ListRequestLogs)
+				ampGroup.GET("/request-logs/:id", requestLogHandler.GetRequestLog)
+				ampGroup.GET("/usage/summary", requestLogHandler.GetUsageSummary)
 			}
 		}
 

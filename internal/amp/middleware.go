@@ -15,6 +15,7 @@ import (
 	"ampmanager/internal/repository"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -252,5 +253,52 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// RequestLoggingMiddleware 请求日志记录中间件
+// 在请求开始时创建 RequestTrace，请求结束后写入日志
+func RequestLoggingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 获取代理配置（由 APIKeyAuthMiddleware 设置）
+		cfg := GetProxyConfig(c.Request.Context())
+		if cfg == nil {
+			c.Next()
+			return
+		}
+
+		// 创建请求追踪
+		requestID := uuid.New().String()
+		trace := NewRequestTrace(
+			requestID,
+			cfg.UserID,
+			cfg.APIKeyID,
+			c.Request.Method,
+			c.Request.URL.Path,
+		)
+
+		// 将 trace 存入 context
+		ctx := WithRequestTrace(c.Request.Context(), trace)
+		c.Request = c.Request.WithContext(ctx)
+
+		// 执行后续处理
+		c.Next()
+
+		// 设置响应状态
+		trace.SetResponse(c.Writer.Status())
+
+		// 从 model mapping 上下文获取模型信息
+		if original := GetOriginalModel(c); original != "" {
+			if mapped := GetMappedModel(c); mapped != "" {
+				trace.SetModels(original, mapped)
+			} else {
+				trace.SetModels(original, original)
+			}
+		}
+
+		// 异步写入日志
+		if writer := GetLogWriter(); writer != nil {
+			writer.WriteFromTrace(trace)
+		}
 	}
 }

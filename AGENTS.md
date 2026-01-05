@@ -53,6 +53,25 @@ mcp__playwright__browser_network_requests  # 查看网络请求
 mcp__playwright__browser_close         # 关闭浏览器
 ```
 
+## Context7 文档查询
+
+使用 Context7 MCP 工具查询库和框架的最新文档：
+
+```bash
+# 1. 先解析库名获取 ID
+mcp__context7__resolve-library-id  # 搜索库名，获取 Context7 兼容的库 ID
+
+# 2. 使用库 ID 查询文档
+mcp__context7__query-docs          # 查询具体 API 用法和示例
+```
+
+**使用示例：**
+- 查询 React 文档：先 resolve "react"，再用 `/facebook/react` 查询
+- 查询 shadcn 文档：先 resolve "shadcn"，再查询具体组件用法
+- 查询 Go 标准库：先 resolve "golang"，再查询具体包用法
+
+**注意：** 每个问题最多调用 3 次，优先使用此工具获取最新 API 文档。
+
 ## shadcn/ui 组件
 
 使用 MCP 工具查询和添加 shadcn 组件：
