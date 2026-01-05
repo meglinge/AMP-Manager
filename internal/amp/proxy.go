@@ -73,9 +73,10 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 
 			log.Infof("amp proxy: %s %s -> %s%s", req.Method, req.URL.Path, req.URL.Host, req.URL.Path)
 
-			// Remove client auth headers
+			// Remove client auth headers and hop-by-hop headers
 			req.Header.Del("Authorization")
 			req.Header.Del("X-Api-Key")
+			req.Header.Del("Transfer-Encoding")
 
 			// NOTE: Following CLIProxyAPI pattern - we do NOT filter Anthropic-Beta headers here
 			// Users going through ampcode.com proxy are paying for the service and should get all features
