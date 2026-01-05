@@ -4,6 +4,7 @@ import APIKeys from './APIKeys'
 import Channels from './Channels'
 import Models from './Models'
 import ModelMetadata from './ModelMetadata'
+import SystemSettings from './SystemSettings'
 
 interface Props {
   username: string
@@ -11,7 +12,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'amp-settings' | 'api-keys' | 'channels' | 'models' | 'model-metadata'
+type Page = 'amp-settings' | 'api-keys' | 'channels' | 'models' | 'model-metadata' | 'system-settings'
 
 export default function Dashboard({ username, isAdmin, onLogout }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('amp-settings')
@@ -22,6 +23,7 @@ export default function Dashboard({ username, isAdmin, onLogout }: Props) {
     { key: 'models', label: '可用模型' },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
+    { key: 'system-settings', label: '系统设置', adminOnly: true },
   ]
 
   const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin)
@@ -85,6 +87,7 @@ export default function Dashboard({ username, isAdmin, onLogout }: Props) {
           {currentPage === 'models' && <Models isAdmin={isAdmin} />}
           {currentPage === 'channels' && isAdmin && <Channels />}
           {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+          {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
         </main>
       </div>
     </div>

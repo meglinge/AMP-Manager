@@ -28,6 +28,7 @@ func Setup() *gin.Engine {
 	channelHandler := handler.NewChannelHandler()
 	modelHandler := handler.NewModelHandler()
 	modelMetadataHandler := handler.NewModelMetadataHandler()
+	systemHandler := handler.NewSystemHandler()
 
 	api := r.Group("/api")
 	{
@@ -89,6 +90,15 @@ func Setup() *gin.Engine {
 				modelMetadata.POST("", modelMetadataHandler.Create)
 				modelMetadata.PUT("/:id", modelMetadataHandler.Update)
 				modelMetadata.DELETE("/:id", modelMetadataHandler.Delete)
+			}
+
+			system := admin.Group("/system")
+			{
+				system.POST("/database/upload", systemHandler.UploadDatabase)
+				system.GET("/database/download", systemHandler.DownloadDatabase)
+				system.GET("/database/backups", systemHandler.ListBackups)
+				system.POST("/database/restore", systemHandler.RestoreBackup)
+				system.DELETE("/database/backups/:filename", systemHandler.DeleteBackup)
 			}
 		}
 	}
