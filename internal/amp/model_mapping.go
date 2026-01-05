@@ -135,7 +135,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 				payload["model"] = result.MappedModel
 
 				if result.ThinkingLevel != "" {
-					applyThinkingLevel(payload, result.ThinkingLevel)
+					applyThinkingLevelWithPath(payload, result.ThinkingLevel, c.Request.URL.Path)
 					log.Infof("model mapping: applied thinking level '%s'", result.ThinkingLevel)
 				}
 
@@ -287,6 +287,11 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 }
 
 func applyThinkingLevel(payload map[string]interface{}, level string) {
+	applyThinkingLevelWithPath(payload, level, "")
+}
+
+// applyThinkingLevelWithPath applies thinking level based on model and request path
+func applyThinkingLevelWithPath(payload map[string]interface{}, level string, requestPath string) {
 	if level == "" {
 		return
 	}
@@ -294,13 +299,19 @@ func applyThinkingLevel(payload map[string]interface{}, level string) {
 	modelName, _ := payload["model"].(string)
 	modelLower := strings.ToLower(modelName)
 
-	if strings.HasPrefix(modelLower, "o1") || strings.HasPrefix(modelLower, "o3") || strings.HasPrefix(modelLower, "o4") {
-		payload["reasoning_effort"] = level
-		return
-	}
-
-	if strings.HasPrefix(modelLower, "gpt") {
-		payload["reasoning_effort"] = level
+	// OpenAI reasoning models (o1, o3, o4) and GPT models
+	if strings.HasPrefix(modelLower, "o1") || strings.HasPrefix(modelLower, "o3") || strings.HasPrefix(modelLower, "o4") || strings.HasPrefix(modelLower, "gpt") {
+		// Check if using /v1/responses endpoint (new API format)
+		if strings.Contains(requestPath, "/responses") {
+			// New format: reasoning: { effort: "..." }
+			reasoning := map[string]interface{}{
+				"effort": level,
+			}
+			payload["reasoning"] = reasoning
+		} else {
+			// Old format for /v1/chat/completions: reasoning_effort: "..."
+			payload["reasoning_effort"] = level
+		}
 		return
 	}
 
