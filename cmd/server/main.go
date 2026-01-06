@@ -30,6 +30,10 @@ func main() {
 	amp.InitLogWriter(database.GetDB())
 	defer amp.StopLogWriter()
 
+	// 初始化 pending 请求清理器
+	amp.InitPendingCleaner(database.GetDB())
+	defer amp.StopPendingCleaner()
+
 	userService := service.NewUserService()
 	if err := userService.EnsureAdmin(); err != nil {
 		log.Printf("警告: 管理员账户创建失败: %v", err)

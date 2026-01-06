@@ -182,7 +182,7 @@ func WrapResponseBodyForTokenExtraction(body io.ReadCloser, isStreaming bool, tr
 		return NewSSETokenExtractor(body, trace, info)
 	}
 
-	data, err := io.ReadAll(body)
+	data, err := io.ReadAll(io.LimitReader(body, 10*1024*1024))
 	body.Close()
 	if err != nil {
 		log.Debugf("token extractor: failed to read body: %v", err)

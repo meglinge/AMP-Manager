@@ -270,7 +270,7 @@ func modifyResponse(resp *http.Response) error {
 	contentEncoding := resp.Header.Get("Content-Encoding")
 
 	// 读取完整响应体
-	compressedData, err := io.ReadAll(originalBody)
+	compressedData, err := io.ReadAll(io.LimitReader(originalBody, 10*1024*1024))
 	_ = originalBody.Close()
 	if err != nil {
 		log.Warnf("amp proxy: failed to read response body: %v", err)
@@ -370,6 +370,10 @@ func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 
 func ProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if GetProxyConfig(c.Request.Context()) == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: missing proxy configuration"})
+			return
+		}
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }

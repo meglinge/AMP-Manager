@@ -387,11 +387,11 @@ func (w *LogWriter) flush(entries []LogEntry) {
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO request_logs (
-			id, created_at, user_id, api_key_id, original_model, mapped_model,
+			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type, request_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cache_creation_input_tokens, error_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		log.Errorf("log writer: failed to prepare statement: %v", err)
@@ -407,10 +407,10 @@ func (w *LogWriter) flush(entries []LogEntry) {
 		}
 
 		_, err := stmt.Exec(
-			e.ID, e.CreatedAt, e.UserID, e.APIKeyID, e.OriginalModel, e.MappedModel,
+			e.ID, e.CreatedAt, e.CreatedAt, LogEntryStatusSuccess, e.UserID, e.APIKeyID, e.OriginalModel, e.MappedModel,
 			e.Provider, e.ChannelID, e.Endpoint, e.Method, e.Path, e.StatusCode, e.LatencyMs,
 			isStreaming, e.InputTokens, e.OutputTokens, e.CacheReadInputTokens,
-			e.CacheCreationInputTokens, e.ErrorType, e.RequestID,
+			e.CacheCreationInputTokens, e.ErrorType,
 		)
 		if err != nil {
 			log.Errorf("log writer: failed to insert entry: %v", err)

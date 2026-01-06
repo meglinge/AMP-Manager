@@ -134,6 +134,15 @@ func (t *RequestTrace) SetError(errorType string) {
 	t.ErrorType = errorType
 }
 
+// copyIntPtr 深拷贝 *int 指针
+func copyIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // Clone 获取当前状态的快照
 func (t *RequestTrace) Clone() RequestTrace {
 	t.mu.Lock()
@@ -153,10 +162,10 @@ func (t *RequestTrace) Clone() RequestTrace {
 		IsStreaming:              t.IsStreaming,
 		StatusCode:               t.StatusCode,
 		LatencyMs:                t.LatencyMs,
-		InputTokens:              t.InputTokens,
-		OutputTokens:             t.OutputTokens,
-		CacheReadInputTokens:     t.CacheReadInputTokens,
-		CacheCreationInputTokens: t.CacheCreationInputTokens,
+		InputTokens:              copyIntPtr(t.InputTokens),
+		OutputTokens:             copyIntPtr(t.OutputTokens),
+		CacheReadInputTokens:     copyIntPtr(t.CacheReadInputTokens),
+		CacheCreationInputTokens: copyIntPtr(t.CacheCreationInputTokens),
 		ErrorType:                t.ErrorType,
 	}
 }

@@ -40,6 +40,23 @@ func GetChannelConfig(c *gin.Context) *ChannelConfig {
 
 var channelService = service.NewChannelService()
 
+// sanitizeURL removes sensitive query parameters from URL for safe logging
+func sanitizeURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "[invalid-url]"
+	}
+	q := parsed.Query()
+	sensitiveKeys := []string{"key", "api_key", "apikey", "token"}
+	for _, k := range sensitiveKeys {
+		if q.Has(k) {
+			q.Set(k, "[REDACTED]")
+		}
+	}
+	parsed.RawQuery = q.Encode()
+	return parsed.String()
+}
+
 func ChannelRouterMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		modelName := extractModelName(c)
@@ -109,7 +126,7 @@ func extractModelName(c *gin.Context) string {
 		return ""
 	}
 
-	bodyBytes, err := io.ReadAll(c.Request.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
 	if err != nil {
 		return ""
 	}
@@ -152,6 +169,14 @@ func (rw *rewritingResponseWriter) Flush() {
 // ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
 func ChannelProxyHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Security guard: ensure authentication was performed via proxy middleware
+		if GetProxyConfig(c.Request.Context()) == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "authentication required",
+			})
+			return
+		}
+
 		channelCfg := GetChannelConfig(c)
 		if channelCfg == nil || channelCfg.Channel == nil {
 			c.JSON(http.StatusBadGateway, gin.H{
@@ -218,10 +243,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					writer.WritePendingFromTrace(trace)
 				}
 
-				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
+				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, sanitizeURL(targetURL), originalModel)
 			}
 		} else {
-			log.Debugf("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
+			log.Debugf("channel proxy: %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, sanitizeURL(targetURL), originalModel)
 		}
 
 		proxy := &httputil.ReverseProxy{
@@ -278,7 +303,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, targetURL)
+					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
 					if trace != nil {
 						trace.SetError("upstream_error")
 						resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
@@ -390,7 +415,7 @@ func injectOpenAIStreamOptions(req *http.Request) {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(req.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
 	if err != nil {
 		return
 	}

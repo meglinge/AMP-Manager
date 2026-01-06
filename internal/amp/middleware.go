@@ -3,10 +3,12 @@ package amp
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +19,22 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+)
+
+const (
+	apiKeyHashPepper       = "amp-manager-v1-pepper-2024"
+	debugMaxBodySize       = 1024
+	debugMaxGzipDecompress = 10 * 1024
+)
+
+var (
+	debugInternalAPIEnabled = os.Getenv("AMP_DEBUG_INTERNAL_API") == "true"
+	sensitiveHeaders        = map[string]bool{
+		"Authorization": true,
+		"X-Api-Key":     true,
+		"Cookie":        true,
+		"Set-Cookie":    true,
+	}
 )
 
 // Constants for free tier request interception
@@ -124,42 +142,63 @@ func extractAPIKey(c *gin.Context) string {
 }
 
 func hashAPIKey(apiKey string) string {
-	hash := sha256.Sum256([]byte(apiKey))
-	return hex.EncodeToString(hash[:])
+	h := hmac.New(sha256.New, []byte(apiKeyHashPepper))
+	h.Write([]byte(apiKey))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func maskAPIKey(apiKey string) string {
-	if len(apiKey) <= 8 {
+	if len(apiKey) <= 4 {
 		return strings.Repeat("*", len(apiKey))
 	}
-	return apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+	return apiKey[:4] + "***"
 }
 
 // DebugInternalAPIMiddleware logs request/response details for webSearch2 and extractWebPageContent
+// Disabled by default, enable with AMP_DEBUG_INTERNAL_API=true environment variable
 func DebugInternalAPIMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !debugInternalAPIEnabled {
+			c.Next()
+			return
+		}
+
 		query := c.Request.URL.RawQuery
 		if query != webSearchQuery && query != extractWebPageContentQuery {
 			c.Next()
 			return
 		}
 
-		// Log request headers
+		// Log request headers (with sensitive header masking)
 		log.Infof("=== DEBUG %s REQUEST ===", query)
 		log.Infof("URL: %s", c.Request.URL.String())
 		log.Infof("Method: %s", c.Request.Method)
 		log.Infof("--- Request Headers ---")
 		for k, v := range c.Request.Header {
-			log.Infof("  %s: %v", k, v)
+			if sensitiveHeaders[k] {
+				log.Infof("  %s: [REDACTED]", k)
+			} else {
+				log.Infof("  %s: %v", k, v)
+			}
 		}
 
-		// Read and log request body
+		// Read and log request body (limited to debugMaxBodySize)
 		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
+			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, debugMaxBodySize+1))
 			if err == nil {
 				log.Infof("--- Request Body ---")
-				log.Infof("%s", string(bodyBytes))
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				if len(bodyBytes) > debugMaxBodySize {
+					log.Infof("%s... [truncated]", string(bodyBytes[:debugMaxBodySize]))
+				} else {
+					log.Infof("%s", string(bodyBytes))
+				}
+				// Restore body for downstream handlers - need to read remaining if truncated
+				if len(bodyBytes) > debugMaxBodySize {
+					remaining, _ := io.ReadAll(c.Request.Body)
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(append(bodyBytes, remaining...)))
+				} else {
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				}
 			}
 		}
 
@@ -174,22 +213,31 @@ func DebugInternalAPIMiddleware() gin.HandlerFunc {
 		log.Infof("Status: %d", rw.Status())
 		log.Infof("--- Response Headers ---")
 		for k, v := range rw.Header() {
-			log.Infof("  %s: %v", k, v)
+			if sensitiveHeaders[k] {
+				log.Infof("  %s: [REDACTED]", k)
+			} else {
+				log.Infof("  %s: %v", k, v)
+			}
 		}
 		log.Infof("--- Response Body ---")
-		// Decompress gzip if needed
+		// Decompress gzip if needed (with size limit)
 		respBody := rw.body.Bytes()
 		if rw.Header().Get("Content-Encoding") == "gzip" && len(respBody) > 0 {
 			gr, err := gzip.NewReader(bytes.NewReader(respBody))
 			if err == nil {
-				decompressed, err := io.ReadAll(gr)
+				decompressed, err := io.ReadAll(io.LimitReader(gr, debugMaxGzipDecompress))
 				gr.Close()
 				if err == nil {
 					respBody = decompressed
 				}
 			}
 		}
-		log.Infof("%s", string(respBody))
+		// Limit response body logging
+		if len(respBody) > debugMaxBodySize {
+			log.Infof("%s... [truncated]", string(respBody[:debugMaxBodySize]))
+		} else {
+			log.Infof("%s", string(respBody))
+		}
 		log.Infof("=== END DEBUG %s ===", query)
 	}
 }
@@ -242,11 +290,18 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 
 // RequestLoggingMiddleware 请求日志记录中间件
 // 在请求开始时创建 RequestTrace，请求结束后写入日志
+// 注意：模型调用请求由 pending 工作流处理，此中间件跳过
 func RequestLoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 获取代理配置（由 APIKeyAuthMiddleware 设置）
 		cfg := GetProxyConfig(c.Request.Context())
 		if cfg == nil {
+			c.Next()
+			return
+		}
+
+		// 模型调用请求由 pending 工作流处理，跳过记录
+		if IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
 			c.Next()
 			return
 		}
