@@ -195,7 +195,7 @@ func (r *RequestLogRepository) GetUsageSummary(userID string, from, to *time.Tim
 	var groupColumn string
 	switch groupBy {
 	case "day":
-		groupColumn = "date(created_at)"
+		groupColumn = "substr(created_at, 1, 10)"
 	case "model":
 		groupColumn = "COALESCE(mapped_model, original_model, 'unknown')"
 	case "apiKey":

@@ -123,7 +123,7 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID, // 使用 RequestID 作为数据库 ID
-		snapshot.StartTime,
+		snapshot.StartTime.Format(time.RFC3339),
 		LogEntryStatusPending,
 		snapshot.UserID,
 		snapshot.APIKeyID,
@@ -209,7 +209,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			error_type = ?
 		WHERE id = ?
 	`,
-		now,
+		now.Format(time.RFC3339),
 		status,
 		originalModel,
 		mappedModel,
@@ -287,8 +287,8 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
-		snapshot.StartTime,
-		now,
+		snapshot.StartTime.Format(time.RFC3339),
+		now.Format(time.RFC3339),
 		status,
 		snapshot.UserID,
 		snapshot.APIKeyID,
@@ -407,7 +407,7 @@ func (w *LogWriter) flush(entries []LogEntry) {
 		}
 
 		_, err := stmt.Exec(
-			e.ID, e.CreatedAt, e.CreatedAt, LogEntryStatusSuccess, e.UserID, e.APIKeyID, e.OriginalModel, e.MappedModel,
+			e.ID, e.CreatedAt.Format(time.RFC3339), e.CreatedAt.Format(time.RFC3339), LogEntryStatusSuccess, e.UserID, e.APIKeyID, e.OriginalModel, e.MappedModel,
 			e.Provider, e.ChannelID, e.Endpoint, e.Method, e.Path, e.StatusCode, e.LatencyMs,
 			isStreaming, e.InputTokens, e.OutputTokens, e.CacheReadInputTokens,
 			e.CacheCreationInputTokens, e.ErrorType,
