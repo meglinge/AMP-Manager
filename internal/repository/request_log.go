@@ -93,7 +93,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 	// 查询数据
 	query := fmt.Sprintf(`
-		SELECT id, created_at, user_id, api_key_id, original_model, mapped_model,
+		SELECT id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 		       provider, channel_id, endpoint, method, path, status_code, latency_ms,
 		       is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 		       cache_creation_input_tokens, error_type, request_id
@@ -114,12 +114,14 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	for rows.Next() {
 		var log model.RequestLog
 		var createdAt time.Time
+		var updatedAt sql.NullTime
+		var status sql.NullString
 		var isStreaming int
 		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation sql.NullInt64
 
 		err := rows.Scan(
-			&log.ID, &createdAt, &log.UserID, &log.APIKeyID,
+			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
 			&originalModel, &mappedModel, &provider, &channelID, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
@@ -131,6 +133,16 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 		log.CreatedAt = createdAt.Format(time.RFC3339)
 		log.IsStreaming = isStreaming == 1
+
+		if updatedAt.Valid {
+			formatted := updatedAt.Time.Format(time.RFC3339)
+			log.UpdatedAt = &formatted
+		}
+		if status.Valid {
+			log.Status = model.RequestLogStatus(status.String)
+		} else {
+			log.Status = model.RequestLogStatusSuccess // 默认为 success（兼容旧数据）
+		}
 
 		if originalModel.Valid {
 			log.OriginalModel = &originalModel.String
@@ -255,18 +267,20 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 
 	var log model.RequestLog
 	var createdAt time.Time
+	var updatedAt sql.NullTime
+	var status sql.NullString
 	var isStreaming int
 	var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID sql.NullString
 	var inputTokens, outputTokens, cacheRead, cacheCreation sql.NullInt64
 
 	err := db.QueryRow(`
-		SELECT id, created_at, user_id, api_key_id, original_model, mapped_model,
+		SELECT id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 		       provider, channel_id, endpoint, method, path, status_code, latency_ms,
 		       is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 		       cache_creation_input_tokens, error_type, request_id
 		FROM request_logs WHERE id = ?
 	`, id).Scan(
-		&log.ID, &createdAt, &log.UserID, &log.APIKeyID,
+		&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
 		&originalModel, &mappedModel, &provider, &channelID, &endpoint,
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
@@ -282,6 +296,16 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 
 	log.CreatedAt = createdAt.Format(time.RFC3339)
 	log.IsStreaming = isStreaming == 1
+
+	if updatedAt.Valid {
+		formatted := updatedAt.Time.Format(time.RFC3339)
+		log.UpdatedAt = &formatted
+	}
+	if status.Valid {
+		log.Status = model.RequestLogStatus(status.String)
+	} else {
+		log.Status = model.RequestLogStatusSuccess
+	}
 
 	if originalModel.Valid {
 		log.OriginalModel = &originalModel.String

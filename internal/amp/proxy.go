@@ -199,7 +199,16 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 					trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)
 				}
 				// Store trace in context
-				*req = *req.WithContext(WithRequestTrace(req.Context(), trace))
+				ctx := WithRequestTrace(req.Context(), trace)
+				// Store ProviderInfo in context for token extraction
+				ctx = WithProviderInfo(ctx, ProviderInfo{Provider: ProviderAnthropic})
+				*req = *req.WithContext(ctx)
+
+				// Write pending record to database immediately
+				if writer := GetLogWriter(); writer != nil {
+					writer.WritePendingFromTrace(trace)
+				}
+
 				log.Infof("amp proxy: model invocation %s %s -> %s", req.Method, req.URL.Path, req.URL.Host)
 			}
 
@@ -256,97 +265,82 @@ func modifyResponse(resp *http.Response) error {
 		return nil
 	}
 
-	// Skip if already marked as gzip
-	if resp.Header.Get("Content-Encoding") != "" {
+	// 处理非流式响应：读取完整 body 并提取 token
+	originalBody := resp.Body
+	contentEncoding := resp.Header.Get("Content-Encoding")
+
+	// 读取完整响应体
+	compressedData, err := io.ReadAll(originalBody)
+	_ = originalBody.Close()
+	if err != nil {
+		log.Warnf("amp proxy: failed to read response body: %v", err)
+		resp.Body = io.NopCloser(bytes.NewReader(compressedData))
 		if trace != nil {
 			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 		}
 		return nil
 	}
 
-	// Save reference to original upstream body
-	originalBody := resp.Body
+	var bodyData []byte
 
-	// Peek at first 2 bytes to detect gzip magic bytes
-	header := make([]byte, 2)
-	n, _ := io.ReadFull(originalBody, header)
-
-	// Check for gzip magic bytes (0x1f 0x8b)
-	if n >= 2 && header[0] == 0x1f && header[1] == 0x8b {
-		// Read the rest of the body
-		rest, err := io.ReadAll(originalBody)
+	// 根据 Content-Encoding 解压
+	switch strings.ToLower(contentEncoding) {
+	case "gzip":
+		gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
 		if err != nil {
-			resp.Body = &readCloser{
-				r: io.MultiReader(bytes.NewReader(header[:n]), originalBody),
-				c: originalBody,
-			}
-			return nil
-		}
-
-		// Reconstruct complete gzipped data
-		gzippedData := append(header[:n], rest...)
-
-		// Decompress
-		gzipReader, err := gzip.NewReader(bytes.NewReader(gzippedData))
-		if err != nil {
-			_ = originalBody.Close()
-			resp.Body = io.NopCloser(bytes.NewReader(gzippedData))
-			if trace != nil {
-				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
-			}
-			return nil
-		}
-
-		decompressed, err := io.ReadAll(gzipReader)
-		_ = gzipReader.Close()
-		if err != nil {
-			_ = originalBody.Close()
-			resp.Body = io.NopCloser(bytes.NewReader(gzippedData))
-			if trace != nil {
-				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
-			}
-			return nil
-		}
-
-		_ = originalBody.Close()
-
-		// 提取 token 使用量
-		if trace != nil {
-			if usage := ExtractTokenUsage(decompressed, info); usage != nil {
-				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			log.Warnf("amp proxy: failed to create gzip reader: %v", err)
+			bodyData = compressedData
+		} else {
+			decompressed, err := io.ReadAll(gzipReader)
+			_ = gzipReader.Close()
+			if err != nil {
+				log.Warnf("amp proxy: failed to decompress gzip: %v", err)
+				bodyData = compressedData
+			} else {
+				bodyData = decompressed
+				resp.Header.Del("Content-Encoding")
+				log.Debugf("amp proxy: decompressed gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
 			}
 		}
-
-		resp.Body = io.NopCloser(bytes.NewReader(decompressed))
-		resp.ContentLength = int64(len(decompressed))
-		resp.Header.Del("Content-Encoding")
-		resp.Header.Del("Content-Length")
-		resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
-
-		log.Debugf("amp proxy: decompressed gzip response (%d -> %d bytes)", len(gzippedData), len(decompressed))
-	} else {
-		// Not gzip - 读取完整响应以提取 token
-		rest, err := io.ReadAll(originalBody)
-		_ = originalBody.Close()
-		if err != nil {
-			resp.Body = io.NopCloser(bytes.NewReader(header[:n]))
-			if trace != nil {
-				resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+	case "":
+		// 无压缩，但可能是隐式 gzip（检查 magic bytes）
+		if len(compressedData) >= 2 && compressedData[0] == 0x1f && compressedData[1] == 0x8b {
+			gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
+			if err == nil {
+				decompressed, err := io.ReadAll(gzipReader)
+				_ = gzipReader.Close()
+				if err == nil {
+					bodyData = decompressed
+					log.Debugf("amp proxy: decompressed implicit gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
+				} else {
+					bodyData = compressedData
+				}
+			} else {
+				bodyData = compressedData
 			}
-			return nil
+		} else {
+			bodyData = compressedData
 		}
-
-		fullBody := append(header[:n], rest...)
-
-		// 提取 token 使用量
-		if trace != nil {
-			if usage := ExtractTokenUsage(fullBody, info); usage != nil {
-				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
-			}
-		}
-
-		resp.Body = io.NopCloser(bytes.NewReader(fullBody))
+	default:
+		// 不支持的压缩格式（如 br），直接使用原始数据
+		log.Debugf("amp proxy: unsupported Content-Encoding: %s, skipping token extraction", contentEncoding)
+		bodyData = compressedData
 	}
+
+	// 提取 token 使用量
+	if trace != nil && len(bodyData) > 0 {
+		if usage := ExtractTokenUsage(bodyData, info); usage != nil {
+			trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			log.Debugf("amp proxy: extracted non-streaming token usage - input=%v, output=%v",
+				ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens))
+		}
+	}
+
+	// 设置响应体（返回解压后的数据）
+	resp.Body = io.NopCloser(bytes.NewReader(bodyData))
+	resp.ContentLength = int64(len(bodyData))
+	resp.Header.Del("Content-Length")
+	resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 
 	// Wrap for logging on close
 	if trace != nil {
@@ -363,12 +357,12 @@ func isStreamingResponse(resp *http.Response) bool {
 
 func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 	log.Errorf("amp upstream proxy error for %s %s: %v", req.Method, req.URL.Path, err)
-	// Write error log
+	// Update error log (pending record was already written in Director)
 	if trace := GetRequestTrace(req.Context()); trace != nil {
 		trace.SetError("upstream_request_failed")
 		trace.SetResponse(http.StatusBadGateway)
 		if writer := GetLogWriter(); writer != nil {
-			writer.WriteFromTrace(trace)
+			writer.UpdateFromTrace(trace)
 		}
 	}
 	WriteErrorResponse(rw, http.StatusBadGateway, "Failed to reach Amp upstream: "+err.Error())

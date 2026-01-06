@@ -212,6 +212,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				trace.SetModels(originalModel, mappedModel)
 				// Store trace in context
 				c.Request = c.Request.WithContext(WithRequestTrace(c.Request.Context(), trace))
+
+				// Write pending record to database immediately
+				if writer := GetLogWriter(); writer != nil {
+					writer.WritePendingFromTrace(trace)
+				}
+
 				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, targetURL, originalModel)
 			}
 		} else {
@@ -293,12 +299,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 				log.Errorf("channel proxy: upstream request failed: %v", err)
-				// Write error log
+				// Update error log (pending record was already written)
 				if trace != nil {
 					trace.SetError("upstream_request_failed")
 					trace.SetResponse(http.StatusBadGateway)
 					if writer := GetLogWriter(); writer != nil {
-						writer.WriteFromTrace(trace)
+						writer.UpdateFromTrace(trace)
 					}
 				}
 				WriteErrorResponse(rw, http.StatusBadGateway, "Upstream request failed: "+err.Error())

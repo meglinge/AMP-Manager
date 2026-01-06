@@ -6,14 +6,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+)
+
+// LogEntryStatus 日志条目状态
+type LogEntryStatus string
+
+const (
+	LogEntryStatusPending LogEntryStatus = "pending"
+	LogEntryStatusSuccess LogEntryStatus = "success"
+	LogEntryStatusError   LogEntryStatus = "error"
 )
 
 // LogEntry 日志条目，用于写入数据库
 type LogEntry struct {
 	ID                       string
 	CreatedAt                time.Time
+	UpdatedAt                *time.Time
+	Status                   LogEntryStatus
 	UserID                   string
 	APIKeyID                 string
 	OriginalModel            *string
@@ -78,52 +88,240 @@ func (w *LogWriter) Write(entry LogEntry) bool {
 	}
 }
 
-// WriteFromTrace 从 RequestTrace 创建并写入日志
-func (w *LogWriter) WriteFromTrace(trace *RequestTrace) bool {
-	if trace == nil {
+// WritePendingFromTrace 同步写入 pending 状态的日志记录
+// 使用 trace.RequestID 作为数据库 ID，以便后续 UPDATE
+func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
+	if trace == nil || trace.RequestID == "" {
 		return false
 	}
 
 	snapshot := trace.Clone()
-	entry := LogEntry{
-		ID:                       uuid.New().String(),
-		CreatedAt:                snapshot.StartTime,
-		UserID:                   snapshot.UserID,
-		APIKeyID:                 snapshot.APIKeyID,
-		Method:                   snapshot.Method,
-		Path:                     snapshot.Path,
-		StatusCode:               snapshot.StatusCode,
-		LatencyMs:                snapshot.LatencyMs,
-		IsStreaming:              snapshot.IsStreaming,
-		InputTokens:              snapshot.InputTokens,
-		OutputTokens:             snapshot.OutputTokens,
-		CacheReadInputTokens:     snapshot.CacheReadInputTokens,
-		CacheCreationInputTokens: snapshot.CacheCreationInputTokens,
-	}
 
+	// 构建可选字段
+	var originalModel, mappedModel, provider, channelID, endpoint *string
 	if snapshot.OriginalModel != "" {
-		entry.OriginalModel = &snapshot.OriginalModel
+		originalModel = &snapshot.OriginalModel
 	}
 	if snapshot.MappedModel != "" {
-		entry.MappedModel = &snapshot.MappedModel
+		mappedModel = &snapshot.MappedModel
 	}
 	if snapshot.Provider != "" {
-		entry.Provider = &snapshot.Provider
+		provider = &snapshot.Provider
 	}
 	if snapshot.ChannelID != "" {
-		entry.ChannelID = &snapshot.ChannelID
+		channelID = &snapshot.ChannelID
 	}
 	if snapshot.Endpoint != "" {
-		entry.Endpoint = &snapshot.Endpoint
-	}
-	if snapshot.ErrorType != "" {
-		entry.ErrorType = &snapshot.ErrorType
-	}
-	if snapshot.RequestID != "" {
-		entry.RequestID = &snapshot.RequestID
+		endpoint = &snapshot.Endpoint
 	}
 
-	return w.Write(entry)
+	// 同步写入数据库（pending 记录需要立即可见）
+	_, err := w.db.Exec(`
+		INSERT INTO request_logs (
+			id, created_at, status, user_id, api_key_id, original_model, mapped_model,
+			provider, channel_id, endpoint, method, path, status_code, latency_ms, is_streaming
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		snapshot.RequestID, // 使用 RequestID 作为数据库 ID
+		snapshot.StartTime,
+		LogEntryStatusPending,
+		snapshot.UserID,
+		snapshot.APIKeyID,
+		originalModel,
+		mappedModel,
+		provider,
+		channelID,
+		endpoint,
+		snapshot.Method,
+		snapshot.Path,
+		0, // pending 时 status_code 为 0
+		0, // pending 时 latency_ms 为 0
+		0, // pending 时 is_streaming 为 0
+	)
+
+	if err != nil {
+		log.Errorf("log writer: failed to insert pending entry: %v", err)
+		return false
+	}
+
+	log.Debugf("log writer: inserted pending request %s", snapshot.RequestID)
+	return true
+}
+
+// UpdateFromTrace 更新已存在的 pending 记录为完成状态
+func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
+	if trace == nil || trace.RequestID == "" {
+		return false
+	}
+
+	snapshot := trace.Clone()
+
+	// 确定最终状态
+	status := LogEntryStatusSuccess
+	if snapshot.ErrorType != "" || snapshot.StatusCode >= 400 {
+		status = LogEntryStatusError
+	}
+
+	now := time.Now()
+	isStreaming := 0
+	if snapshot.IsStreaming {
+		isStreaming = 1
+	}
+
+	// 构建可选字段
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType *string
+	if snapshot.OriginalModel != "" {
+		originalModel = &snapshot.OriginalModel
+	}
+	if snapshot.MappedModel != "" {
+		mappedModel = &snapshot.MappedModel
+	}
+	if snapshot.Provider != "" {
+		provider = &snapshot.Provider
+	}
+	if snapshot.ChannelID != "" {
+		channelID = &snapshot.ChannelID
+	}
+	if snapshot.Endpoint != "" {
+		endpoint = &snapshot.Endpoint
+	}
+	if snapshot.ErrorType != "" {
+		errorType = &snapshot.ErrorType
+	}
+
+	// 同步更新数据库
+	result, err := w.db.Exec(`
+		UPDATE request_logs SET
+			updated_at = ?,
+			status = ?,
+			original_model = COALESCE(?, original_model),
+			mapped_model = COALESCE(?, mapped_model),
+			provider = COALESCE(?, provider),
+			channel_id = COALESCE(?, channel_id),
+			endpoint = COALESCE(?, endpoint),
+			status_code = ?,
+			latency_ms = ?,
+			is_streaming = ?,
+			input_tokens = ?,
+			output_tokens = ?,
+			cache_read_input_tokens = ?,
+			cache_creation_input_tokens = ?,
+			error_type = ?
+		WHERE id = ?
+	`,
+		now,
+		status,
+		originalModel,
+		mappedModel,
+		provider,
+		channelID,
+		endpoint,
+		snapshot.StatusCode,
+		snapshot.LatencyMs,
+		isStreaming,
+		snapshot.InputTokens,
+		snapshot.OutputTokens,
+		snapshot.CacheReadInputTokens,
+		snapshot.CacheCreationInputTokens,
+		errorType,
+		snapshot.RequestID,
+	)
+
+	if err != nil {
+		log.Errorf("log writer: failed to update entry %s: %v", snapshot.RequestID, err)
+		return false
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// pending 记录不存在，fallback 到 INSERT
+		log.Warnf("log writer: pending record not found for %s, inserting new", snapshot.RequestID)
+		return w.insertComplete(trace)
+	}
+
+	log.Debugf("log writer: updated request %s to status %s", snapshot.RequestID, status)
+	return true
+}
+
+// insertComplete 直接插入完整记录（fallback 用于 pending 记录丢失的情况）
+func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
+	snapshot := trace.Clone()
+
+	status := LogEntryStatusSuccess
+	if snapshot.ErrorType != "" || snapshot.StatusCode >= 400 {
+		status = LogEntryStatusError
+	}
+
+	now := time.Now()
+	isStreaming := 0
+	if snapshot.IsStreaming {
+		isStreaming = 1
+	}
+
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType *string
+	if snapshot.OriginalModel != "" {
+		originalModel = &snapshot.OriginalModel
+	}
+	if snapshot.MappedModel != "" {
+		mappedModel = &snapshot.MappedModel
+	}
+	if snapshot.Provider != "" {
+		provider = &snapshot.Provider
+	}
+	if snapshot.ChannelID != "" {
+		channelID = &snapshot.ChannelID
+	}
+	if snapshot.Endpoint != "" {
+		endpoint = &snapshot.Endpoint
+	}
+	if snapshot.ErrorType != "" {
+		errorType = &snapshot.ErrorType
+	}
+
+	_, err := w.db.Exec(`
+		INSERT INTO request_logs (
+			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
+			provider, channel_id, endpoint, method, path, status_code, latency_ms,
+			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
+			cache_creation_input_tokens, error_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		snapshot.RequestID,
+		snapshot.StartTime,
+		now,
+		status,
+		snapshot.UserID,
+		snapshot.APIKeyID,
+		originalModel,
+		mappedModel,
+		provider,
+		channelID,
+		endpoint,
+		snapshot.Method,
+		snapshot.Path,
+		snapshot.StatusCode,
+		snapshot.LatencyMs,
+		isStreaming,
+		snapshot.InputTokens,
+		snapshot.OutputTokens,
+		snapshot.CacheReadInputTokens,
+		snapshot.CacheCreationInputTokens,
+		errorType,
+	)
+
+	if err != nil {
+		log.Errorf("log writer: failed to insert complete entry: %v", err)
+		return false
+	}
+	return true
+}
+
+// WriteFromTrace 直接写入完整日志记录（用于非 pending 工作流，如非模型调用请求）
+func (w *LogWriter) WriteFromTrace(trace *RequestTrace) bool {
+	if trace == nil || trace.RequestID == "" {
+		return false
+	}
+	return w.insertComplete(trace)
 }
 
 // Stop 停止写入器并刷新剩余日志
@@ -272,14 +470,14 @@ func NewLoggingBodyWrapper(body io.ReadCloser, trace *RequestTrace, statusCode i
 	}
 }
 
-// Close 关闭并写入日志
+// Close 关闭并更新日志记录
 func (w *LoggingBodyWrapper) Close() error {
 	err := w.ReadCloser.Close()
 	w.once.Do(func() {
 		if w.trace != nil {
 			w.trace.SetResponse(w.statusCode)
 			if writer := GetLogWriter(); writer != nil {
-				writer.WriteFromTrace(w.trace)
+				writer.UpdateFromTrace(w.trace)
 			}
 		}
 	})

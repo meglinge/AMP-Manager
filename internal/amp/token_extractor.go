@@ -60,7 +60,47 @@ func (e *SSETokenExtractor) Read(p []byte) (int, error) {
 
 // Close 实现 io.Closer 接口
 func (e *SSETokenExtractor) Close() error {
+	// 在关闭前 flush 残留 buffer 中的数据
+	e.flushRemainingBuffer()
 	return e.reader.Close()
+}
+
+// flushRemainingBuffer 处理 buffer 中残留的数据（EOF 时可能没有换行符）
+func (e *SSETokenExtractor) flushRemainingBuffer() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	remaining := strings.TrimSpace(e.buffer.String())
+	if remaining == "" {
+		return
+	}
+
+	// 按行处理残留数据
+	lines := strings.Split(remaining, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// 支持 event: 和 event:（带/不带空格）
+		if strings.HasPrefix(line, "event:") {
+			e.currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+
+		// 支持 data: 和 data:（带/不带空格）
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "[DONE]" {
+				e.currentEvent = ""
+				continue
+			}
+			e.parseSSEDataLocked(data)
+			e.currentEvent = ""
+		}
+	}
+	e.buffer.Reset()
 }
 
 // processChunk 处理 SSE 数据块
@@ -84,26 +124,27 @@ func (e *SSETokenExtractor) processChunk(chunk []byte) {
 
 		line = strings.TrimSpace(line)
 
-		// 处理 SSE event: 行
-		if strings.HasPrefix(line, "event: ") {
-			e.currentEvent = strings.TrimPrefix(line, "event: ")
+		// 支持 event: 和 event:（带/不带空格）
+		if strings.HasPrefix(line, "event:") {
+			e.currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			continue
 		}
 
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		// 支持 data: 和 data:（带/不带空格）
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if data == "[DONE]" {
 				e.currentEvent = ""
 				continue
 			}
-			e.parseSSEData(data)
+			e.parseSSEDataLocked(data)
 			e.currentEvent = "" // 重置 event
 		}
 	}
 }
 
-// parseSSEData 解析单个 SSE 数据事件
-func (e *SSETokenExtractor) parseSSEData(data string) {
+// parseSSEDataLocked 解析单个 SSE 数据事件（调用者需持有锁）
+func (e *SSETokenExtractor) parseSSEDataLocked(data string) {
 	usage, final, ok := e.parser.ConsumeSSE(e.currentEvent, []byte(data))
 	if !ok {
 		return
@@ -111,6 +152,8 @@ func (e *SSETokenExtractor) parseSSEData(data string) {
 
 	if usage != nil && e.trace != nil {
 		e.trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+		log.Debugf("SSE token extractor: usage update - input=%v, output=%v",
+			ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens))
 	}
 
 	if final {

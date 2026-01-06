@@ -88,28 +88,39 @@ type BootstrapResponse struct {
 	HasAPIKey   bool `json:"hasApiKey"`
 }
 
+// RequestLogStatus 请求日志状态
+type RequestLogStatus string
+
+const (
+	RequestLogStatusPending RequestLogStatus = "pending"
+	RequestLogStatusSuccess RequestLogStatus = "success"
+	RequestLogStatusError   RequestLogStatus = "error"
+)
+
 // RequestLog 请求日志记录
 type RequestLog struct {
-	ID                       string  `json:"id"`
-	CreatedAt                string  `json:"createdAt"`
-	UserID                   string  `json:"userId"`
-	APIKeyID                 string  `json:"apiKeyId"`
-	OriginalModel            *string `json:"originalModel,omitempty"`
-	MappedModel              *string `json:"mappedModel,omitempty"`
-	Provider                 *string `json:"provider,omitempty"`
-	ChannelID                *string `json:"channelId,omitempty"`
-	Endpoint                 *string `json:"endpoint,omitempty"`
-	Method                   string  `json:"method"`
-	Path                     string  `json:"path"`
-	StatusCode               int     `json:"statusCode"`
-	LatencyMs                int64   `json:"latencyMs"`
-	IsStreaming              bool    `json:"isStreaming"`
-	InputTokens              *int    `json:"inputTokens,omitempty"`
-	OutputTokens             *int    `json:"outputTokens,omitempty"`
-	CacheReadInputTokens     *int    `json:"cacheReadInputTokens,omitempty"`
-	CacheCreationInputTokens *int    `json:"cacheCreationInputTokens,omitempty"`
-	ErrorType                *string `json:"errorType,omitempty"`
-	RequestID                *string `json:"requestId,omitempty"`
+	ID                       string           `json:"id"`
+	CreatedAt                string           `json:"createdAt"`
+	UpdatedAt                *string          `json:"updatedAt,omitempty"`
+	Status                   RequestLogStatus `json:"status"`
+	UserID                   string           `json:"userId"`
+	APIKeyID                 string           `json:"apiKeyId"`
+	OriginalModel            *string          `json:"originalModel,omitempty"`
+	MappedModel              *string          `json:"mappedModel,omitempty"`
+	Provider                 *string          `json:"provider,omitempty"`
+	ChannelID                *string          `json:"channelId,omitempty"`
+	Endpoint                 *string          `json:"endpoint,omitempty"`
+	Method                   string           `json:"method"`
+	Path                     string           `json:"path"`
+	StatusCode               int              `json:"statusCode"`
+	LatencyMs                int64            `json:"latencyMs"`
+	IsStreaming              bool             `json:"isStreaming"`
+	InputTokens              *int             `json:"inputTokens,omitempty"`
+	OutputTokens             *int             `json:"outputTokens,omitempty"`
+	CacheReadInputTokens     *int             `json:"cacheReadInputTokens,omitempty"`
+	CacheCreationInputTokens *int             `json:"cacheCreationInputTokens,omitempty"`
+	ErrorType                *string          `json:"errorType,omitempty"`
+	RequestID                *string          `json:"requestId,omitempty"`
 }
 
 // RequestLogListResponse 请求日志列表响应

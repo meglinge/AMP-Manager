@@ -183,6 +183,11 @@ func runMigrations() error {
 
 	_, _ = db.Exec(`ALTER TABLE channels ADD COLUMN endpoint TEXT NOT NULL DEFAULT 'chat_completions'`)
 
+	// Add status and updated_at columns for pending request tracking
+	_, _ = db.Exec(`ALTER TABLE request_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'success'`)
+	_, _ = db.Exec(`ALTER TABLE request_logs ADD COLUMN updated_at DATETIME`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status)`)
+
 	return nil
 }
 
