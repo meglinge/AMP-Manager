@@ -3,7 +3,6 @@ package amp
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -22,7 +21,6 @@ import (
 )
 
 const (
-	apiKeyHashPepper       = "amp-manager-v1-pepper-2024"
 	debugMaxBodySize       = 1024
 	debugMaxGzipDecompress = 10 * 1024
 )
@@ -142,9 +140,8 @@ func extractAPIKey(c *gin.Context) string {
 }
 
 func hashAPIKey(apiKey string) string {
-	h := hmac.New(sha256.New, []byte(apiKeyHashPepper))
-	h.Write([]byte(apiKey))
-	return hex.EncodeToString(h.Sum(nil))
+	sum := sha256.Sum256([]byte(apiKey))
+	return hex.EncodeToString(sum[:])
 }
 
 func maskAPIKey(apiKey string) string {
