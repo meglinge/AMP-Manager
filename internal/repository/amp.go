@@ -89,9 +89,9 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 	apiKey.CreatedAt = time.Now()
 
 	_, err := db.Exec(
-		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, created_at) 
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.CreatedAt,
+		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, created_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, apiKey.CreatedAt,
 	)
 	return err
 }
@@ -132,10 +132,10 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	key := &model.UserAPIKey{}
 	var revokedAt, lastUsed sql.NullTime
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at 
 		 FROM user_api_keys WHERE id = ?`,
 		id,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &key.CreatedAt, &revokedAt, &lastUsed)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -151,10 +151,9 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	return key, nil
 }
 
-func (r *APIKeyRepository) Revoke(id string) error {
+func (r *APIKeyRepository) Delete(id string) error {
 	db := database.GetDB()
-	now := time.Now()
-	_, err := db.Exec(`UPDATE user_api_keys SET revoked_at = ? WHERE id = ?`, now, id)
+	_, err := db.Exec(`DELETE FROM user_api_keys WHERE id = ?`, id)
 	return err
 }
 

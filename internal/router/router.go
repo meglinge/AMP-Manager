@@ -54,7 +54,8 @@ func Setup() *gin.Engine {
 
 				ampGroup.GET("/api-keys", ampHandler.ListAPIKeys)
 				ampGroup.POST("/api-keys", ampHandler.CreateAPIKey)
-				ampGroup.POST("/api-keys/:id/revoke", ampHandler.RevokeAPIKey)
+				ampGroup.GET("/api-keys/:id", ampHandler.GetAPIKey)
+				ampGroup.DELETE("/api-keys/:id", ampHandler.DeleteAPIKey)
 
 				ampGroup.GET("/bootstrap", ampHandler.GetBootstrap)
 

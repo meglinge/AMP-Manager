@@ -2,15 +2,16 @@ import { useState, useEffect } from 'react'
 import {
   getAPIKeys,
   createAPIKey,
-  revokeAPIKey,
+  deleteAPIKey,
+  getAPIKey,
   APIKey,
   CreateAPIKeyResponse,
+  APIKeyRevealResponse,
 } from '../api/amp'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
@@ -37,7 +38,10 @@ export default function APIKeys() {
   const [createName, setCreateName] = useState('')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
+  const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [revealingId, setRevealingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -73,14 +77,33 @@ export default function APIKeys() {
     }
   }
 
-  const handleRevoke = async (id: string, name: string) => {
-    if (!confirm(`确定要撤销 API Key "${name}" 吗？此操作不可恢复。`)) return
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`确定要删除 API Key "${name}" 吗？此操作不可恢复。`)) return
+
+    setDeletingId(id)
+    setError('')
 
     try {
-      await revokeAPIKey(id)
+      await deleteAPIKey(id)
       loadData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '撤销失败')
+      setError(err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleReveal = async (id: string) => {
+    setRevealingId(id)
+    setError('')
+
+    try {
+      const result = await getAPIKey(id)
+      setRevealKey(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取失败')
+    } finally {
+      setRevealingId(null)
     }
   }
 
@@ -116,7 +139,7 @@ export default function APIKeys() {
           <CardContent className="space-y-4">
             <Alert className="bg-yellow-100 border-yellow-300 dark:bg-yellow-900 dark:border-yellow-700">
               <AlertDescription className="text-yellow-800 dark:text-yellow-200">
-                ⚠️ 请立即复制以下信息，API Key 明文只显示一次！
+                ⚠️ 请妥善保存 API Key，可在列表中再次查看。
               </AlertDescription>
             </Alert>
 
@@ -196,7 +219,6 @@ export default function APIKeys() {
                   <TableRow>
                     <TableHead>名称</TableHead>
                     <TableHead>Prefix</TableHead>
-                    <TableHead>状态</TableHead>
                     <TableHead>最后使用</TableHead>
                     <TableHead>创建时间</TableHead>
                     <TableHead className="text-right">操作</TableHead>
@@ -209,24 +231,28 @@ export default function APIKeys() {
                       <TableCell className="font-mono text-muted-foreground">
                         {key.prefix}...
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={key.isActive ? 'default' : 'destructive'}>
-                          {key.isActive ? '活跃' : '已撤销'}
-                        </Badge>
-                      </TableCell>
                       <TableCell>{formatDate(key.lastUsedAt)}</TableCell>
                       <TableCell>{formatDate(key.createdAt)}</TableCell>
                       <TableCell className="text-right">
-                        {key.isActive && (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleReveal(key.id)}
+                            disabled={revealingId === key.id}
+                          >
+                            {revealingId === key.id ? '加载中...' : '查看'}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-destructive hover:text-destructive"
-                            onClick={() => handleRevoke(key.id, key.name)}
+                            onClick={() => handleDelete(key.id, key.name)}
+                            disabled={deletingId === key.id}
                           >
-                            撤销
+                            {deletingId === key.id ? '删除中...' : '删除'}
                           </Button>
-                        )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -272,6 +298,76 @@ export default function APIKeys() {
             >
               {creating ? '创建中...' : '创建'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!revealKey} onOpenChange={(open) => !open && setRevealKey(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>查看 API Key</DialogTitle>
+            <DialogDescription>
+              API Key 明文会显示在此处，请妥善保管
+            </DialogDescription>
+          </DialogHeader>
+          {revealKey && (
+            <div className="py-4 space-y-4">
+              <div className="space-y-2">
+                <Label>API Key</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded bg-white dark:bg-gray-800 p-2 text-sm font-mono break-all border">
+                    {revealKey.apiKey}
+                  </code>
+                  <Button
+                    size="sm"
+                    onClick={() => copyToClipboard(revealKey.apiKey, 'revealApiKey')}
+                  >
+                    {copied === 'revealApiKey' ? '已复制' : '复制'}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>使用方法 (Linux/macOS)</Label>
+                <div className="rounded bg-gray-800 p-3 text-sm font-mono text-green-400">
+                  <div>export AMP_URL="{window.location.origin}"</div>
+                  <div>export AMP_API_KEY="{revealKey.apiKey}"</div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    copyToClipboard(
+                      `export AMP_URL="${window.location.origin}"\nexport AMP_API_KEY="${revealKey.apiKey}"`,
+                      'revealEnv',
+                    )
+                  }
+                >
+                  {copied === 'revealEnv' ? '已复制' : '复制环境变量'}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label>Windows PowerShell (永久)</Label>
+                <div className="rounded bg-gray-800 p-3 text-sm font-mono text-green-400">
+                  <div>[Environment]::SetEnvironmentVariable("AMP_URL", "{window.location.origin}", "User")</div>
+                  <div>[Environment]::SetEnvironmentVariable("AMP_API_KEY", "{revealKey.apiKey}", "User")</div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    copyToClipboard(
+                      `[Environment]::SetEnvironmentVariable("AMP_URL", "${window.location.origin}", "User")\n[Environment]::SetEnvironmentVariable("AMP_API_KEY", "${revealKey.apiKey}", "User")`,
+                      'revealPs',
+                    )
+                  }
+                >
+                  {copied === 'revealPs' ? '已复制' : '复制 PowerShell 命令'}
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setRevealKey(null)}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -50,9 +50,7 @@ export interface APIKey {
   id: string
   name: string
   prefix: string
-  isActive: boolean
   lastUsedAt: string | null
-  revokedAt: string | null
   createdAt: string
 }
 
@@ -63,6 +61,14 @@ export interface CreateAPIKeyResponse {
   apiKey: string
   createdAt: string
   message: string
+}
+
+export interface APIKeyRevealResponse {
+  id: string
+  name: string
+  prefix: string
+  apiKey: string
+  createdAt: string
 }
 
 export interface BootstrapInfo {
@@ -115,15 +121,22 @@ export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> 
   return handleResponse<CreateAPIKeyResponse>(response)
 }
 
-export async function revokeAPIKey(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api-keys/${id}/revoke`, {
-    method: 'POST',
+export async function deleteAPIKey(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api-keys/${id}`, {
+    method: 'DELETE',
     headers: getAuthHeader(),
   })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: '撤销失败' }))
-    throw new Error(error.error || '撤销失败')
+    const error = await response.json().catch(() => ({ error: '删除失败' }))
+    throw new Error(error.error || '删除失败')
   }
+}
+
+export async function getAPIKey(id: string): Promise<APIKeyRevealResponse> {
+  const response = await fetch(`${API_BASE}/api-keys/${id}`, {
+    headers: getAuthHeader(),
+  })
+  return handleResponse<APIKeyRevealResponse>(response)
 }
 
 // Bootstrap API

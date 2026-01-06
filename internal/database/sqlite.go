@@ -83,6 +83,7 @@ func createTables() error {
 		user_id TEXT NOT NULL,
 		name TEXT NOT NULL,
 		key_hash TEXT UNIQUE NOT NULL,
+		api_key TEXT NOT NULL DEFAULT '',
 		prefix TEXT NOT NULL,
 		last_used_at DATETIME,
 		expires_at DATETIME,
@@ -174,6 +175,10 @@ func createTables() error {
 }
 
 func runMigrations() error {
+	_, _ = db.Exec(`
+		ALTER TABLE user_api_keys ADD COLUMN api_key TEXT NOT NULL DEFAULT ''
+	`)
+
 	_, _ = db.Exec(`
 		INSERT INTO user_api_keys (id, user_id, name, key_hash, prefix, last_used_at, expires_at, revoked_at, created_at)
 		SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, revoked_at, created_at

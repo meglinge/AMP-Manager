@@ -99,14 +99,14 @@ func (h *AmpHandler) CreateAPIKey(c *gin.Context) {
 	c.JSON(http.StatusCreated, key)
 }
 
-func (h *AmpHandler) RevokeAPIKey(c *gin.Context) {
+func (h *AmpHandler) DeleteAPIKey(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	keyID := c.Param("id")
 
-	err := h.ampService.RevokeAPIKey(userID, keyID)
+	err := h.ampService.DeleteAPIKey(userID, keyID)
 	if err != nil {
 		status := http.StatusInternalServerError
-		msg := "撤销 API Key 失败"
+		msg := "删除 API Key 失败"
 
 		if errors.Is(err, service.ErrAPIKeyNotFound) {
 			status = http.StatusNotFound
@@ -114,7 +114,31 @@ func (h *AmpHandler) RevokeAPIKey(c *gin.Context) {
 		} else if errors.Is(err, service.ErrNotOwner) {
 			status = http.StatusForbidden
 			msg = err.Error()
-		} else if errors.Is(err, service.ErrAPIKeyRevoked) {
+		}
+
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "API Key 已删除"})
+}
+
+func (h *AmpHandler) GetAPIKey(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	keyID := c.Param("id")
+
+	key, err := h.ampService.GetAPIKey(userID, keyID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "获取 API Key 失败"
+
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusForbidden
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrAPIKeyMissing) {
 			status = http.StatusConflict
 			msg = err.Error()
 		}
@@ -123,7 +147,7 @@ func (h *AmpHandler) RevokeAPIKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "API Key 已撤销"})
+	c.JSON(http.StatusOK, key)
 }
 
 func (h *AmpHandler) GetBootstrap(c *gin.Context) {

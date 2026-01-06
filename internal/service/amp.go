@@ -18,6 +18,7 @@ import (
 var (
 	ErrAPIKeyNotFound = errors.New("API Key 不存在")
 	ErrAPIKeyRevoked  = errors.New("API Key 已被撤销")
+	ErrAPIKeyMissing  = errors.New("API Key 明文不可用，请重新创建")
 	ErrNotOwner       = errors.New("无权操作此资源")
 )
 
@@ -203,6 +204,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Name:    req.Name,
 		Prefix:  prefix,
 		KeyHash: keyHash,
+		APIKey:  rawKey,
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -215,7 +217,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Prefix:    apiKey.Prefix,
 		APIKey:    rawKey,
 		CreatedAt: apiKey.CreatedAt,
-		Message:   "API Key 创建成功，请妥善保存，此 Key 仅显示一次",
+		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
 }
 
@@ -225,9 +227,12 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 		return nil, err
 	}
 
-	items := make([]*model.APIKeyListItem, len(keys))
-	for i, k := range keys {
-		items[i] = &model.APIKeyListItem{
+	items := make([]*model.APIKeyListItem, 0, len(keys))
+	for _, k := range keys {
+		if k.RevokedAt != nil {
+			continue
+		}
+		items = append(items, &model.APIKeyListItem{
 			ID:        k.ID,
 			Name:      k.Name,
 			Prefix:    k.Prefix,
@@ -235,12 +240,12 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 			RevokedAt: k.RevokedAt,
 			LastUsed:  k.LastUsed,
 			IsActive:  k.RevokedAt == nil,
-		}
+		})
 	}
 	return items, nil
 }
 
-func (s *AmpService) RevokeAPIKey(userID, keyID string) error {
+func (s *AmpService) DeleteAPIKey(userID, keyID string) error {
 	key, err := s.apiKeyRepo.GetByID(keyID)
 	if err != nil {
 		return err
@@ -251,10 +256,30 @@ func (s *AmpService) RevokeAPIKey(userID, keyID string) error {
 	if key.UserID != userID {
 		return ErrNotOwner
 	}
-	if key.RevokedAt != nil {
-		return ErrAPIKeyRevoked
+	return s.apiKeyRepo.Delete(keyID)
+}
+
+func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealResponse, error) {
+	key, err := s.apiKeyRepo.GetByID(keyID)
+	if err != nil {
+		return nil, err
 	}
-	return s.apiKeyRepo.Revoke(keyID)
+	if key == nil {
+		return nil, ErrAPIKeyNotFound
+	}
+	if key.UserID != userID {
+		return nil, ErrNotOwner
+	}
+	if key.APIKey == "" {
+		return nil, ErrAPIKeyMissing
+	}
+	return &model.APIKeyRevealResponse{
+		ID:        key.ID,
+		Name:      key.Name,
+		Prefix:    key.Prefix,
+		APIKey:    key.APIKey,
+		CreatedAt: key.CreatedAt,
+	}, nil
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {

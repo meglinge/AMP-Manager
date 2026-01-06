@@ -26,6 +26,7 @@ type UserAPIKey struct {
 	UserID     string     `json:"user_id"`
 	Name       string     `json:"name"`
 	KeyHash    string     `json:"-"`
+	APIKey     string     `json:"-"`
 	Prefix     string     `json:"prefix"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	LastUsed   *time.Time `json:"last_used,omitempty"`
@@ -71,6 +72,14 @@ type CreateAPIKeyResponse struct {
 	APIKey    string    `json:"apiKey"`
 	CreatedAt time.Time `json:"createdAt"`
 	Message   string    `json:"message"`
+}
+
+type APIKeyRevealResponse struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Prefix    string    `json:"prefix"`
+	APIKey    string    `json:"apiKey"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type APIKeyListItem struct {
