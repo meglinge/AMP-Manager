@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -60,6 +62,48 @@ func GetRetryTransport() *RetryTransport {
 	return globalRetryTransport
 }
 
+// NewStreamingTransport 创建针对 AI 流式请求优化的 HTTP Transport
+// 解决 60 秒左右连接中断的问题
+func NewStreamingTransport() *http.Transport {
+	return &http.Transport{
+		// 连接设置
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second, // 连接超时
+			KeepAlive: 30 * time.Second, // TCP Keep-Alive 间隔
+		}).DialContext,
+
+		// TLS 设置
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		TLSHandshakeTimeout: 15 * time.Second,
+
+		// 连接池设置
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		MaxConnsPerHost:     0, // 无限制
+
+		// 关键：延长空闲连接超时，避免连接过早关闭
+		IdleConnTimeout: 120 * time.Second,
+
+		// 关键：不设置 ResponseHeaderTimeout，允许 AI 模型长时间思考
+		// ResponseHeaderTimeout: 0 表示无超时
+		ResponseHeaderTimeout: 0,
+
+		// 关键：不设置 ExpectContinueTimeout，避免 100-continue 超时
+		ExpectContinueTimeout: 0,
+
+		// 禁用压缩以支持流式响应
+		DisableCompression: false,
+
+		// 保持连接复用
+		DisableKeepAlives: false,
+
+		// 强制尝试 HTTP/2
+		ForceAttemptHTTP2: true,
+	}
+}
+
 // InitRetryTransportConfig 初始化重试配置（从数据库加载）
 // 需要在 CreateDynamicReverseProxy 之后调用
 func InitRetryTransportConfig(configJSON string) {
@@ -77,6 +121,7 @@ func InitRetryTransportConfig(configJSON string) {
 		RetryOn429        bool  `json:"retryOn429"`
 		RetryOn5xx        bool  `json:"retryOn5xx"`
 		RespectRetryAfter bool  `json:"respectRetryAfter"`
+		RetryOnEmptyBody  bool  `json:"retryOnEmptyBody"`
 	}
 
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
@@ -94,6 +139,7 @@ func InitRetryTransportConfig(configJSON string) {
 		RetryOn429:        cfg.RetryOn429,
 		RetryOn5xx:        cfg.RetryOn5xx,
 		RespectRetryAfter: cfg.RespectRetryAfter,
+		RetryOnEmptyBody:  cfg.RetryOnEmptyBody,
 	})
 
 	log.WithFields(log.Fields{
@@ -106,8 +152,11 @@ func InitRetryTransportConfig(configJSON string) {
 // Following CLIProxyAPI pattern: does NOT filter Anthropic-Beta headers
 // Users going through ampcode.com are paying for the service and should get all features
 func CreateDynamicReverseProxy() *httputil.ReverseProxy {
+	// 使用针对 AI 流式请求优化的 Transport，解决 60 秒超时问题
+	streamingTransport := NewStreamingTransport()
+
 	// 初始化全局 RetryTransport
-	globalRetryTransport = NewRetryTransport(http.DefaultTransport, DefaultRetryConfig())
+	globalRetryTransport = NewRetryTransport(streamingTransport, DefaultRetryConfig())
 
 	proxy := &httputil.ReverseProxy{
 		// 使用带重试功能的 Transport
@@ -322,9 +371,7 @@ func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 			writer.WriteFromTrace(trace)
 		}
 	}
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusBadGateway)
-	_, _ = rw.Write([]byte(`{"error":"amp_upstream_proxy_error","message":"Failed to reach Amp upstream"}`))
+	WriteErrorResponse(rw, http.StatusBadGateway, "Failed to reach Amp upstream: "+err.Error())
 }
 
 func ProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {

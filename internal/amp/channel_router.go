@@ -175,14 +175,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		targetURL, err := buildUpstreamURL(channel, c.Request)
 		if err != nil {
 			log.Errorf("channel proxy: failed to build upstream URL: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to build upstream URL"))
 			return
 		}
 
 		parsed, err := url.Parse(targetURL)
 		if err != nil {
 			log.Errorf("channel proxy: failed to parse target URL: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "invalid upstream URL"))
 			return
 		}
 
@@ -219,6 +219,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		proxy := &httputil.ReverseProxy{
+			// 使用针对 AI 流式请求优化的 Transport，解决 60 秒超时问题
+			Transport: NewStreamingTransport(),
 			Director: func(req *http.Request) {
 				req.URL.Scheme = parsed.Scheme
 				req.URL.Host = parsed.Host
@@ -299,9 +301,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						writer.WriteFromTrace(trace)
 					}
 				}
-				rw.Header().Set("Content-Type", "application/json")
-				rw.WriteHeader(http.StatusBadGateway)
-				_, _ = rw.Write([]byte(`{"error":"upstream request failed"}`))
+				WriteErrorResponse(rw, http.StatusBadGateway, "Upstream request failed: "+err.Error())
 			},
 		}
 

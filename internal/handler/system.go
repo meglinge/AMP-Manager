@@ -48,6 +48,7 @@ func (h *SystemHandler) GetRetryConfig(c *gin.Context) {
 			RetryOn429:        defaultCfg.RetryOn429,
 			RetryOn5xx:        defaultCfg.RetryOn5xx,
 			RespectRetryAfter: defaultCfg.RespectRetryAfter,
+			RetryOnEmptyBody:  defaultCfg.RetryOnEmptyBody,
 		})
 		return
 	}

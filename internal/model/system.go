@@ -13,6 +13,7 @@ type RetryConfigResponse struct {
 	RetryOn429        bool  `json:"retryOn429"`
 	RetryOn5xx        bool  `json:"retryOn5xx"`
 	RespectRetryAfter bool  `json:"respectRetryAfter"`
+	RetryOnEmptyBody  bool  `json:"retryOnEmptyBody"`
 }
 
 // RetryConfigRequest 重试配置请求
@@ -26,6 +27,7 @@ type RetryConfigRequest struct {
 	RetryOn429        bool  `json:"retryOn429"`
 	RetryOn5xx        bool  `json:"retryOn5xx"`
 	RespectRetryAfter bool  `json:"respectRetryAfter"`
+	RetryOnEmptyBody  bool  `json:"retryOnEmptyBody"`
 }
 
 // SystemConfig 系统配置存储

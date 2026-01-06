@@ -28,6 +28,7 @@ type RetryConfig struct {
 	RetryOn429        bool          `json:"retryOn429"`
 	RetryOn5xx        bool          `json:"retryOn5xx"`
 	RespectRetryAfter bool          `json:"respectRetryAfter"`
+	RetryOnEmptyBody  bool          `json:"retryOnEmptyBody"`
 }
 
 // DefaultRetryConfig 默认重试配置
@@ -42,11 +43,12 @@ func DefaultRetryConfig() *RetryConfig {
 		RetryOn429:        true,
 		RetryOn5xx:        true,
 		RespectRetryAfter: true,
+		RetryOnEmptyBody:  true,
 	}
 }
 
 // RetryConfigFromDB 从数据库配置创建 RetryConfig
-func RetryConfigFromDB(enabled bool, maxAttempts int, gateTimeoutMs, maxBodyBytes, backoffBaseMs, backoffMaxMs int64, retryOn429, retryOn5xx, respectRetryAfter bool) *RetryConfig {
+func RetryConfigFromDB(enabled bool, maxAttempts int, gateTimeoutMs, maxBodyBytes, backoffBaseMs, backoffMaxMs int64, retryOn429, retryOn5xx, respectRetryAfter, retryOnEmptyBody bool) *RetryConfig {
 	return &RetryConfig{
 		Enabled:           enabled,
 		MaxAttempts:       maxAttempts,
@@ -57,6 +59,7 @@ func RetryConfigFromDB(enabled bool, maxAttempts int, gateTimeoutMs, maxBodyByte
 		RetryOn429:        retryOn429,
 		RetryOn5xx:        retryOn5xx,
 		RespectRetryAfter: respectRetryAfter,
+		RetryOnEmptyBody:  retryOnEmptyBody,
 	}
 }
 
@@ -160,6 +163,16 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, nil, resp)
 			_ = resp.Body.Close()
 			rt.backoff(req.Context(), attempt, cfg, retryAfter)
+			continue
+		}
+
+		// 检查是否因为空响应体需要重试（针对非流式 JSON 响应）
+		if rt.shouldRetryEmptyBody(req, resp, cfg) && attempt < cfg.MaxAttempts {
+			emptyBodyErr := fmt.Errorf("empty response body with status %d", resp.StatusCode)
+			lastErr = emptyBodyErr
+			rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, emptyBodyErr, resp)
+			_ = resp.Body.Close()
+			rt.backoff(req.Context(), attempt, cfg, nil)
 			continue
 		}
 
@@ -325,6 +338,51 @@ func (rt *RetryTransport) shouldRetryStatusCode(statusCode int, cfg *RetryConfig
 func (rt *RetryTransport) shouldGateResponse(resp *http.Response) bool {
 	contentType := resp.Header.Get("Content-Type")
 	return strings.Contains(contentType, "text/event-stream")
+}
+
+// shouldRetryEmptyBody 判断是否因为空响应体而需要重试
+// 只对预期应有 body 的 2xx 响应生效，排除 204/205 等合法空响应
+func (rt *RetryTransport) shouldRetryEmptyBody(req *http.Request, resp *http.Response, cfg *RetryConfig) bool {
+	if !cfg.RetryOnEmptyBody {
+		return false
+	}
+
+	// 只处理 2xx 成功响应
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false
+	}
+
+	// 204 No Content 和 205 Reset Content 按规范就是空的
+	if resp.StatusCode == 204 || resp.StatusCode == 205 {
+		return false
+	}
+
+	// HEAD 请求不应该有 body
+	if req.Method == http.MethodHead {
+		return false
+	}
+
+	// 检查是否是 JSON 类型响应（AI API 通常返回 JSON）
+	contentType := resp.Header.Get("Content-Type")
+	isJSON := strings.Contains(contentType, "application/json")
+
+	// 只对 JSON 响应检查空 body
+	if !isJSON {
+		return false
+	}
+
+	// 检查明确的空响应
+	// 1. Body 为 NoBody
+	if resp.Body == http.NoBody {
+		return true
+	}
+
+	// 2. ContentLength 明确为 0
+	if resp.ContentLength == 0 {
+		return true
+	}
+
+	return false
 }
 
 // probeFirstByte 探测响应的第一个字节

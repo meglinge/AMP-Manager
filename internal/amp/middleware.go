@@ -37,9 +37,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey := extractAPIKey(c)
 		if apiKey == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "missing api key",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "missing api key"))
 			return
 		}
 
@@ -48,56 +46,42 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		apiKeyRecord, err := apiKeyRepo.GetByKeyHash(keyHash)
 		if err != nil {
 			log.Errorf("amp api key auth: db error: %v", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "internal server error",
-			})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
 			return
 		}
 
 		if apiKeyRecord == nil {
 			log.Warnf("amp api key auth: invalid key (prefix: %s...)", maskAPIKey(apiKey))
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid api key",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "invalid api key"))
 			return
 		}
 
 		if apiKeyRecord.RevokedAt != nil {
 			log.Warnf("amp api key auth: revoked key used (id: %s)", apiKeyRecord.ID)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "api key revoked",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "api key revoked"))
 			return
 		}
 
 		if apiKeyRecord.ExpiresAt != nil && time.Now().After(*apiKeyRecord.ExpiresAt) {
 			log.Warnf("amp api key auth: expired key used (id: %s)", apiKeyRecord.ID)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "api key expired",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "api key expired"))
 			return
 		}
 
 		settings, err := settingsRepo.GetByUserID(apiKeyRecord.UserID)
 		if err != nil {
 			log.Errorf("amp api key auth: failed to load settings: %v", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "internal server error",
-			})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
 			return
 		}
 
 		if settings == nil || !settings.Enabled {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "amp proxy not enabled for this user",
-			})
+			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not enabled for this user"))
 			return
 		}
 
 		if settings.UpstreamURL == "" {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error": "upstream not configured",
-			})
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, "upstream not configured"))
 			return
 		}
 
