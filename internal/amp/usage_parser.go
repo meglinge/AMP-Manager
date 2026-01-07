@@ -61,6 +61,8 @@ func (p *anthropicParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage
 
 	switch ev.Type {
 	case "message_start":
+		// 重置状态，防止旧值泄漏
+		p.cur = TokenUsage{}
 		if ev.Message != nil && ev.Message.Usage != nil {
 			u := ev.Message.Usage
 			p.cur.InputTokens = u.InputTokens
@@ -68,13 +70,28 @@ func (p *anthropicParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage
 			p.cur.CacheCreationInputTokens = u.CacheCreationInputTokens
 			log.Debugf("usage parser [anthropic]: message_start - input=%v, cache_read=%v, cache_creation=%v",
 				ptrToInt(u.InputTokens), ptrToInt(u.CacheReadInputTokens), ptrToInt(u.CacheCreationInputTokens))
-			return &p.cur, false, true
 		}
+		// 不在 message_start 时返回 usage，等待 message_delta 获取最终值
+		return nil, false, false
 	case "message_delta":
-		if ev.Usage != nil && ev.Usage.OutputTokens != nil {
-			p.cur.OutputTokens = ev.Usage.OutputTokens
-			log.Debugf("usage parser [anthropic]: message_delta - output=%d", *ev.Usage.OutputTokens)
-			return &p.cur, false, true
+		if ev.Usage != nil {
+			if ev.Usage.InputTokens != nil {
+				p.cur.InputTokens = ev.Usage.InputTokens
+			}
+			if ev.Usage.OutputTokens != nil {
+				p.cur.OutputTokens = ev.Usage.OutputTokens
+			}
+			if ev.Usage.CacheReadInputTokens != nil {
+				p.cur.CacheReadInputTokens = ev.Usage.CacheReadInputTokens
+			}
+			if ev.Usage.CacheCreationInputTokens != nil {
+				p.cur.CacheCreationInputTokens = ev.Usage.CacheCreationInputTokens
+			}
+			log.Debugf("usage parser [anthropic]: message_delta - input=%v, output=%v, cache_read=%v, cache_creation=%v",
+				ptrToInt(ev.Usage.InputTokens), ptrToInt(ev.Usage.OutputTokens), ptrToInt(ev.Usage.CacheReadInputTokens), ptrToInt(ev.Usage.CacheCreationInputTokens))
+			// 返回副本而非指针，标记为 final
+			usage := p.cur
+			return &usage, true, true
 		}
 	}
 	return nil, false, false

@@ -36,3 +36,4 @@ CLIProxyAPI/
 # Temp
 *.log
 *.tmp
+tmp/
