@@ -152,6 +152,7 @@ export interface RequestLog {
   id: string
   createdAt: string
   userId: string
+  username?: string
   apiKeyId: string
   originalModel?: string
   mappedModel?: string
@@ -204,7 +205,7 @@ export interface RequestLogListParams {
 }
 
 // Request Logs API
-export async function getRequestLogs(params: RequestLogListParams = {}): Promise<RequestLogListResponse> {
+export async function getRequestLogs(params: RequestLogListParams = {}, signal?: AbortSignal): Promise<RequestLogListResponse> {
   const searchParams = new URLSearchParams()
   if (params.page) searchParams.set('page', params.page.toString())
   if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
@@ -218,11 +219,12 @@ export async function getRequestLogs(params: RequestLogListParams = {}): Promise
   const query = searchParams.toString()
   const response = await fetch(`${API_BASE}/request-logs${query ? `?${query}` : ''}`, {
     headers: getAuthHeader(),
+    signal,
   })
   return handleResponse<RequestLogListResponse>(response)
 }
 
-export async function getUsageSummary(params: { from?: string; to?: string; groupBy?: string } = {}): Promise<UsageSummaryResponse> {
+export async function getUsageSummary(params: { from?: string; to?: string; groupBy?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
   const searchParams = new URLSearchParams()
   if (params.from) searchParams.set('from', params.from)
   if (params.to) searchParams.set('to', params.to)
@@ -231,6 +233,57 @@ export async function getUsageSummary(params: { from?: string; to?: string; grou
   const query = searchParams.toString()
   const response = await fetch(`${API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
     headers: getAuthHeader(),
+    signal,
+  })
+  return handleResponse<UsageSummaryResponse>(response)
+}
+
+// Admin API for request logs
+const ADMIN_API_BASE = '/api/admin'
+
+export interface AdminRequestLogListParams extends RequestLogListParams {
+  userId?: string
+}
+
+export async function getAdminRequestLogs(params: AdminRequestLogListParams = {}, signal?: AbortSignal): Promise<RequestLogListResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.page) searchParams.set('page', params.page.toString())
+  if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
+  if (params.userId) searchParams.set('userId', params.userId)
+  if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
+  if (params.model) searchParams.set('model', params.model)
+  if (params.status !== undefined) searchParams.set('status', params.status.toString())
+  if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
+  if (params.from) searchParams.set('from', params.from)
+  if (params.to) searchParams.set('to', params.to)
+
+  const query = searchParams.toString()
+  const response = await fetch(`${ADMIN_API_BASE}/request-logs${query ? `?${query}` : ''}`, {
+    headers: getAuthHeader(),
+    signal,
+  })
+  return handleResponse<RequestLogListResponse>(response)
+}
+
+export async function getAdminDistinctModels(signal?: AbortSignal): Promise<{ models: string[] }> {
+  const response = await fetch(`${ADMIN_API_BASE}/request-logs/models`, {
+    headers: getAuthHeader(),
+    signal,
+  })
+  return handleResponse<{ models: string[] }>(response)
+}
+
+export async function getAdminUsageSummary(params: { from?: string; to?: string; groupBy?: string; userId?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.from) searchParams.set('from', params.from)
+  if (params.to) searchParams.set('to', params.to)
+  if (params.groupBy) searchParams.set('groupBy', params.groupBy)
+  if (params.userId) searchParams.set('userId', params.userId)
+
+  const query = searchParams.toString()
+  const response = await fetch(`${ADMIN_API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
+    headers: getAuthHeader(),
+    signal,
   })
   return handleResponse<UsageSummaryResponse>(response)
 }

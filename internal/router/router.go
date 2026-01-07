@@ -123,6 +123,11 @@ func Setup() *gin.Engine {
 				users.POST("/:id/reset-password", userHandler.ResetPassword)
 				users.DELETE("/:id", userHandler.DeleteUser)
 			}
+
+			// 管理员日志和使用统计
+			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
+			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
+			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
 		}
 	}
 

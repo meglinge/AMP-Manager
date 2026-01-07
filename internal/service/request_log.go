@@ -57,8 +57,20 @@ func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLo
 	}, nil
 }
 
-// GetUsageSummary 获取用量统计
+// GetUsageSummary 获取用量统计（用户自身）
 func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, groupBy string) (*model.UsageSummaryResponse, error) {
+	summaries, err := s.repo.GetUsageSummary(&userID, from, to, groupBy)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.UsageSummaryResponse{
+		Items: summaries,
+	}, nil
+}
+
+// GetUsageSummaryAdmin 获取用量统计（管理员，查看所有用户）
+func (s *RequestLogService) GetUsageSummaryAdmin(userID *string, from, to *time.Time, groupBy string) (*model.UsageSummaryResponse, error) {
 	summaries, err := s.repo.GetUsageSummary(userID, from, to, groupBy)
 	if err != nil {
 		return nil, err
@@ -67,6 +79,38 @@ func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, 
 	return &model.UsageSummaryResponse{
 		Items: summaries,
 	}, nil
+}
+
+// ListAdmin 管理员查询请求日志列表（可选按用户过滤）
+func (s *RequestLogService) ListAdmin(params ListRequestLogsParams) (*model.RequestLogListResponse, error) {
+	repoParams := repository.ListParams{
+		UserID:      params.UserID, // UserID 可为空
+		APIKeyID:    params.APIKeyID,
+		Model:       params.Model,
+		StatusCode:  params.StatusCode,
+		IsStreaming: params.IsStreaming,
+		From:        params.From,
+		To:          params.To,
+		Page:        params.Page,
+		PageSize:    params.PageSize,
+	}
+
+	logs, total, err := s.repo.List(repoParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.RequestLogListResponse{
+		Items:    logs,
+		Total:    total,
+		Page:     params.Page,
+		PageSize: params.PageSize,
+	}, nil
+}
+
+// GetDistinctModels 获取使用过的模型列表（管理员用）
+func (s *RequestLogService) GetDistinctModels() ([]string, error) {
+	return s.repo.GetDistinctModels()
 }
 
 // GetByID 获取单条日志

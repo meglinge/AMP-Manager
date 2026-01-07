@@ -113,6 +113,7 @@ type RequestLog struct {
 	UpdatedAt                *string          `json:"updatedAt,omitempty"`
 	Status                   RequestLogStatus `json:"status"`
 	UserID                   string           `json:"userId"`
+	Username                 *string          `json:"username,omitempty"`
 	APIKeyID                 string           `json:"apiKeyId"`
 	OriginalModel            *string          `json:"originalModel,omitempty"`
 	MappedModel              *string          `json:"mappedModel,omitempty"`

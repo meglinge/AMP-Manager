@@ -97,3 +97,12 @@ func GetUsername(c *gin.Context) string {
 	}
 	return ""
 }
+
+func IsAdmin(c *gin.Context) bool {
+	v, exists := c.Get(ContextKeyIsAdmin)
+	if !exists {
+		return false
+	}
+	isAdmin, ok := v.(bool)
+	return ok && isAdmin
+}

@@ -33,24 +33,24 @@ type ListParams struct {
 func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int64, error) {
 	db := database.GetDB()
 
-	// 构建 WHERE 条件
+	// 构建 WHERE 条件（使用 r. 前缀避免 JOIN 时的歧义）
 	conditions := []string{"1=1"}
 	args := []interface{}{}
 
 	if params.UserID != "" {
-		conditions = append(conditions, "user_id = ?")
+		conditions = append(conditions, "r.user_id = ?")
 		args = append(args, params.UserID)
 	}
 	if params.APIKeyID != "" {
-		conditions = append(conditions, "api_key_id = ?")
+		conditions = append(conditions, "r.api_key_id = ?")
 		args = append(args, params.APIKeyID)
 	}
 	if params.Model != "" {
-		conditions = append(conditions, "(original_model = ? OR mapped_model = ?)")
+		conditions = append(conditions, "(r.original_model = ? OR r.mapped_model = ?)")
 		args = append(args, params.Model, params.Model)
 	}
 	if params.StatusCode != nil {
-		conditions = append(conditions, "status_code = ?")
+		conditions = append(conditions, "r.status_code = ?")
 		args = append(args, *params.StatusCode)
 	}
 	if params.IsStreaming != nil {
@@ -58,15 +58,15 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if *params.IsStreaming {
 			val = 1
 		}
-		conditions = append(conditions, "is_streaming = ?")
+		conditions = append(conditions, "r.is_streaming = ?")
 		args = append(args, val)
 	}
 	if params.From != nil {
-		conditions = append(conditions, "created_at >= ?")
+		conditions = append(conditions, "r.created_at >= ?")
 		args = append(args, *params.From)
 	}
 	if params.To != nil {
-		conditions = append(conditions, "created_at <= ?")
+		conditions = append(conditions, "r.created_at <= ?")
 		args = append(args, *params.To)
 	}
 
@@ -74,7 +74,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 	// 查询总数
 	var total int64
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM request_logs WHERE %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM request_logs r WHERE %s", whereClause)
 	if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -93,13 +93,14 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 	// 查询数据
 	query := fmt.Sprintf(`
-		SELECT id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
-		       provider, channel_id, endpoint, method, path, status_code, latency_ms,
-		       is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-		       cache_creation_input_tokens, error_type, request_id
-		FROM request_logs
+		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, r.original_model, r.mapped_model,
+		       r.provider, r.channel_id, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
+		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id
+		FROM request_logs r
+		LEFT JOIN users u ON r.user_id = u.id
 		WHERE %s
-		ORDER BY created_at DESC
+		ORDER BY r.created_at DESC
 		LIMIT ? OFFSET ?
 	`, whereClause)
 
@@ -117,11 +118,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var updatedAt sql.NullTime
 		var status sql.NullString
 		var isStreaming int
+		var username sql.NullString
 		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation sql.NullInt64
 
 		err := rows.Scan(
-			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
+			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID,
 			&originalModel, &mappedModel, &provider, &channelID, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
@@ -134,6 +136,9 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		log.CreatedAt = createdAt.Format(time.RFC3339)
 		log.IsStreaming = isStreaming == 1
 
+		if username.Valid {
+			log.Username = &username.String
+		}
 		if updatedAt.Valid {
 			formatted := updatedAt.Time.Format(time.RFC3339)
 			log.UpdatedAt = &formatted
@@ -189,7 +194,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 }
 
 // GetUsageSummary 获取用量统计
-func (r *RequestLogRepository) GetUsageSummary(userID string, from, to *time.Time, groupBy string) ([]model.UsageSummary, error) {
+// userID 为 nil 或空字符串时查询所有用户
+func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Time, groupBy string) ([]model.UsageSummary, error) {
 	db := database.GetDB()
 
 	var groupColumn string
@@ -200,12 +206,19 @@ func (r *RequestLogRepository) GetUsageSummary(userID string, from, to *time.Tim
 		groupColumn = "COALESCE(mapped_model, original_model, 'unknown')"
 	case "apiKey":
 		groupColumn = "api_key_id"
+	case "user":
+		groupColumn = "user_id"
 	default:
 		groupColumn = "date(created_at)"
 	}
 
-	conditions := []string{"user_id = ?"}
-	args := []interface{}{userID}
+	conditions := []string{"1=1"}
+	args := []interface{}{}
+
+	if userID != nil && *userID != "" {
+		conditions = append(conditions, "user_id = ?")
+		args = append(args, *userID)
+	}
 
 	if from != nil {
 		conditions = append(conditions, "created_at >= ?")
@@ -259,6 +272,36 @@ func (r *RequestLogRepository) GetUsageSummary(userID string, from, to *time.Tim
 	}
 
 	return summaries, rows.Err()
+}
+
+// GetDistinctModels 获取使用过的模型列表
+func (r *RequestLogRepository) GetDistinctModels() ([]string, error) {
+	db := database.GetDB()
+
+	query := `
+		SELECT DISTINCT COALESCE(mapped_model, original_model) as model
+		FROM request_logs
+		WHERE mapped_model IS NOT NULL OR original_model IS NOT NULL
+		ORDER BY model
+		LIMIT 100
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var models []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		models = append(models, m)
+	}
+
+	return models, rows.Err()
 }
 
 // GetByID 获取单条日志

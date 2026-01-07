@@ -1,12 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { getRequestLogs, getUsageSummary, RequestLog, UsageSummary } from '@/api/amp'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { getAdminRequestLogs, getAdminUsageSummary, getAdminDistinctModels, RequestLog, UsageSummary } from '@/api/amp'
+import { listUsers, UserInfo } from '@/api/users'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { formatDate, formatNumber } from '@/lib/formatters'
-import { StatusBadge } from '@/components/StatusBadge'
-import { UsageSummaryCards } from '@/components/UsageSummaryCards'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
@@ -22,8 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { formatDate, formatNumber } from '@/lib/formatters'
+import { StatusBadge } from '@/components/StatusBadge'
+import { UsageSummaryCards } from '@/components/UsageSummaryCards'
 
-export default function RequestLogs() {
+type SummaryGroupBy = 'day' | 'model' | 'user'
+type RefreshInterval = 5 | 10 | 30 | 60
+
+export default function AdminRequestLogs() {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -33,24 +38,62 @@ export default function RequestLogs() {
   
   // Filters
   const [modelFilter, setModelFilter] = useState('')
+  const [userIdFilter, setUserIdFilter] = useState('')
+  
+  // Filter options
+  const [users, setUsers] = useState<UserInfo[]>([])
+  const [models, setModels] = useState<string[]>([])
   
   // Summary
   const [summary, setSummary] = useState<UsageSummary[]>([])
-  const [summaryGroupBy, setSummaryGroupBy] = useState('day')
+  const [summaryGroupBy, setSummaryGroupBy] = useState<SummaryGroupBy>('day')
   
-  // AbortController for request cancellation
+  // Auto refresh
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(10)
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const summaryAbortControllerRef = useRef<AbortController | null>(null)
 
+  // userId -> username 映射
+  const userIdToUsername = useMemo(() => {
+    const map = new Map<string, string>()
+    users.forEach(u => map.set(u.id, u.username))
+    return map
+  }, [users])
+
+  useEffect(() => {
+    loadFilterOptions()
+  }, [])
+
   useEffect(() => {
     loadData()
-  }, [page, modelFilter])
+  }, [page, modelFilter, userIdFilter])
 
   useEffect(() => {
     loadSummary()
-  }, [summaryGroupBy])
+  }, [summaryGroupBy, userIdFilter])
 
-  // Cleanup on unmount
+  useEffect(() => {
+    if (autoRefresh) {
+      refreshTimerRef.current = setInterval(() => {
+        loadData()
+        loadSummary()
+      }, refreshInterval * 1000)
+    } else {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+    }
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+      }
+    }
+  }, [autoRefresh, refreshInterval, page, modelFilter, userIdFilter, summaryGroupBy])
+
+  // 组件卸载时取消请求
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
@@ -62,22 +105,37 @@ export default function RequestLogs() {
     }
   }, [])
 
+  const loadFilterOptions = async () => {
+    try {
+      const [usersRes, modelsRes] = await Promise.all([
+        listUsers(),
+        getAdminDistinctModels(),
+      ])
+      setUsers(usersRes || [])
+      setModels(modelsRes.models || [])
+    } catch (err) {
+      console.error('Failed to load filter options:', err)
+    }
+  }
+
   const loadData = useCallback(async () => {
-    // Cancel previous request
+    // 取消之前的请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
     const controller = new AbortController()
     abortControllerRef.current = controller
 
-    setError('')
     setLoading(true)
+    setError('')
     try {
-      const result = await getRequestLogs({
+      const result = await getAdminRequestLogs({
         page,
         pageSize,
         model: modelFilter || undefined,
+        userId: userIdFilter || undefined,
       }, controller.signal)
+      // 检查请求是否已被取消
       if (controller.signal.aborted) return
       setLogs(result.items || [])
       setTotal(result.total)
@@ -89,33 +147,46 @@ export default function RequestLogs() {
         setLoading(false)
       }
     }
-  }, [page, pageSize, modelFilter])
+  }, [page, pageSize, modelFilter, userIdFilter])
 
   const loadSummary = useCallback(async () => {
-    // Cancel previous request
+    // 取消之前的请求
     if (summaryAbortControllerRef.current) {
       summaryAbortControllerRef.current.abort()
     }
     const controller = new AbortController()
     summaryAbortControllerRef.current = controller
 
+    setError('')
     try {
-      const result = await getUsageSummary({ groupBy: summaryGroupBy }, controller.signal)
+      const result = await getAdminUsageSummary({ 
+        groupBy: summaryGroupBy,
+        userId: userIdFilter || undefined,
+      }, controller.signal)
+      // 检查请求是否已被取消
       if (controller.signal.aborted) return
       setSummary(result.items || [])
     } catch (err) {
       if (controller.signal.aborted) return
       console.error('Failed to load summary:', err)
     }
-  }, [summaryGroupBy])
+  }, [summaryGroupBy, userIdFilter])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  // 获取 summary 表格中的显示名称
+  const getSummaryDisplayName = (groupKey: string): string => {
+    if (summaryGroupBy === 'user') {
+      return userIdToUsername.get(groupKey) || groupKey
+    }
+    return groupKey
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
-        <p className="text-muted-foreground">查看 API 请求历史和 Token 使用统计</p>
+        <h2 className="text-2xl font-bold tracking-tight">全局请求日志</h2>
+        <p className="text-muted-foreground">管理员视图：查看所有用户的 API 请求历史和 Token 使用统计</p>
       </div>
 
       {error && (
@@ -131,15 +202,16 @@ export default function RequestLogs() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>使用量统计</CardTitle>
-              <CardDescription>按时间或模型分组的 Token 使用量</CardDescription>
+              <CardDescription>按时间、模型或用户分组的 Token 使用量</CardDescription>
             </div>
-            <Select value={summaryGroupBy} onValueChange={setSummaryGroupBy}>
+            <Select value={summaryGroupBy} onValueChange={(v) => setSummaryGroupBy(v as SummaryGroupBy)}>
               <SelectTrigger className="w-32">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="day">按日期</SelectItem>
                 <SelectItem value="model">按模型</SelectItem>
+                <SelectItem value="user">按用户</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -151,7 +223,7 @@ export default function RequestLogs() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{summaryGroupBy === 'day' ? '日期' : '模型'}</TableHead>
+                  <TableHead>{summaryGroupBy === 'day' ? '日期' : summaryGroupBy === 'model' ? '模型' : '用户'}</TableHead>
                   <TableHead className="text-right">请求数</TableHead>
                   <TableHead className="text-right">输入</TableHead>
                   <TableHead className="text-right">输出</TableHead>
@@ -161,9 +233,9 @@ export default function RequestLogs() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.slice(0, 10).map((s, i) => (
+                {summary.slice(0, 20).map((s, i) => (
                   <TableRow key={i}>
-                    <TableCell className="font-medium">{s.groupKey}</TableCell>
+                    <TableCell className="font-medium">{getSummaryDisplayName(s.groupKey)}</TableCell>
                     <TableCell className="text-right">{formatNumber(s.requestCount)}</TableCell>
                     <TableCell className="text-right">{formatNumber(s.inputTokensSum)}</TableCell>
                     <TableCell className="text-right">{formatNumber(s.outputTokensSum)}</TableCell>
@@ -192,17 +264,47 @@ export default function RequestLogs() {
               <CardTitle>请求记录</CardTitle>
               <CardDescription>共 {total} 条记录</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="按模型筛选..."
-                value={modelFilter}
-                onChange={(e) => {
-                  setModelFilter(e.target.value)
-                  setPage(1)
-                }}
-                className="w-48"
-              />
-              <Button variant="outline" onClick={loadData}>刷新</Button>
+            <div className="flex items-center gap-3">
+              <Select value={userIdFilter || 'all'} onValueChange={(v) => { setUserIdFilter(v === 'all' ? '' : v); setPage(1) }}>
+                <SelectTrigger className="w-36" aria-label="按用户筛选">
+                  <SelectValue placeholder="所有用户" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有用户</SelectItem>
+                  {users.map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.username}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={modelFilter || 'all'} onValueChange={(v) => { setModelFilter(v === 'all' ? '' : v); setPage(1) }}>
+                <SelectTrigger className="w-48" aria-label="按模型筛选">
+                  <SelectValue placeholder="所有模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有模型</SelectItem>
+                  {models.map(m => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-2 border-l pl-3">
+                <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+                <Label htmlFor="auto-refresh" className="text-sm">自动刷新</Label>
+                {autoRefresh && (
+                  <Select value={String(refreshInterval)} onValueChange={(v) => setRefreshInterval(Number(v) as RefreshInterval)}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5秒</SelectItem>
+                      <SelectItem value="10">10秒</SelectItem>
+                      <SelectItem value="30">30秒</SelectItem>
+                      <SelectItem value="60">60秒</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <Button variant="outline" onClick={() => { loadData(); loadSummary() }}>刷新</Button>
             </div>
           </div>
         </CardHeader>
@@ -217,6 +319,7 @@ export default function RequestLogs() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>时间</TableHead>
+                    <TableHead>用户</TableHead>
                     <TableHead>模型</TableHead>
                     <TableHead>方法</TableHead>
                     <TableHead>状态</TableHead>
@@ -233,6 +336,9 @@ export default function RequestLogs() {
                     <TableRow key={log.id}>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatDate(log.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-xs truncate max-w-24" title={log.username || userIdToUsername.get(log.userId) || log.userId}>
+                        {log.username || userIdToUsername.get(log.userId) || (log.userId.slice(0, 8) + '...')}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
