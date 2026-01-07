@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -182,7 +183,8 @@ func WrapResponseBodyForTokenExtraction(body io.ReadCloser, isStreaming bool, tr
 		return NewSSETokenExtractor(body, trace, info)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(body, 10*1024*1024))
+	// 使用带超时的读取，避免大响应或慢网络导致 context deadline exceeded
+	data, err := readBodyWithTimeout(body, 10*1024*1024, 30*time.Second)
 	body.Close()
 	if err != nil {
 		log.Debugf("token extractor: failed to read body: %v", err)
@@ -199,4 +201,29 @@ func WrapResponseBodyForTokenExtraction(body io.ReadCloser, isStreaming bool, tr
 	}
 
 	return io.NopCloser(bytes.NewReader(data))
+}
+
+// readBodyWithTimeout 带超时的响应体读取
+func readBodyWithTimeout(body io.Reader, maxBytes int64, timeout time.Duration) ([]byte, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		data, err := io.ReadAll(io.LimitReader(body, maxBytes))
+		ch <- result{data: data, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-ch:
+		return res.data, res.err
+	case <-timer.C:
+		log.Warnf("token extractor: read body timeout after %v", timeout)
+		return nil, io.ErrUnexpectedEOF
+	}
 }

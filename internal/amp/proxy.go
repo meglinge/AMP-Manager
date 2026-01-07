@@ -93,8 +93,8 @@ func NewStreamingTransport() *http.Transport {
 		// 关键：不设置 ExpectContinueTimeout，避免 100-continue 超时
 		ExpectContinueTimeout: 0,
 
-		// 禁用压缩以支持流式响应
-		DisableCompression: false,
+		// 禁用压缩以支持流式响应（gzip 缓冲会导致 SSE 流看起来无数据，触发 idle timeout）
+		DisableCompression: true,
 
 		// 保持连接复用
 		DisableKeepAlives: false,

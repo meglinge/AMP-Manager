@@ -17,6 +17,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// FirstByteTimeoutError 首字节超时错误，实现 net.Error 接口
+type FirstByteTimeoutError struct {
+	Timeout_ time.Duration
+}
+
+func (e *FirstByteTimeoutError) Error() string {
+	return "first byte timeout after " + e.Timeout_.String()
+}
+
+func (e *FirstByteTimeoutError) Timeout() bool {
+	return true
+}
+
+func (e *FirstByteTimeoutError) Temporary() bool {
+	return true
+}
+
 // RetryConfig 重试配置（可通过管理员界面配置）
 type RetryConfig struct {
 	Enabled           bool          `json:"enabled"`
@@ -416,9 +433,10 @@ func (rt *RetryTransport) probeFirstByte(ctx context.Context, body io.ReadCloser
 		}
 		return nil, res.err
 	case <-timer.C:
-		// 超时但不一定是错误，可能上游在处理中
-		// 返回特殊错误让上层决定是否重试
-		return nil, fmt.Errorf("first byte timeout after %v", timeout)
+		// 超时时主动关闭 body，确保 goroutine 能退出
+		body.Close()
+		// 返回实现 net.Error 接口的错误，让 classifyError 能正确识别为 "timeout"
+		return nil, &FirstByteTimeoutError{Timeout_: timeout}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
