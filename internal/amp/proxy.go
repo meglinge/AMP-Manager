@@ -161,9 +161,9 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
 		// 使用带重试功能的 Transport
 		Transport: globalRetryTransport,
-		// FlushInterval 确保流式响应（SSE）立即刷新到客户端
-		// 防止 Oracle 等子代理因响应缓冲导致 terminated
-		FlushInterval: 10 * time.Millisecond,
+		// FlushInterval 设为 -1 确保流式响应（SSE）立即刷新到客户端
+		// 避免缓冲导致 "request ended without sending any chunks" 错误
+		FlushInterval: -1,
 		Director: func(req *http.Request) {
 			cfg := GetProxyConfig(req.Context())
 			if cfg == nil {
