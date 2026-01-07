@@ -96,18 +96,22 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) 
 	api.Any("/tab/*path", proxyHandler)
 
 	// Root-level routes that AMP CLI expects without /api prefix
-	engine.GET("/threads", proxyHandler)
-	engine.GET("/threads/*path", proxyHandler)
-	engine.GET("/docs", proxyHandler)
-	engine.GET("/docs/*path", proxyHandler)
-	engine.GET("/settings", proxyHandler)
-	engine.GET("/settings/*path", proxyHandler)
-	engine.GET("/threads.rss", proxyHandler)
-	engine.GET("/news.rss", proxyHandler)
+	// These are public pages (threads, docs, etc.) that don't require API key auth
+	publicRoutes := engine.Group("/")
+	publicRoutes.Use(PublicProxyMiddleware())
+
+	publicRoutes.GET("/threads", proxyHandler)
+	publicRoutes.GET("/threads/*path", proxyHandler)
+	publicRoutes.GET("/docs", proxyHandler)
+	publicRoutes.GET("/docs/*path", proxyHandler)
+	publicRoutes.GET("/settings", proxyHandler)
+	publicRoutes.GET("/settings/*path", proxyHandler)
+	publicRoutes.GET("/threads.rss", proxyHandler)
+	publicRoutes.GET("/news.rss", proxyHandler)
 
 	// Root-level auth routes for CLI login flow
-	engine.Any("/auth", proxyHandler)
-	engine.Any("/auth/*path", proxyHandler)
+	publicRoutes.Any("/auth", proxyHandler)
+	publicRoutes.Any("/auth/*path", proxyHandler)
 }
 
 // registerAmpProxyAPI registers amp proxy routes at root /api/* level

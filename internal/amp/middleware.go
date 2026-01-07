@@ -338,3 +338,21 @@ func RequestLoggingMiddleware() gin.HandlerFunc {
 		}
 	}
 }
+
+// PublicProxyMiddleware sets default ProxyConfig for public routes (threads, docs, etc.)
+// These routes don't require API key authentication and proxy directly to ampcode.com
+func PublicProxyMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Set default ProxyConfig for public routes
+		proxyCfg := &ProxyConfig{
+			UserID:         "public",
+			APIKeyID:       "public",
+			UpstreamURL:    "https://ampcode.com",
+			UpstreamAPIKey: "", // No API key needed for public pages
+		}
+		ctx := WithProxyConfig(c.Request.Context(), proxyCfg)
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Next()
+	}
+}
