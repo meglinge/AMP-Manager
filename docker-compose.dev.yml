@@ -1,6 +1,6 @@
 services:
   ampmanager:
-    image: ghcr.io/meglinge/amp-manager:latest
+    build: .
     container_name: ampmanager
     restart: unless-stopped
     ports:
