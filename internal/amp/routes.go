@@ -129,6 +129,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api.Use(rateLimiter.RateLimitByAPIKey())
 	api.Use(ApplyModelMappingMiddleware())
 	api.Use(ChannelRouterMiddleware())
+	api.Use(RequestCaptureMiddleware())
 
 	api.Any("/internal", DebugInternalAPIMiddleware(), WebSearchStrategyMiddleware(), proxyHandler)
 	api.Any("/internal/*path", DebugInternalAPIMiddleware(), WebSearchStrategyMiddleware(), proxyHandler)
@@ -141,6 +142,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1.Use(rateLimiter.RateLimitByAPIKey())
 	v1.Use(ApplyModelMappingMiddleware())
 	v1.Use(ChannelRouterMiddleware())
+	v1.Use(RequestCaptureMiddleware())
 
 	v1.POST("/chat/completions", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/completions", createRoutingHandler(proxyHandler, channelHandler))
@@ -153,6 +155,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1beta.Use(rateLimiter.RateLimitByAPIKey())
 	v1beta.Use(ApplyModelMappingMiddleware())
 	v1beta.Use(ChannelRouterMiddleware())
+	v1beta.Use(RequestCaptureMiddleware())
 
 	v1beta.POST("/models/*action", createRoutingHandler(proxyHandler, channelHandler))
 	v1beta.GET("/models", proxyHandler)

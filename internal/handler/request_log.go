@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"time"
 
+	"ampmanager/internal/amp"
 	"ampmanager/internal/middleware"
+	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -249,6 +251,53 @@ func (h *RequestLogHandler) AdminGetUsageSummary(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计失败"})
 		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// AdminGetRequestLogDetail 管理员获取请求日志详情（含请求/响应头和体）
+func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
+	logID := c.Param("id")
+	if logID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "日志 ID 不能为空"})
+		return
+	}
+
+	store := amp.GetRequestDetailStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "详情存储未初始化"})
+		return
+	}
+
+	detail := store.Get(logID)
+	if detail == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "日志详情不存在或已过期"})
+		return
+	}
+
+	// Convert headers to map[string]string for JSON response
+	requestHeaders := make(map[string]string)
+	for k, v := range detail.RequestHeaders {
+		if len(v) > 0 {
+			requestHeaders[k] = v[0]
+		}
+	}
+
+	responseHeaders := make(map[string]string)
+	for k, v := range detail.ResponseHeaders {
+		if len(v) > 0 {
+			responseHeaders[k] = v[0]
+		}
+	}
+
+	result := &model.RequestLogDetail{
+		RequestID:       detail.RequestID,
+		RequestHeaders:  requestHeaders,
+		RequestBody:     string(detail.RequestBody),
+		ResponseHeaders: responseHeaders,
+		ResponseBody:    string(detail.ResponseBody),
+		CreatedAt:       detail.CreatedAt,
 	}
 
 	c.JSON(http.StatusOK, result)

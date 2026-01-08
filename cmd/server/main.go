@@ -35,6 +35,10 @@ func main() {
 	amp.InitLogWriter(database.GetDB())
 	defer amp.StopLogWriter()
 
+	// 初始化请求详情存储器
+	amp.InitRequestDetailStore(database.GetDB())
+	defer amp.StopRequestDetailStore()
+
 	// 初始化计费服务
 	billing.InitPriceStore()
 	defer billing.StopPriceStore()

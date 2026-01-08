@@ -210,6 +210,11 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 					writer.WritePendingFromTrace(trace)
 				}
 
+				// Capture request detail for logging
+				if captureData := GetCaptureData(req.Context()); captureData != nil {
+					StoreRequestDetail(trace.RequestID, captureData.RequestHeaders, captureData.RequestBody)
+				}
+
 				log.Infof("amp proxy: model invocation %s %s -> %s", req.Method, req.URL.Path, req.URL.Host)
 			}
 
@@ -259,8 +264,10 @@ func modifyResponse(resp *http.Response) error {
 			)
 			// 2. 然后是 token 提取器
 			tokenExtractor := NewSSETokenExtractor(healthWrapper, trace, info)
-			// 3. 最后是日志包装器（最外层）
-			resp.Body = NewLoggingBodyWrapper(tokenExtractor, trace, resp.StatusCode)
+			// 3. 响应捕获包装器（用于存储响应详情）
+			captureWrapper := NewResponseCaptureWrapper(tokenExtractor, trace.RequestID, resp.Header)
+			// 4. 最后是日志包装器（最外层）
+			resp.Body = NewLoggingBodyWrapper(captureWrapper, trace, resp.StatusCode)
 		}
 		return nil
 	}
@@ -367,6 +374,8 @@ func modifyResponse(resp *http.Response) error {
 			log.Debugf("amp proxy: extracted non-streaming token usage - input=%v, output=%v",
 				ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens))
 		}
+		// Store response detail for non-streaming response
+		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), bodyData)
 	}
 
 	// 设置响应体（返回解压后的数据）

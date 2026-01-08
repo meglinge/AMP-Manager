@@ -187,6 +187,16 @@ func createTables() error {
 		value TEXT NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS request_log_details (
+		request_id TEXT PRIMARY KEY,
+		request_headers TEXT,
+		request_body TEXT,
+		response_headers TEXT,
+		response_body TEXT,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
 	`
 	_, err := db.Exec(schema)
 	return err

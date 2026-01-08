@@ -165,6 +165,7 @@ func Setup() *gin.Engine {
 			// 管理员日志和使用统计
 			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
+			admin.GET("/request-logs/:id/detail", requestLogHandler.AdminGetRequestLogDetail)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
 
 			// 价格表管理

@@ -296,3 +296,21 @@ export async function getAdminUsageSummary(params: { from?: string; to?: string;
   })
   return handleResponse<UsageSummaryResponse>(response)
 }
+
+// Request Log Detail API
+export interface RequestLogDetail {
+  requestId: string
+  requestHeaders: Record<string, string>
+  requestBody: string
+  responseHeaders: Record<string, string>
+  responseBody: string
+  createdAt: string
+}
+
+export async function getAdminRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
+  const response = await fetch(`${ADMIN_API_BASE}/request-logs/${logId}/detail`, {
+    headers: getAuthHeader(),
+    signal,
+  })
+  return handleResponse<RequestLogDetail>(response)
+}

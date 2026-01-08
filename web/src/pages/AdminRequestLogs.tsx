@@ -24,6 +24,7 @@ import {
 import { formatDate, formatNumber } from '@/lib/formatters'
 import { StatusBadge } from '@/components/StatusBadge'
 import { UsageSummaryCards } from '@/components/UsageSummaryCards'
+import { LogDetailModal } from '@/components/LogDetailModal'
 
 type SummaryGroupBy = 'day' | 'model' | 'user'
 type RefreshInterval = 5 | 10 | 30 | 60
@@ -54,6 +55,10 @@ export default function AdminRequestLogs() {
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const summaryAbortControllerRef = useRef<AbortController | null>(null)
+
+  // Log detail modal
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
+  const [detailModalOpen, setDetailModalOpen] = useState(false)
 
   // userId -> username 映射
   const userIdToUsername = useMemo(() => {
@@ -360,7 +365,18 @@ export default function AdminRequestLogs() {
                       <TableCell>
                         <Badge variant="outline">{log.method}</Badge>
                       </TableCell>
-                      <TableCell><StatusBadge status={log.statusCode} /></TableCell>
+                      <TableCell>
+                        <button
+                          onClick={() => {
+                            setSelectedLogId(log.id)
+                            setDetailModalOpen(true)
+                          }}
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          title="点击查看请求详情"
+                        >
+                          <StatusBadge status={log.statusCode} />
+                        </button>
+                      </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {log.latencyMs}ms
                       </TableCell>
@@ -409,6 +425,12 @@ export default function AdminRequestLogs() {
           )}
         </CardContent>
       </Card>
+
+      <LogDetailModal
+        logId={selectedLogId}
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+      />
     </div>
   )
 }

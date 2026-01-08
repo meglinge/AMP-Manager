@@ -172,3 +172,13 @@ type UsageSummary struct {
 type UsageSummaryResponse struct {
 	Items []UsageSummary `json:"items"`
 }
+
+// RequestLogDetail 请求日志详情（包含请求/响应头和体）
+type RequestLogDetail struct {
+	RequestID       string            `json:"requestId"`
+	RequestHeaders  map[string]string `json:"requestHeaders"`
+	RequestBody     string            `json:"requestBody"`
+	ResponseHeaders map[string]string `json:"responseHeaders"`
+	ResponseBody    string            `json:"responseBody"`
+	CreatedAt       time.Time         `json:"createdAt"`
+}
