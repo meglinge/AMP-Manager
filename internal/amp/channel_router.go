@@ -14,6 +14,7 @@ import (
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
+	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -331,10 +332,51 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				convertedBody = bodyBytes
 			}
 
+			// Apply outgoing format filters (e.g., Claude system string to array)
+			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
+			if filterErr != nil {
+				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
+			} else {
+				convertedBody = filteredBody
+			}
+
 			// Restore body with converted content
 			c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 			c.Request.ContentLength = int64(len(convertedBody))
 			c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+		} else if !needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
+			// No translation needed, but still apply filters for the outgoing format
+			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
+			c.Request.Body.Close()
+			if err != nil {
+				log.Errorf("channel proxy: failed to read request body for filtering: %v", err)
+				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
+				return
+			}
+			originalRequestBody = bodyBytes
+			convertedBody = bodyBytes
+
+			// Check if streaming
+			var payload struct {
+				Stream bool `json:"stream"`
+			}
+			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				isStreaming = payload.Stream
+			}
+
+			// Apply outgoing format filters
+			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, bodyBytes)
+			if filterErr != nil {
+				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
+			} else if !bytes.Equal(filteredBody, bodyBytes) {
+				convertedBody = filteredBody
+				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
+				c.Request.ContentLength = int64(len(convertedBody))
+				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+			} else {
+				// No changes, restore original body
+				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
 		}
 
 		// Store translation info in context for response processing
