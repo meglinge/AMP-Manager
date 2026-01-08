@@ -440,6 +440,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					writer.WritePendingFromTrace(trace)
 				}
 
+				// Capture request detail for logging (same as amp upstream proxy)
+				if captureData := GetCaptureData(c.Request.Context()); captureData != nil {
+					StoreRequestDetail(trace.RequestID, captureData.RequestHeaders, captureData.RequestBody)
+				}
+
 				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, sanitizeURL(targetURL), originalModel)
 			}
 		} else {
@@ -514,6 +519,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					info, _ := GetProviderInfo(resp.Request.Context())
 					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
+					// Capture response detail for logging (same as amp upstream proxy)
+					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
 					// Wrap again for logging on close
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 				}
