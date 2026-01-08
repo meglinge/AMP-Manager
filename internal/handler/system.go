@@ -335,3 +335,36 @@ func (h *SystemHandler) DeleteBackup(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "备份已删除"})
 }
+
+// GetRequestDetailEnabled 获取请求详情监控状态
+func (h *SystemHandler) GetRequestDetailEnabled(c *gin.Context) {
+	value, _ := h.configRepo.Get("request_detail_enabled")
+	enabled := value != "false" // 默认启用
+	c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+}
+
+// UpdateRequestDetailEnabled 更新请求详情监控状态
+func (h *SystemHandler) UpdateRequestDetailEnabled(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	value := "true"
+	if !req.Enabled {
+		value = "false"
+	}
+
+	if err := h.configRepo.Set("request_detail_enabled", value); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+
+	// 更新运行时配置
+	amp.SetRequestDetailEnabled(req.Enabled)
+
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "enabled": req.Enabled})
+}

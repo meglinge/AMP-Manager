@@ -9,6 +9,8 @@ import {
   getRetryConfig,
   updateRetryConfig,
   RetryConfig,
+  getRequestDetailEnabled,
+  updateRequestDetailEnabled,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -33,10 +35,13 @@ export default function SystemSettings() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
+  const [requestDetailEnabled, setRequestDetailEnabled] = useState(true)
+  const [requestDetailLoading, setRequestDetailLoading] = useState(false)
 
   useEffect(() => {
     fetchBackups()
     fetchRetryConfig()
+    fetchRequestDetailEnabled()
   }, [])
 
   const fetchBackups = async () => {
@@ -54,6 +59,28 @@ export default function SystemSettings() {
       setRetryConfig(data)
     } catch (err) {
       console.error('获取重试配置失败:', err)
+    }
+  }
+
+  const fetchRequestDetailEnabled = async () => {
+    try {
+      const data = await getRequestDetailEnabled()
+      setRequestDetailEnabled(data.enabled)
+    } catch (err) {
+      console.error('获取请求详情监控配置失败:', err)
+    }
+  }
+
+  const handleRequestDetailToggle = async (enabled: boolean) => {
+    setRequestDetailLoading(true)
+    try {
+      await updateRequestDetailEnabled(enabled)
+      setRequestDetailEnabled(enabled)
+      showMessage('success', enabled ? '请求详情监控已启用' : '请求详情监控已停止')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '操作失败')
+    } finally {
+      setRequestDetailLoading(false)
     }
   }
 
@@ -370,6 +397,28 @@ export default function SystemSettings() {
           ) : (
             <div className="text-center text-muted-foreground py-4">加载中...</div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>请求详情监控</CardTitle>
+          <CardDescription>控制是否记录请求和响应的详细信息（头部和正文）</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>启用详情监控</Label>
+              <p className="text-sm text-muted-foreground">
+                启用后可在日志页面点击状态列查看请求/响应详情。关闭可减少内存使用。
+              </p>
+            </div>
+            <Switch
+              checked={requestDetailEnabled}
+              onCheckedChange={handleRequestDetailToggle}
+              disabled={requestDetailLoading}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

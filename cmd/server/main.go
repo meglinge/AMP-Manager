@@ -61,6 +61,11 @@ func main() {
 		amp.InitRetryTransportConfig(configJSON)
 	}
 
+	// 加载请求详情监控配置
+	if enabled, err := sysConfigService.GetRequestDetailEnabled(); err == nil {
+		amp.SetRequestDetailEnabled(enabled)
+	}
+
 	port := cfg.ServerPort
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort

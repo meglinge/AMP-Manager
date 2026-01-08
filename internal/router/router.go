@@ -152,6 +152,10 @@ func Setup() *gin.Engine {
 				// 重试配置
 				system.GET("/retry-config", systemHandler.GetRetryConfig)
 				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
+
+				// 请求详情监控配置
+				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)
+				system.PUT("/request-detail-enabled", systemHandler.UpdateRequestDetailEnabled)
 			}
 
 			users := admin.Group("/users")

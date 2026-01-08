@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,28 @@ type multiReaderCloser struct {
 const (
 	CaptureMaxBodySize = 512 * 1024 // 512KB max capture size
 )
+
+// requestDetailEnabled 控制是否启用请求详情监控（默认启用）
+var requestDetailEnabled atomic.Bool
+
+func init() {
+	requestDetailEnabled.Store(true) // 默认启用
+}
+
+// SetRequestDetailEnabled 设置请求详情监控开关
+func SetRequestDetailEnabled(enabled bool) {
+	requestDetailEnabled.Store(enabled)
+	if enabled {
+		log.Info("request detail capture: enabled")
+	} else {
+		log.Info("request detail capture: disabled")
+	}
+}
+
+// IsRequestDetailEnabled 获取请求详情监控状态
+func IsRequestDetailEnabled() bool {
+	return requestDetailEnabled.Load()
+}
 
 type captureDataKey struct{}
 
@@ -88,6 +111,10 @@ func RequestCaptureMiddleware() gin.HandlerFunc {
 
 // StoreRequestDetail stores captured request detail after trace is created
 func StoreRequestDetail(requestID string, headers http.Header, body []byte) {
+	if !IsRequestDetailEnabled() {
+		return
+	}
+
 	store := GetRequestDetailStore()
 	if store == nil {
 		return
@@ -100,6 +127,10 @@ func StoreRequestDetail(requestID string, headers http.Header, body []byte) {
 
 // StoreResponseDetail stores response headers and body
 func StoreResponseDetail(requestID string, headers http.Header, body []byte) {
+	if !IsRequestDetailEnabled() {
+		return
+	}
+
 	store := GetRequestDetailStore()
 	if store == nil {
 		return

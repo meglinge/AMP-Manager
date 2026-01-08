@@ -140,3 +140,36 @@ export async function updateRetryConfig(config: RetryConfig): Promise<{ message:
 
   return res.json()
 }
+
+// 获取请求详情监控状态
+export async function getRequestDetailEnabled(): Promise<{ enabled: boolean }> {
+  const res = await fetch(`${API_BASE}/admin/system/request-detail-enabled`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+// 更新请求详情监控状态
+export async function updateRequestDetailEnabled(enabled: boolean): Promise<{ message: string; enabled: boolean }> {
+  const res = await fetch(`${API_BASE}/admin/system/request-detail-enabled`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ enabled }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}
