@@ -250,9 +250,17 @@ func modifyResponse(resp *http.Response) error {
 	if isStreamingResponse(resp) {
 		if trace != nil {
 			trace.SetStreaming(true)
-			resp.Body = NewSSETokenExtractor(resp.Body, trace, info)
-			// Wrap for logging on close
-			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+			// 1. 首先用健康检查包装器（最内层）
+			healthWrapper := NewHealthyStreamWrapper(
+				resp.Request.Context(),
+				resp.Body,
+				trace,
+				DefaultConnectionHealthConfig(),
+			)
+			// 2. 然后是 token 提取器
+			tokenExtractor := NewSSETokenExtractor(healthWrapper, trace, info)
+			// 3. 最后是日志包装器（最外层）
+			resp.Body = NewLoggingBodyWrapper(tokenExtractor, trace, resp.StatusCode)
 		}
 		return nil
 	}

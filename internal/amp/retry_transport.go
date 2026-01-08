@@ -444,6 +444,7 @@ func (rt *RetryTransport) shouldRetryEmptyBody(req *http.Request, resp *http.Res
 }
 
 // probeFirstByte 探测响应的第一个字节
+// 修复：使用带取消的上下文确保 goroutine 不泄漏
 func (rt *RetryTransport) probeFirstByte(ctx context.Context, body io.ReadCloser, timeout time.Duration) ([]byte, error) {
 	type result struct {
 		data []byte
@@ -451,35 +452,41 @@ func (rt *RetryTransport) probeFirstByte(ctx context.Context, body io.ReadCloser
 	}
 	ch := make(chan result, 1)
 
+	// 创建可取消的上下文，用于通知 goroutine 退出
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	go func() {
 		buf := make([]byte, 1)
 		n, err := body.Read(buf)
-		if n > 0 {
-			ch <- result{data: buf[:n], err: nil}
-		} else {
-			ch <- result{data: nil, err: err}
+		select {
+		case ch <- result{data: buf[:n], err: err}:
+		case <-probeCtx.Done():
+			// 上下文已取消，goroutine 退出
+			// 这里不需要发送结果，主 goroutine 已经返回
 		}
 	}()
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
 	select {
 	case res := <-ch:
-		if res.data != nil {
+		if len(res.data) > 0 {
 			return res.data, nil
 		}
 		if res.err == nil {
 			res.err = io.EOF
 		}
 		return nil, res.err
-	case <-timer.C:
-		// 超时时主动关闭 body，确保 goroutine 能退出
+	case <-probeCtx.Done():
+		// 超时或上下文取消
+		// 主动关闭 body，确保 goroutine 中的 Read 能返回
 		body.Close()
-		// 返回实现 net.Error 接口的错误，让 classifyError 能正确识别为 "timeout"
+		
+		if ctx.Err() != nil {
+			// 父上下文取消
+			return nil, ctx.Err()
+		}
+		// 超时
 		return nil, &FirstByteTimeoutError{Timeout_: timeout}
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
 }
 
