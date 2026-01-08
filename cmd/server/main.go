@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"ampmanager/internal/amp"
+	"ampmanager/internal/billing"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
 	"ampmanager/internal/router"
@@ -33,6 +34,11 @@ func main() {
 	// 初始化日志写入器
 	amp.InitLogWriter(database.GetDB())
 	defer amp.StopLogWriter()
+
+	// 初始化计费服务
+	billing.InitPriceStore()
+	defer billing.StopPriceStore()
+	billing.InitCostCalculator()
 
 	// 初始化 pending 请求清理器
 	amp.InitPendingCleaner(database.GetDB())

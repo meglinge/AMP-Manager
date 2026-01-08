@@ -1,0 +1,478 @@
+package billing
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"io"
+	"net/http"
+	"sync"
+	"time"
+
+	"ampmanager/internal/database"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+)
+
+const (
+	// LiteLLM 官方价格表 URL
+	LiteLLMPriceURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+	// 刷新间隔
+	PriceRefreshInterval = 6 * time.Hour
+	// HTTP 超时
+	PriceFetchTimeout = 30 * time.Second
+)
+
+// LiteLLMPricing LiteLLM 价格表条目结构
+type LiteLLMPricing struct {
+	LiteLLMProvider string `json:"litellm_provider"`
+	Mode            string `json:"mode"`
+
+	InputCostPerToken  *float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken *float64 `json:"output_cost_per_token,omitempty"`
+
+	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost,omitempty"`
+	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost,omitempty"`
+	SupportsPromptCaching       *bool    `json:"supports_prompt_caching,omitempty"`
+
+	MaxInputTokens  *int `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
+}
+
+// PriceStore 管理模型价格表
+type PriceStore struct {
+	mu        sync.RWMutex
+	prices    map[string]ModelPrice // model -> price
+	etag      string                // HTTP ETag 用于缓存协商
+	fetchedAt time.Time             // 上次成功获取时间
+	stopChan  chan struct{}
+}
+
+var (
+	globalPriceStore *PriceStore
+	priceStoreOnce   sync.Once
+	stopOnce         sync.Once
+)
+
+// InitPriceStore 初始化全局价格存储
+func InitPriceStore() {
+	priceStoreOnce.Do(func() {
+		globalPriceStore = &PriceStore{
+			prices:   make(map[string]ModelPrice),
+			stopChan: make(chan struct{}),
+		}
+
+		// 先从数据库加载（冷启动时使用缓存）
+		if err := globalPriceStore.LoadFromDB(); err != nil {
+			log.Warnf("billing: failed to load prices from DB: %v", err)
+		}
+
+		// 如果数据库为空，初始化内置价格作为 seed
+		if len(globalPriceStore.prices) == 0 {
+			globalPriceStore.seedBuiltinPrices()
+		}
+
+		log.Infof("billing: price store initialized with %d models", len(globalPriceStore.prices))
+
+		// 立即尝试从 LiteLLM 获取最新价格
+		go func() {
+			if err := globalPriceStore.FetchFromLiteLLM(context.Background()); err != nil {
+				log.Warnf("billing: initial LiteLLM fetch failed: %v", err)
+			}
+		}()
+
+		// 启动后台刷新
+		go globalPriceStore.backgroundRefresh()
+	})
+}
+
+// StopPriceStore 停止价格存储的后台任务
+func StopPriceStore() {
+	stopOnce.Do(func() {
+		if globalPriceStore != nil && globalPriceStore.stopChan != nil {
+			close(globalPriceStore.stopChan)
+		}
+	})
+}
+
+// GetPriceStore 获取全局价格存储
+func GetPriceStore() *PriceStore {
+	return globalPriceStore
+}
+
+// backgroundRefresh 后台定时刷新价格表
+func (s *PriceStore) backgroundRefresh() {
+	ticker := time.NewTicker(PriceRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), PriceFetchTimeout)
+			if err := s.FetchFromLiteLLM(ctx); err != nil {
+				log.Warnf("billing: background LiteLLM fetch failed: %v", err)
+			}
+			cancel()
+		}
+	}
+}
+
+// FetchFromLiteLLM 从 LiteLLM 获取最新价格表
+func (s *PriceStore) FetchFromLiteLLM(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", LiteLLMPriceURL, nil)
+	if err != nil {
+		return err
+	}
+
+	// 使用 ETag 进行缓存协商
+	s.mu.RLock()
+	if s.etag != "" {
+		req.Header.Set("If-None-Match", s.etag)
+	}
+	s.mu.RUnlock()
+
+	client := &http.Client{Timeout: PriceFetchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// 304 Not Modified - 使用缓存
+	if resp.StatusCode == http.StatusNotModified {
+		s.mu.Lock()
+		s.fetchedAt = time.Now()
+		s.mu.Unlock()
+		log.Debug("billing: LiteLLM prices not modified (304)")
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return &httpError{StatusCode: resp.StatusCode}
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// 解析 JSON
+	var rawPrices map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawPrices); err != nil {
+		return err
+	}
+
+	// 转换为内部格式
+	newPrices := make(map[string]ModelPrice)
+	for model, raw := range rawPrices {
+		// 跳过 sample_spec
+		if model == "sample_spec" {
+			continue
+		}
+
+		var lp LiteLLMPricing
+		if err := json.Unmarshal(raw, &lp); err != nil {
+			log.Warnf("billing: failed to unmarshal price for model %s: %v", model, err)
+			continue
+		}
+
+		// 只处理有价格的条目
+		if lp.InputCostPerToken == nil && lp.OutputCostPerToken == nil {
+			continue
+		}
+
+		mp := ModelPrice{
+			ID:       uuid.New().String(),
+			Model:    model,
+			Provider: lp.LiteLLMProvider,
+			Source:   "litellm",
+			PriceData: PriceData{
+				InputCostPerToken:     ptrFloat64(lp.InputCostPerToken),
+				OutputCostPerToken:    ptrFloat64(lp.OutputCostPerToken),
+				CacheReadInputPerToken: ptrFloat64(lp.CacheReadInputTokenCost),
+				CacheCreationPerToken:  ptrFloat64(lp.CacheCreationInputTokenCost),
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		newPrices[model] = mp
+	}
+
+	// 合并更新内存缓存（保留 source=manual 的条目）
+	s.mu.Lock()
+	for model, mp := range newPrices {
+		existing, exists := s.prices[model]
+		if exists && existing.Source == "manual" {
+			// 保留手动设置的价格
+			continue
+		}
+		s.prices[model] = mp
+	}
+	s.etag = resp.Header.Get("ETag")
+	s.fetchedAt = time.Now()
+	s.mu.Unlock()
+
+	// 异步保存到数据库（只保存非 manual 的）
+	go s.saveBatchToDB(newPrices)
+
+	log.Infof("billing: fetched %d model prices from LiteLLM", len(newPrices))
+	return nil
+}
+
+// ptrFloat64 安全获取 float64 指针的值
+func ptrFloat64(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+type httpError struct {
+	StatusCode int
+}
+
+func (e *httpError) Error() string {
+	return "HTTP error: " + http.StatusText(e.StatusCode)
+}
+
+// GetPrice 获取模型价格
+func (s *PriceStore) GetPrice(model string) (PriceData, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if p, ok := s.prices[model]; ok {
+		return p.PriceData, true
+	}
+	return PriceData{}, false
+}
+
+// SetPrice 设置模型价格
+func (s *PriceStore) SetPrice(model, provider string, data PriceData, source string) error {
+	now := time.Now()
+	mp := ModelPrice{
+		ID:        uuid.New().String(),
+		Model:     model,
+		Provider:  provider,
+		PriceData: data,
+		Source:    source,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// 锁内只更新内存 map
+	s.mu.Lock()
+	s.prices[model] = mp
+	s.mu.Unlock()
+
+	// 解锁后再写 DB
+	return s.saveToDB(mp)
+}
+
+// LoadFromDB 从数据库加载价格表
+func (s *PriceStore) LoadFromDB() error {
+	db := database.GetDB()
+	if db == nil {
+		return nil
+	}
+
+	rows, err := db.Query(`SELECT id, model, provider, price_data, source, created_at, updated_at FROM model_prices`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for rows.Next() {
+		var mp ModelPrice
+		var priceDataJSON string
+		var createdAt, updatedAt time.Time
+		var provider sql.NullString
+
+		if err := rows.Scan(&mp.ID, &mp.Model, &provider, &priceDataJSON, &mp.Source, &createdAt, &updatedAt); err != nil {
+			log.Warnf("billing: failed to scan price row: %v", err)
+			continue
+		}
+
+		if provider.Valid {
+			mp.Provider = provider.String
+		}
+		mp.CreatedAt = createdAt
+		mp.UpdatedAt = updatedAt
+
+		if err := json.Unmarshal([]byte(priceDataJSON), &mp.PriceData); err != nil {
+			log.Warnf("billing: failed to parse price data for %s: %v", mp.Model, err)
+			continue
+		}
+
+		s.prices[mp.Model] = mp
+	}
+
+	return rows.Err()
+}
+
+// saveToDB 保存单个价格记录到数据库
+func (s *PriceStore) saveToDB(mp ModelPrice) error {
+	db := database.GetDB()
+	if db == nil {
+		return nil
+	}
+
+	priceDataJSON, err := json.Marshal(mp.PriceData)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO model_prices (id, model, provider, price_data, source, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(model) DO UPDATE SET
+			provider = excluded.provider,
+			price_data = excluded.price_data,
+			source = excluded.source,
+			updated_at = excluded.updated_at
+	`, mp.ID, mp.Model, mp.Provider, string(priceDataJSON), mp.Source, mp.CreatedAt, mp.UpdatedAt)
+
+	return err
+}
+
+// saveBatchToDB 批量保存价格到数据库
+func (s *PriceStore) saveBatchToDB(prices map[string]ModelPrice) {
+	db := database.GetDB()
+	if db == nil {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Warnf("billing: failed to begin transaction: %v", err)
+		return
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO model_prices (id, model, provider, price_data, source, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(model) DO UPDATE SET
+			provider = excluded.provider,
+			price_data = excluded.price_data,
+			source = excluded.source,
+			updated_at = excluded.updated_at
+	`)
+	if err != nil {
+		tx.Rollback()
+		log.Warnf("billing: failed to prepare statement: %v", err)
+		return
+	}
+	defer stmt.Close()
+
+	for _, mp := range prices {
+		priceDataJSON, err := json.Marshal(mp.PriceData)
+		if err != nil {
+			log.Warnf("billing: failed to marshal price data for %s: %v", mp.Model, err)
+			continue
+		}
+		if _, err := stmt.Exec(mp.ID, mp.Model, mp.Provider, string(priceDataJSON), mp.Source, mp.CreatedAt, mp.UpdatedAt); err != nil {
+			log.Warnf("billing: failed to save price for %s: %v", mp.Model, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		tx.Rollback()
+		log.Warnf("billing: failed to commit transaction: %v", err)
+		return
+	}
+
+	log.Debugf("billing: saved %d prices to database", len(prices))
+}
+
+// seedBuiltinPrices 初始化内置价格表（作为 fallback）
+func (s *PriceStore) seedBuiltinPrices() {
+	builtins := []struct {
+		model    string
+		provider string
+		data     PriceData
+	}{
+		// Anthropic Claude 4 系列 (2025 年价格)
+		{
+			model:    "claude-sonnet-4-20250514",
+			provider: "anthropic",
+			data: PriceData{
+				InputCostPerToken:      3.0 / 1_000_000,  // $3/1M
+				OutputCostPerToken:     15.0 / 1_000_000, // $15/1M
+				CacheReadInputPerToken: 0.30 / 1_000_000, // $0.30/1M
+				CacheCreationPerToken:  3.75 / 1_000_000, // $3.75/1M
+			},
+		},
+		{
+			model:    "claude-opus-4-20250514",
+			provider: "anthropic",
+			data: PriceData{
+				InputCostPerToken:      15.0 / 1_000_000,
+				OutputCostPerToken:     75.0 / 1_000_000,
+				CacheReadInputPerToken: 1.50 / 1_000_000,
+				CacheCreationPerToken:  18.75 / 1_000_000,
+			},
+		},
+		// Claude 3.5 系列
+		{
+			model:    "claude-3-5-sonnet-20241022",
+			provider: "anthropic",
+			data: PriceData{
+				InputCostPerToken:      3.0 / 1_000_000,
+				OutputCostPerToken:     15.0 / 1_000_000,
+				CacheReadInputPerToken: 0.30 / 1_000_000,
+				CacheCreationPerToken:  3.75 / 1_000_000,
+			},
+		},
+		{
+			model:    "claude-3-5-haiku-20241022",
+			provider: "anthropic",
+			data: PriceData{
+				InputCostPerToken:      0.80 / 1_000_000,
+				OutputCostPerToken:     4.0 / 1_000_000,
+				CacheReadInputPerToken: 0.08 / 1_000_000,
+				CacheCreationPerToken:  1.0 / 1_000_000,
+			},
+		},
+	}
+
+	for _, b := range builtins {
+		now := time.Now()
+		mp := ModelPrice{
+			ID:        uuid.New().String(),
+			Model:     b.model,
+			Provider:  b.provider,
+			PriceData: b.data,
+			Source:    "builtin",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		s.prices[b.model] = mp
+		_ = s.saveToDB(mp)
+	}
+
+	log.Infof("billing: seeded %d builtin model prices", len(builtins))
+}
+
+// ListPrices 列出所有价格
+func (s *PriceStore) ListPrices() []ModelPrice {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]ModelPrice, 0, len(s.prices))
+	for _, p := range s.prices {
+		result = append(result, p)
+	}
+	return result
+}
+
+// GetStats 获取价格存储统计信息
+func (s *PriceStore) GetStats() (count int, source string, fetchedAt time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.prices), "litellm", s.fetchedAt
+}

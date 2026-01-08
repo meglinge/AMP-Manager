@@ -174,6 +174,9 @@ export interface RequestLog {
   cacheCreationInputTokens?: number
   errorType?: string
   requestId?: string
+  costMicros?: number
+  costUsd?: string
+  pricingModel?: string
 }
 
 export interface RequestLogListResponse {
@@ -191,6 +194,8 @@ export interface UsageSummary {
   cacheCreationInputTokensSum: number
   requestCount: number
   errorCount: number
+  costMicrosSum?: number
+  costUsdSum?: string
 }
 
 export interface UsageSummaryResponse {

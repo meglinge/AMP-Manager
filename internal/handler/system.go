@@ -6,14 +6,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"ampmanager/internal/amp"
+	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
+
+// backupFilenamePattern 备份文件名正则：data.db.backup.YYYYMMDDHHmmss (14位时间戳)
+var backupFilenamePattern = regexp.MustCompile(`^data\.db\.backup\.\d{14}$`)
 
 const retryConfigKey = "retry_config"
 
@@ -91,6 +97,7 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 		RetryOn429:        req.RetryOn429,
 		RetryOn5xx:        req.RetryOn5xx,
 		RespectRetryAfter: req.RespectRetryAfter,
+		RetryOnEmptyBody:  req.RetryOnEmptyBody,
 	}
 
 	data, err := json.Marshal(resp)
@@ -117,6 +124,7 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 			RetryOn429:        req.RetryOn429,
 			RetryOn5xx:        req.RetryOn5xx,
 			RespectRetryAfter: req.RespectRetryAfter,
+			RetryOnEmptyBody:  req.RetryOnEmptyBody,
 		})
 	}
 
@@ -143,14 +151,21 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	defer src.Close()
 
 	dbPath := "./data/data.db"
+	walPath := dbPath + "-wal"
+	shmPath := dbPath + "-shm"
 	backupPath := "./data/data.db.backup." + time.Now().Format("20060102150405")
 
+	// 备份当前数据库
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Rename(dbPath, backupPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "备份现有数据库失败"})
 			return
 		}
 	}
+
+	// 删除 WAL 和 SHM 文件
+	os.Remove(walPath)
+	os.Remove(shmPath)
 
 	dst, err := os.Create(dbPath)
 	if err != nil {
@@ -180,6 +195,12 @@ func (h *SystemHandler) DownloadDatabase(c *gin.Context) {
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "数据库文件不存在"})
 		return
+	}
+
+	// 执行 checkpoint 确保所有 WAL 数据写入主数据库文件
+	db := database.GetDB()
+	if db != nil {
+		_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	}
 
 	filename := "ampmanager_" + time.Now().Format("20060102150405") + ".db"
@@ -220,21 +241,42 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	backupPath := filepath.Join("./data", req.Filename)
+	// 严格校验文件名格式，防止路径穿越
+	if !backupFilenamePattern.MatchString(req.Filename) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的备份文件名"})
+		return
+	}
+
+	backupPath := filepath.Clean(filepath.Join("./data", req.Filename))
+	// 二次验证路径仍在 data 目录内
+	absBackupPath, _ := filepath.Abs(backupPath)
+	absDataDir, _ := filepath.Abs("./data")
+	if !strings.HasPrefix(absBackupPath, absDataDir+string(filepath.Separator)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的备份路径"})
+		return
+	}
+
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "备份文件不存在"})
 		return
 	}
 
 	dbPath := "./data/data.db"
+	walPath := dbPath + "-wal"
+	shmPath := dbPath + "-shm"
 	currentBackup := "./data/data.db.backup." + time.Now().Format("20060102150405")
 
+	// 备份当前数据库
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Rename(dbPath, currentBackup); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "备份当前数据库失败"})
 			return
 		}
 	}
+
+	// 删除 WAL 和 SHM 文件（关键！避免旧的 WAL 覆盖还原的数据）
+	os.Remove(walPath)
+	os.Remove(shmPath)
 
 	src, err := os.Open(backupPath)
 	if err != nil {
@@ -265,7 +307,21 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 
 func (h *SystemHandler) DeleteBackup(c *gin.Context) {
 	filename := c.Param("filename")
-	backupPath := filepath.Join("./data", filename)
+
+	// 严格校验文件名格式，防止路径穿越
+	if !backupFilenamePattern.MatchString(filename) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的备份文件名"})
+		return
+	}
+
+	backupPath := filepath.Clean(filepath.Join("./data", filename))
+	// 二次验证路径仍在 data 目录内
+	absBackupPath, _ := filepath.Abs(backupPath)
+	absDataDir, _ := filepath.Abs("./data")
+	if !strings.HasPrefix(absBackupPath, absDataDir+string(filepath.Separator)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的备份路径"})
+		return
+	}
 
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "备份文件不存在"})

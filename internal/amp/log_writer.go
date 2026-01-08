@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"ampmanager/internal/billing"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -42,6 +44,10 @@ type LogEntry struct {
 	CacheCreationInputTokens *int
 	ErrorType                *string
 	RequestID                *string
+	// 成本相关
+	CostMicros   *int64
+	CostUsd      *string
+	PricingModel *string
 }
 
 // LogWriter 异步批量日志写入器
@@ -169,7 +175,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 
 	// 构建可选字段
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd *string
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
@@ -187,6 +193,12 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 	if snapshot.ErrorType != "" {
 		errorType = &snapshot.ErrorType
+	}
+	if snapshot.PricingModel != nil {
+		pricingModel = snapshot.PricingModel
+	}
+	if snapshot.CostUsd != nil {
+		costUsd = snapshot.CostUsd
 	}
 
 	// 同步更新数据库
@@ -206,7 +218,10 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			output_tokens = ?,
 			cache_read_input_tokens = ?,
 			cache_creation_input_tokens = ?,
-			error_type = ?
+			error_type = ?,
+			cost_micros = ?,
+			cost_usd = ?,
+			pricing_model = ?
 		WHERE id = ?
 	`,
 		now.Format(time.RFC3339),
@@ -224,6 +239,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		snapshot.CacheReadInputTokens,
 		snapshot.CacheCreationInputTokens,
 		errorType,
+		snapshot.CostMicros,
+		costUsd,
+		pricingModel,
 		snapshot.RequestID,
 	)
 
@@ -258,7 +276,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		isStreaming = 1
 	}
 
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd *string
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
@@ -277,14 +295,20 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	if snapshot.ErrorType != "" {
 		errorType = &snapshot.ErrorType
 	}
+	if snapshot.PricingModel != nil {
+		pricingModel = snapshot.PricingModel
+	}
+	if snapshot.CostUsd != nil {
+		costUsd = snapshot.CostUsd
+	}
 
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.Format(time.RFC3339),
@@ -307,6 +331,9 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		snapshot.CacheReadInputTokens,
 		snapshot.CacheCreationInputTokens,
 		errorType,
+		snapshot.CostMicros,
+		costUsd,
+		pricingModel,
 	)
 
 	if err != nil {
@@ -476,6 +503,28 @@ func (w *LoggingBodyWrapper) Close() error {
 	w.once.Do(func() {
 		if w.trace != nil {
 			w.trace.SetResponse(w.statusCode)
+
+			// 计算成本（在设置 usage 之后）
+			if calc := billing.GetCostCalculator(); calc != nil {
+				// 使用 MappedModel 作为计价模型（如果没有则使用 OriginalModel）
+				pricingModel := w.trace.MappedModel
+				if pricingModel == "" {
+					pricingModel = w.trace.OriginalModel
+				}
+				if pricingModel != "" {
+					costResult := calc.CalculateFromPointers(
+						pricingModel,
+						w.trace.InputTokens,
+						w.trace.OutputTokens,
+						w.trace.CacheReadInputTokens,
+						w.trace.CacheCreationInputTokens,
+					)
+					if costResult.PriceFound {
+						w.trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+					}
+				}
+			}
+
 			if writer := GetLogWriter(); writer != nil {
 				writer.UpdateFromTrace(w.trace)
 			}

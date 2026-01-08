@@ -141,6 +141,10 @@ type RequestLog struct {
 	CacheCreationInputTokens *int             `json:"cacheCreationInputTokens,omitempty"`
 	ErrorType                *string          `json:"errorType,omitempty"`
 	RequestID                *string          `json:"requestId,omitempty"`
+	// 成本相关字段
+	CostMicros   *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
+	CostUsd      *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
+	PricingModel *string `json:"pricingModel,omitempty"` // 计价模型名
 }
 
 // RequestLogListResponse 请求日志列表响应
@@ -153,13 +157,15 @@ type RequestLogListResponse struct {
 
 // UsageSummary 用量统计
 type UsageSummary struct {
-	GroupKey                 string `json:"groupKey"`
-	InputTokensSum           int64  `json:"inputTokensSum"`
-	OutputTokensSum          int64  `json:"outputTokensSum"`
-	CacheReadInputTokensSum  int64  `json:"cacheReadInputTokensSum"`
-	CacheCreationInputTokensSum int64 `json:"cacheCreationInputTokensSum"`
-	RequestCount             int64  `json:"requestCount"`
-	ErrorCount               int64  `json:"errorCount"`
+	GroupKey                    string `json:"groupKey"`
+	InputTokensSum              int64  `json:"inputTokensSum"`
+	OutputTokensSum             int64  `json:"outputTokensSum"`
+	CacheReadInputTokensSum     int64  `json:"cacheReadInputTokensSum"`
+	CacheCreationInputTokensSum int64  `json:"cacheCreationInputTokensSum"`
+	RequestCount                int64  `json:"requestCount"`
+	ErrorCount                  int64  `json:"errorCount"`
+	CostMicrosSum               int64  `json:"costMicrosSum"`  // 总成本（微美元）
+	CostUsdSum                  string `json:"costUsdSum"`     // 总成本（USD 展示）
 }
 
 // UsageSummaryResponse 用量统计响应

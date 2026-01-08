@@ -96,7 +96,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
 		WHERE %s
@@ -119,15 +119,15 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username sql.NullString
-		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID sql.NullString
-		var inputTokens, outputTokens, cacheRead, cacheCreation sql.NullInt64
+		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel sql.NullString
+		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 		err := rows.Scan(
 			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID,
 			&originalModel, &mappedModel, &provider, &channelID, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
-			&errorType, &requestID,
+			&errorType, &requestID, &costMicros, &costUsd, &pricingModel,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -186,6 +186,15 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			v := int(cacheCreation.Int64)
 			log.CacheCreationInputTokens = &v
 		}
+		if costMicros.Valid {
+			log.CostMicros = &costMicros.Int64
+		}
+		if costUsd.Valid {
+			log.CostUsd = &costUsd.String
+		}
+		if pricingModel.Valid {
+			log.PricingModel = &pricingModel.String
+		}
 
 		logs = append(logs, log)
 	}
@@ -239,7 +248,8 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 			COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_sum,
 			COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_sum,
 			COUNT(*) as request_count,
-			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
+			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count,
+			COALESCE(SUM(cost_micros), 0) as cost_micros_sum
 		FROM request_logs
 		WHERE %s
 		GROUP BY %s
@@ -264,10 +274,13 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 			&s.CacheCreationInputTokensSum,
 			&s.RequestCount,
 			&s.ErrorCount,
+			&s.CostMicrosSum,
 		)
 		if err != nil {
 			return nil, err
 		}
+		// 转换为 USD 字符串
+		s.CostUsdSum = fmt.Sprintf("%.6f", float64(s.CostMicrosSum)/1_000_000)
 		summaries = append(summaries, s)
 	}
 
@@ -313,21 +326,21 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var updatedAt sql.NullTime
 	var status sql.NullString
 	var isStreaming int
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID sql.NullString
-	var inputTokens, outputTokens, cacheRead, cacheCreation sql.NullInt64
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel sql.NullString
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 		       provider, channel_id, endpoint, method, path, status_code, latency_ms,
 		       is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-		       cache_creation_input_tokens, error_type, request_id
+		       cache_creation_input_tokens, error_type, request_id, cost_micros, cost_usd, pricing_model
 		FROM request_logs WHERE id = ?
 	`, id).Scan(
 		&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
 		&originalModel, &mappedModel, &provider, &channelID, &endpoint,
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
-		&errorType, &requestID,
+		&errorType, &requestID, &costMicros, &costUsd, &pricingModel,
 	)
 
 	if err == sql.ErrNoRows {
@@ -386,6 +399,15 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if cacheCreation.Valid {
 		v := int(cacheCreation.Int64)
 		log.CacheCreationInputTokens = &v
+	}
+	if costMicros.Valid {
+		log.CostMicros = &costMicros.Int64
+	}
+	if costUsd.Valid {
+		log.CostUsd = &costUsd.String
+	}
+	if pricingModel.Valid {
+		log.PricingModel = &pricingModel.String
 	}
 
 	return &log, nil

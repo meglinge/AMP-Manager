@@ -231,7 +231,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Name:    req.Name,
 		Prefix:  prefix,
 		KeyHash: keyHash,
-		APIKey:  "", // Never store plaintext API key
+		APIKey:  rawKey,
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -244,7 +244,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Prefix:    apiKey.Prefix,
 		APIKey:    rawKey,
 		CreatedAt: apiKey.CreatedAt,
-		Message:   "API Key 创建成功，请妥善保存。此密钥只显示一次，无法再次查看。",
+		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
 }
 
@@ -297,8 +297,16 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 	if key.UserID != userID {
 		return nil, ErrNotOwner
 	}
-	// API keys are no longer stored in plaintext - they can only be viewed once at creation
-	return nil, ErrAPIKeyNotRetrievable
+	if key.APIKey == "" {
+		return nil, ErrAPIKeyNotRetrievable
+	}
+	return &model.APIKeyRevealResponse{
+		ID:        key.ID,
+		Name:      key.Name,
+		Prefix:    key.Prefix,
+		APIKey:    key.APIKey,
+		CreatedAt: key.CreatedAt,
+	}, nil
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {

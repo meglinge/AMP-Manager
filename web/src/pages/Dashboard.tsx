@@ -6,6 +6,7 @@ import AdminRequestLogs from './AdminRequestLogs'
 import Channels from './Channels'
 import Models from './Models'
 import ModelMetadata from './ModelMetadata'
+import Prices from './Prices'
 import SystemSettings from './SystemSettings'
 import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
@@ -26,7 +27,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'amp-settings' | 'api-keys' | 'request-logs' | 'channels' | 'models' | 'model-metadata' | 'system-settings' | 'user-management' | 'account-settings' | 'admin-request-logs'
+type Page = 'amp-settings' | 'api-keys' | 'request-logs' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'admin-request-logs'
 
 export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('amp-settings')
@@ -40,6 +41,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
     { key: 'account-settings', label: '账户设置' },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
+    { key: 'prices', label: '模型价格', adminOnly: true },
     { key: 'admin-request-logs', label: '全局日志', adminOnly: true },
     { key: 'user-management', label: '用户管理', adminOnly: true },
     { key: 'system-settings', label: '系统设置', adminOnly: true },
@@ -117,6 +119,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
               {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
               {currentPage === 'channels' && isAdmin && <Channels />}
               {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+              {currentPage === 'prices' && isAdmin && <Prices />}
               {currentPage === 'admin-request-logs' && isAdmin && <AdminRequestLogs />}
               {currentPage === 'user-management' && isAdmin && <UserManagement />}
               {currentPage === 'system-settings' && isAdmin && <SystemSettings />}

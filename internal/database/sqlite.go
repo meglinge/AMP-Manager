@@ -160,12 +160,27 @@ func createTables() error {
 		cache_read_input_tokens INTEGER,
 		cache_creation_input_tokens INTEGER,
 		error_type TEXT,
-		request_id TEXT
+		request_id TEXT,
+		cost_micros INTEGER,
+		cost_usd TEXT,
+		pricing_model TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_user_time ON request_logs(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model_time ON request_logs(mapped_model, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS model_prices (
+		id TEXT PRIMARY KEY,
+		model TEXT UNIQUE NOT NULL,
+		provider TEXT,
+		price_data TEXT NOT NULL DEFAULT '{}',
+		source TEXT NOT NULL DEFAULT 'manual',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_model_prices_model ON model_prices(model);
+	CREATE INDEX IF NOT EXISTS idx_model_prices_provider ON model_prices(provider);
 
 	CREATE TABLE IF NOT EXISTS system_config (
 		key TEXT PRIMARY KEY,
@@ -221,6 +236,18 @@ func runMigrations() error {
 			name: "add_web_search_mode",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN web_search_mode TEXT NOT NULL DEFAULT 'upstream'`,
 		},
+		{
+			name: "add_request_logs_cost_micros",
+			sql:  `ALTER TABLE request_logs ADD COLUMN cost_micros INTEGER`,
+		},
+		{
+			name: "add_request_logs_cost_usd",
+			sql:  `ALTER TABLE request_logs ADD COLUMN cost_usd TEXT`,
+		},
+		{
+			name: "add_request_logs_pricing_model",
+			sql:  `ALTER TABLE request_logs ADD COLUMN pricing_model TEXT`,
+		},
 	}
 
 	for _, m := range migrations {
@@ -233,6 +260,7 @@ func runMigrations() error {
 			}
 		}
 	}
+
 	return nil
 }
 

@@ -157,6 +157,7 @@ export default function RequestLogs() {
                   <TableHead className="text-right">输出</TableHead>
                   <TableHead className="text-right">缓存读</TableHead>
                   <TableHead className="text-right">缓存写</TableHead>
+                  <TableHead className="text-right">成本</TableHead>
                   <TableHead className="text-right">错误</TableHead>
                 </TableRow>
               </TableHeader>
@@ -169,6 +170,9 @@ export default function RequestLogs() {
                     <TableCell className="text-right">{formatNumber(s.outputTokensSum)}</TableCell>
                     <TableCell className="text-right">{formatNumber(s.cacheReadInputTokensSum)}</TableCell>
                     <TableCell className="text-right">{formatNumber(s.cacheCreationInputTokensSum)}</TableCell>
+                    <TableCell className="text-right text-green-600 dark:text-green-400">
+                      {s.costUsdSum ? `$${s.costUsdSum}` : '-'}
+                    </TableCell>
                     <TableCell className="text-right">
                       {s.errorCount > 0 ? (
                         <Badge variant="destructive">{s.errorCount}</Badge>
@@ -225,6 +229,7 @@ export default function RequestLogs() {
                     <TableHead className="text-right">输出</TableHead>
                     <TableHead className="text-right">缓存读</TableHead>
                     <TableHead className="text-right">缓存写</TableHead>
+                    <TableHead className="text-right">成本</TableHead>
                     <TableHead>流式</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -257,6 +262,9 @@ export default function RequestLogs() {
                       <TableCell className="text-right">{formatNumber(log.outputTokens)}</TableCell>
                       <TableCell className="text-right">{formatNumber(log.cacheReadInputTokens)}</TableCell>
                       <TableCell className="text-right">{formatNumber(log.cacheCreationInputTokens)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {log.costUsd ? `$${log.costUsd}` : '-'}
+                      </TableCell>
                       <TableCell>
                         {log.isStreaming ? (
                           <Badge variant="secondary">流式</Badge>

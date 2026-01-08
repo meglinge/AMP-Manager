@@ -1,0 +1,346 @@
+import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
+import { listPrices, getPriceStats, refreshPrices, ModelPrice, PriceStats } from '../api/billing'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+// 格式化价格为 USD / 1M tokens
+function formatPrice(costPerToken: number): string {
+  if (!costPerToken || costPerToken === 0) return '-'
+  const perMillion = costPerToken * 1_000_000
+  if (perMillion >= 1) {
+    return `$${perMillion.toFixed(2)}`
+  }
+  if (perMillion >= 0.01) {
+    return `$${perMillion.toFixed(3)}`
+  }
+  return `$${perMillion.toFixed(4)}`
+}
+
+// Provider 颜色映射
+const providerVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  anthropic: 'default',
+  openai: 'secondary',
+  google: 'outline',
+  gemini: 'outline',
+  deepseek: 'default',
+  azure: 'secondary',
+}
+
+// 自动消失提示的延迟时间 (ms)
+const MESSAGE_AUTO_DISMISS_DELAY = 5000
+
+export default function PricesPage() {
+  const [prices, setPrices] = useState<ModelPrice[]>([])
+  const [stats, setStats] = useState<PriceStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [providerFilter, setProviderFilter] = useState<string>('')
+
+  // 使用 useCallback 包装 loadData，添加 AbortController 支持
+  const loadData = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const [pricesData, statsData] = await Promise.all([
+        listPrices(),
+        getPriceStats(),
+      ])
+      // 检查是否已被取消
+      if (signal?.aborted) return
+      setPrices(pricesData.items || [])
+      setStats(statsData)
+      setError('') // 成功时清除错误
+    } catch (err) {
+      if (signal?.aborted) return
+      setError(err instanceof Error ? err.message : '加载失败')
+      setSuccess('') // 失败时清除成功提示
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const abortController = new AbortController()
+    loadData(abortController.signal)
+    return () => {
+      abortController.abort()
+    }
+  }, [loadData])
+
+  // 自动消失提示
+  useEffect(() => {
+    if (!success) return
+    const timer = setTimeout(() => setSuccess(''), MESSAGE_AUTO_DISMISS_DELAY)
+    return () => clearTimeout(timer)
+  }, [success])
+
+  useEffect(() => {
+    if (!error) return
+    const timer = setTimeout(() => setError(''), MESSAGE_AUTO_DISMISS_DELAY)
+    return () => clearTimeout(timer)
+  }, [error])
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    setError('')
+    setSuccess('')
+    try {
+      const result = await refreshPrices()
+      setSuccess(`${result.message}，共 ${result.modelCount} 个模型`)
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '刷新失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  // 处理 Badge 键盘事件
+  const handleBadgeKeyDown = (e: KeyboardEvent, callback: () => void) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      callback()
+    }
+  }
+
+  // 获取所有唯一的 provider
+  const providers = useMemo(() => {
+    const set = new Set(prices.map(p => p.provider).filter(Boolean))
+    return Array.from(set).sort()
+  }, [prices])
+
+  // 过滤和搜索
+  const filteredPrices = useMemo(() => {
+    return prices.filter(p => {
+      const matchesSearch = !searchTerm || 
+        p.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.provider?.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesProvider = !providerFilter || p.provider === providerFilter
+      return matchesSearch && matchesProvider
+    })
+  }, [prices, searchTerm, providerFilter])
+
+  // 按 provider 分组统计
+  const providerStats = useMemo(() => {
+    const counts: Record<string, number> = {}
+    prices.forEach(p => {
+      const provider = p.provider || 'unknown'
+      counts[provider] = (counts[provider] || 0) + 1
+    })
+    return counts
+  }, [prices])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-muted-foreground">加载中...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">模型价格表</h1>
+          <p className="text-muted-foreground">
+            LiteLLM 模型价格，用于计算请求成本
+          </p>
+        </div>
+        <Button onClick={handleRefresh} disabled={refreshing}>
+          {refreshing ? '刷新中...' : '刷新价格'}
+        </Button>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {success && (
+        <Alert>
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* 统计卡片 */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>总模型数</CardDescription>
+            <CardTitle className="text-2xl">{prices.length}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>数据来源</CardDescription>
+            <CardTitle className="text-2xl">{stats?.source || '-'}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>更新时间</CardDescription>
+            <CardTitle className="text-lg">
+              {stats?.fetchedAt ? new Date(stats.fetchedAt).toLocaleString() : '-'}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Provider 数</CardDescription>
+            <CardTitle className="text-2xl">{providers.length}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      {/* Provider 分布 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Provider 分布</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            <Badge
+              variant={!providerFilter ? 'default' : 'outline'}
+              className="cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-pressed={!providerFilter}
+              onClick={() => setProviderFilter('')}
+              onKeyDown={(e) => handleBadgeKeyDown(e, () => setProviderFilter(''))}
+            >
+              全部 ({prices.length})
+            </Badge>
+            {Object.entries(providerStats)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 15)
+              .map(([provider, count]) => {
+                const isSelected = providerFilter === provider
+                return (
+                  <Badge
+                    key={provider}
+                    variant={isSelected ? 'default' : (providerVariants[provider] || 'outline')}
+                    className="cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
+                    onClick={() => setProviderFilter(isSelected ? '' : provider)}
+                    onKeyDown={(e) => handleBadgeKeyDown(e, () => setProviderFilter(isSelected ? '' : provider))}
+                  >
+                    {provider} ({count})
+                  </Badge>
+                )
+              })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 搜索和过滤 */}
+      <div className="flex gap-4">
+        <Input
+          type="search"
+          placeholder="搜索模型名称..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="max-w-sm"
+        />
+        <div className="text-muted-foreground self-center">
+          显示 {filteredPrices.length} / {prices.length} 个模型
+        </div>
+      </div>
+
+      {/* 价格表 */}
+      <Card>
+        <CardContent className="p-0">
+          {filteredPrices.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p className="text-lg">未找到匹配的模型</p>
+              <p className="text-sm mt-1">
+                {searchTerm && `搜索: "${searchTerm}"`}
+                {searchTerm && providerFilter && ' · '}
+                {providerFilter && `Provider: ${providerFilter}`}
+              </p>
+              <Button
+                variant="link"
+                className="mt-2"
+                onClick={() => {
+                  setSearchTerm('')
+                  setProviderFilter('')
+                }}
+              >
+                清除筛选条件
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>模型</TableHead>
+                    <TableHead>Provider</TableHead>
+                    <TableHead className="text-right">输入 ($/1M)</TableHead>
+                    <TableHead className="text-right">输出 ($/1M)</TableHead>
+                    <TableHead className="text-right">缓存读取</TableHead>
+                    <TableHead className="text-right">缓存创建</TableHead>
+                    <TableHead>来源</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPrices.slice(0, 100).map((price) => (
+                    <TableRow key={`${price.provider ?? 'unknown'}:${price.model}`}>
+                      <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
+                        {price.model}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={providerVariants[price.provider ?? ''] || 'outline'}>
+                          {price.provider || '-'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatPrice(price.inputCostPerToken)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatPrice(price.outputCostPerToken)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-muted-foreground">
+                        {formatPrice(price.cacheReadInputPerToken)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-muted-foreground">
+                        {formatPrice(price.cacheCreationPerToken)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {price.source}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {filteredPrices.length > 100 && (
+                <div className="p-4 text-center text-muted-foreground">
+                  显示前 100 条，共 {filteredPrices.length} 条
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

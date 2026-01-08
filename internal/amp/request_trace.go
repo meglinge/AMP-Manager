@@ -37,6 +37,11 @@ type RequestTrace struct {
 	CacheReadInputTokens     *int
 	CacheCreationInputTokens *int
 
+	// 成本信息
+	CostMicros   *int64
+	CostUsd      *string
+	PricingModel *string
+
 	// 错误信息
 	ErrorType string
 }
@@ -143,6 +148,15 @@ func copyIntPtr(p *int) *int {
 	return &v
 }
 
+// SetCost 设置成本信息
+func (t *RequestTrace) SetCost(costMicros int64, costUsd, pricingModel string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.CostMicros = &costMicros
+	t.CostUsd = &costUsd
+	t.PricingModel = &pricingModel
+}
+
 // Clone 获取当前状态的快照
 func (t *RequestTrace) Clone() RequestTrace {
 	t.mu.Lock()
@@ -166,6 +180,27 @@ func (t *RequestTrace) Clone() RequestTrace {
 		OutputTokens:             copyIntPtr(t.OutputTokens),
 		CacheReadInputTokens:     copyIntPtr(t.CacheReadInputTokens),
 		CacheCreationInputTokens: copyIntPtr(t.CacheCreationInputTokens),
+		CostMicros:               copyInt64Ptr(t.CostMicros),
+		CostUsd:                  copyStringPtr(t.CostUsd),
+		PricingModel:             copyStringPtr(t.PricingModel),
 		ErrorType:                t.ErrorType,
 	}
+}
+
+// copyInt64Ptr 深拷贝 *int64 指针
+func copyInt64Ptr(p *int64) *int64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// copyStringPtr 深拷贝 *string 指针
+func copyStringPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }

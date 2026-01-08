@@ -17,33 +17,38 @@ func Setup() *gin.Engine {
 
 	cfg := config.Get()
 
-	allowedOrigins := strings.Split(cfg.CORSAllowedOrigins, ",")
-	if len(allowedOrigins) == 0 || allowedOrigins[0] == "" {
-		allowedOrigins = []string{"*"}
+	// 解析 CORS 配置
+	allowedOrigins := make([]string, 0)
+	if cfg.CORSAllowedOrigins != "" {
+		for _, o := range strings.Split(cfg.CORSAllowedOrigins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" && trimmed != "*" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
+		}
 	}
+	corsEnabled := len(allowedOrigins) > 0
 
 	r.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		allowed := false
-		for _, o := range allowedOrigins {
-			o = strings.TrimSpace(o)
-			if o == "*" || o == origin {
-				allowed = true
-				break
+		// 只有配置了具体的允许源时才启用 CORS
+		if corsEnabled && origin != "" {
+			allowed := false
+			for _, o := range allowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+
+			if allowed {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key")
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Vary", "Origin")
 			}
 		}
-
-		if allowed && origin != "" {
-			c.Header("Access-Control-Allow-Origin", origin)
-		} else if allowedOrigins[0] == "*" {
-			c.Header("Access-Control-Allow-Origin", "*")
-		}
-
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Vary", "Origin")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -61,6 +66,7 @@ func Setup() *gin.Engine {
 	modelHandler := handler.NewModelHandler()
 	modelMetadataHandler := handler.NewModelMetadataHandler()
 	systemHandler := handler.NewSystemHandler()
+	billingHandler := handler.NewBillingHandler()
 
 	api := r.Group("/api")
 	{
@@ -160,6 +166,14 @@ func Setup() *gin.Engine {
 			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
+
+			// 价格表管理
+			prices := admin.Group("/prices")
+			{
+				prices.GET("", billingHandler.ListPrices)
+				prices.GET("/stats", billingHandler.GetPriceStats)
+				prices.POST("/refresh", billingHandler.RefreshPrices)
+			}
 		}
 	}
 

@@ -12,9 +12,11 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
   const totalOutputTokens = summary.reduce((acc, s) => acc + s.outputTokensSum, 0)
   const totalCacheRead = summary.reduce((acc, s) => acc + s.cacheReadInputTokensSum, 0)
   const totalCacheWrite = summary.reduce((acc, s) => acc + s.cacheCreationInputTokensSum, 0)
+  const totalCostMicros = summary.reduce((acc, s) => acc + (s.costMicrosSum || 0), 0)
+  const totalCostUsd = (totalCostMicros / 1_000_000).toFixed(6)
 
   return (
-    <div className="grid gap-4 md:grid-cols-5">
+    <div className="grid gap-4 md:grid-cols-6">
       <Card>
         <CardHeader className="pb-2">
           <CardDescription>总请求数</CardDescription>
@@ -43,6 +45,14 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <CardHeader className="pb-2">
           <CardDescription>缓存写入</CardDescription>
           <CardTitle className="text-2xl">{formatNumber(totalCacheWrite)}</CardTitle>
+        </CardHeader>
+      </Card>
+      <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
+        <CardHeader className="pb-2">
+          <CardDescription>总成本</CardDescription>
+          <CardTitle className="text-2xl text-green-600 dark:text-green-400">
+            ${totalCostUsd}
+          </CardTitle>
         </CardHeader>
       </Card>
     </div>
