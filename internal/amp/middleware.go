@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -108,6 +109,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			UpstreamAPIKey:     settings.UpstreamAPIKey,
 			ModelMappingsJSON:  settings.ModelMappingsJSON,
 			ForceModelMappings: settings.ForceModelMappings,
+			WebSearchMode:      settings.WebSearchMode,
 		}
 		ctx := WithProxyConfig(c.Request.Context(), proxyCfg)
 		c.Request = c.Request.WithContext(ctx)
@@ -250,6 +252,7 @@ func (w *responseLogWriter) Write(b []byte) (int, error) {
 }
 
 // ForceFreeTierMiddleware forces webSearch2 and extractWebPageContent requests to use free tier
+// Deprecated: Use WebSearchStrategyMiddleware instead
 func ForceFreeTierMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Request.URL.RawQuery
@@ -283,6 +286,135 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// WebSearchStrategyMiddleware 根据用户设置选择网页搜索策略
+// 统一处理 webSearch2 和 extractWebPageContent 请求
+func WebSearchStrategyMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Request.URL.RawQuery
+		if query != webSearchQuery && query != extractWebPageContentQuery {
+			c.Next()
+			return
+		}
+
+		cfg := GetProxyConfig(c.Request.Context())
+		if cfg == nil {
+			c.Next()
+			return
+		}
+
+		switch cfg.WebSearchMode {
+		case "local_duckduckgo":
+			handleLocalWebSearch(c, query)
+		case "builtin_free":
+			handleBuiltinFreeSearch(c, query)
+		default:
+			c.Next()
+		}
+	}
+}
+
+// handleLocalWebSearch 处理本地搜索（DuckDuckGo）
+func handleLocalWebSearch(c *gin.Context, query string) {
+	if query == extractWebPageContentQuery {
+		handleExtractWebPage(c)
+		return
+	}
+
+	if query == webSearchQuery {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			log.Errorf("web_search: failed to read request body: %v", err)
+			c.Next()
+			return
+		}
+
+		var req WebSearchRequest
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			log.Errorf("web_search: failed to parse request: %v", err)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			c.Next()
+			return
+		}
+
+		log.Infof("web_search: handling locally - queries: %v, maxResults: %d", req.Params.SearchQueries, req.Params.MaxResults)
+
+		results, err := performDuckDuckGoSearch(req.Params.SearchQueries, req.Params.MaxResults)
+		if err != nil {
+			log.Errorf("web_search: search failed: %v", err)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			c.Next()
+			return
+		}
+
+		resp := WebSearchResponse{
+			OK:              true,
+			CreditsConsumed: "0",
+		}
+		resp.Result.Results = results
+		resp.Result.Provider = "local-duckduckgo"
+		resp.Result.ShowParallelAttribution = false
+
+		log.Infof("web_search: returning %d results locally", len(results))
+		c.JSON(200, resp)
+		c.Abort()
+	}
+}
+
+// handleBuiltinFreeSearch 强制使用内置免费搜索（修改 isFreeTierRequest）
+func handleBuiltinFreeSearch(c *gin.Context, query string) {
+	if c.Request.Body == nil {
+		c.Next()
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		log.Warnf("amp: could not read request body for %s, proxying as-is: %v", query, err)
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		c.Next()
+		return
+	}
+
+	// 使用 JSON 解析修改（比正则更可靠）
+	modifiedBody, modified := modifyFreeTierRequest(bodyBytes)
+	if modified {
+		c.Request.ContentLength = int64(len(modifiedBody))
+		c.Request.Header.Set("Content-Length", strconv.Itoa(len(modifiedBody)))
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(modifiedBody))
+		log.Debugf("amp: %s request modified to use builtin free tier", query)
+	} else {
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	}
+
+	c.Next()
+}
+
+// modifyFreeTierRequest 使用 JSON 解析修改 isFreeTierRequest 为 true
+func modifyFreeTierRequest(bodyBytes []byte) ([]byte, bool) {
+	var data map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
+		return bodyBytes, false
+	}
+
+	params, ok := data["params"].(map[string]interface{})
+	if !ok {
+		return bodyBytes, false
+	}
+
+	if val, exists := params["isFreeTierRequest"]; exists {
+		if boolVal, ok := val.(bool); ok && !boolVal {
+			params["isFreeTierRequest"] = true
+			modifiedBytes, err := json.Marshal(data)
+			if err != nil {
+				return bodyBytes, false
+			}
+			return modifiedBytes, true
+		}
+	}
+
+	return bodyBytes, false
 }
 
 // RequestLoggingMiddleware 请求日志记录中间件

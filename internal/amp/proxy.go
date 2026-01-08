@@ -30,6 +30,7 @@ type ProxyConfig struct {
 	UpstreamAPIKey     string
 	ModelMappingsJSON  string
 	ForceModelMappings bool
+	WebSearchMode      string // upstream | builtin_free | local_duckduckgo
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {

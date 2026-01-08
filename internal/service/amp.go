@@ -50,6 +50,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 			ForceModelMappings: false,
 			Enabled:            false,
 			HasAPIKey:          false,
+			WebSearchMode:      model.WebSearchModeUpstream,
 		}, nil
 	}
 
@@ -67,6 +68,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 		ForceModelMappings: settings.ForceModelMappings,
 		Enabled:            settings.Enabled,
 		HasAPIKey:          settings.UpstreamAPIKey != "",
+		WebSearchMode:      settings.WebSearchMode,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil
@@ -83,6 +85,16 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		UpstreamURL:        req.UpstreamURL,
 		ForceModelMappings: req.ForceModelMappings,
 		Enabled:            req.Enabled,
+		WebSearchMode:      req.WebSearchMode,
+	}
+
+	// 处理 WebSearchMode 默认值
+	if settings.WebSearchMode == "" {
+		if existing != nil {
+			settings.WebSearchMode = existing.WebSearchMode
+		} else {
+			settings.WebSearchMode = model.WebSearchModeUpstream
+		}
 	}
 
 	if existing != nil && req.UpstreamAPIKey == "" {
@@ -126,6 +138,7 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		ForceModelMappings: settings.ForceModelMappings,
 		Enabled:            settings.Enabled,
 		HasAPIKey:          settings.UpstreamAPIKey != "",
+		WebSearchMode:      settings.WebSearchMode,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil

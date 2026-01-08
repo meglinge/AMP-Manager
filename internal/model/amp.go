@@ -2,6 +2,13 @@ package model
 
 import "time"
 
+// WebSearchMode constants
+const (
+	WebSearchModeUpstream     = "upstream"      // 上游代理（不做修改）
+	WebSearchModeBuiltinFree  = "builtin_free"  // 内置免费搜索（强制 isFreeTierRequest=true）
+	WebSearchModeLocalDDG     = "local_duckduckgo" // 本地 DuckDuckGo 搜索
+)
+
 type AmpSettings struct {
 	ID                 string    `json:"id"`
 	UserID             string    `json:"user_id"`
@@ -10,6 +17,7 @@ type AmpSettings struct {
 	ModelMappingsJSON  string    `json:"-"`
 	ForceModelMappings bool      `json:"force_model_mappings"`
 	Enabled            bool      `json:"enabled"`
+	WebSearchMode      string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -43,6 +51,7 @@ type AmpSettingsRequest struct {
 	ModelMappings      []ModelMapping `json:"modelMappings,omitempty"`
 	ForceModelMappings bool           `json:"forceModelMappings"`
 	Enabled            bool           `json:"enabled"`
+	WebSearchMode      string         `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
 }
 
 type AmpSettingsResponse struct {
@@ -51,6 +60,7 @@ type AmpSettingsResponse struct {
 	ForceModelMappings bool           `json:"forceModelMappings"`
 	Enabled            bool           `json:"enabled"`
 	HasAPIKey          bool           `json:"apiKeySet"`
+	WebSearchMode      string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
 	CreatedAt          time.Time      `json:"createdAt,omitempty"`
 	UpdatedAt          time.Time      `json:"updatedAt,omitempty"`
 }

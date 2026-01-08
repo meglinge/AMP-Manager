@@ -5,6 +5,7 @@ import {
   testAmpConnection,
   AmpSettings as AmpSettingsType,
   ModelMapping,
+  WebSearchMode,
 } from '../api/amp'
 import ModelMappingEditor from '../components/ModelMappingEditor'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 export default function AmpSettings() {
   const [settings, setSettings] = useState<AmpSettingsType | null>(null)
@@ -23,6 +25,7 @@ export default function AmpSettings() {
   const [upstreamApiKey, setUpstreamApiKey] = useState('')
   const [forceModelMappings, setForceModelMappings] = useState(false)
   const [modelMappings, setModelMappings] = useState<ModelMapping[]>([])
+  const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>('upstream')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -42,6 +45,7 @@ export default function AmpSettings() {
       setUpstreamUrl(data.upstreamUrl)
       setForceModelMappings(data.forceModelMappings)
       setModelMappings(data.modelMappings || [])
+      setWebSearchMode(data.webSearchMode || 'upstream')
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载设置失败')
     } finally {
@@ -62,6 +66,7 @@ export default function AmpSettings() {
         ...(upstreamApiKey ? { upstreamApiKey } : {}),
         forceModelMappings,
         modelMappings,
+        webSearchMode,
       })
       setSettings(data)
       setUpstreamApiKey('')
@@ -176,6 +181,42 @@ export default function AmpSettings() {
             </div>
 
             <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
+
+            <Separator />
+
+            <div className="space-y-3">
+              <div className="space-y-0.5">
+                <Label>网页搜索模式</Label>
+                <p className="text-sm text-muted-foreground">选择网页搜索和网页内容获取的处理方式</p>
+              </div>
+              <RadioGroup
+                value={webSearchMode}
+                onValueChange={(value) => setWebSearchMode(value as WebSearchMode)}
+                className="space-y-2"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="upstream" id="upstream" />
+                  <Label htmlFor="upstream" className="font-normal cursor-pointer">
+                    <span className="font-medium">上游代理</span>
+                    <span className="text-muted-foreground ml-2">- 直接转发到上游，不做任何修改</span>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="builtin_free" id="builtin_free" />
+                  <Label htmlFor="builtin_free" className="font-normal cursor-pointer">
+                    <span className="font-medium">内置免费搜索</span>
+                    <span className="text-muted-foreground ml-2">- 使用 Amp 内置的免费搜索功能</span>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="local_duckduckgo" id="local_duckduckgo" />
+                  <Label htmlFor="local_duckduckgo" className="font-normal cursor-pointer">
+                    <span className="font-medium">本地搜索</span>
+                    <span className="text-muted-foreground ml-2">- 使用本地 DuckDuckGo 搜索（完全免费）</span>
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
 
             {testResult && (
               <Alert

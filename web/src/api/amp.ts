@@ -17,6 +17,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 // Types
+export type WebSearchMode = 'upstream' | 'builtin_free' | 'local_duckduckgo'
+
 export interface ModelMapping {
   from: string
   to: string
@@ -30,6 +32,7 @@ export interface AmpSettings {
   forceModelMappings: boolean
   modelMappings: ModelMapping[]
   enabled: boolean
+  webSearchMode?: WebSearchMode
 }
 
 export interface UpdateAmpSettingsRequest {
@@ -38,6 +41,7 @@ export interface UpdateAmpSettingsRequest {
   forceModelMappings?: boolean
   modelMappings?: ModelMapping[]
   enabled?: boolean
+  webSearchMode?: WebSearchMode
 }
 
 export interface TestResult {

@@ -20,15 +20,16 @@ func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, 
 	db := database.GetDB()
 	settings := &model.AmpSettings{}
 
+	var webSearchMode sql.NullString
 	err := db.QueryRow(
 		`SELECT id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
-		        force_model_mappings, enabled, created_at, updated_at 
+		        force_model_mappings, enabled, web_search_mode, created_at, updated_at 
 		 FROM user_amp_settings WHERE user_id = ?`,
 		userID,
 	).Scan(
 		&settings.ID, &settings.UserID, &settings.UpstreamURL, &settings.UpstreamAPIKey,
 		&settings.ModelMappingsJSON, &settings.ForceModelMappings, &settings.Enabled,
-		&settings.CreatedAt, &settings.UpdatedAt,
+		&webSearchMode, &settings.CreatedAt, &settings.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -36,6 +37,12 @@ func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	
+	if webSearchMode.Valid {
+		settings.WebSearchMode = webSearchMode.String
+	} else {
+		settings.WebSearchMode = model.WebSearchModeUpstream
 	}
 	return settings, nil
 }
@@ -56,11 +63,11 @@ func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
 		_, err = db.Exec(
 			`INSERT INTO user_amp_settings 
 			 (id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
-			  force_model_mappings, enabled, created_at, updated_at) 
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  force_model_mappings, enabled, web_search_mode, created_at, updated_at) 
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			settings.ID, settings.UserID, settings.UpstreamURL, settings.UpstreamAPIKey,
 			settings.ModelMappingsJSON, settings.ForceModelMappings, settings.Enabled,
-			settings.CreatedAt, settings.UpdatedAt,
+			settings.WebSearchMode, settings.CreatedAt, settings.UpdatedAt,
 		)
 	} else {
 		settings.ID = existing.ID
@@ -68,10 +75,11 @@ func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
 		_, err = db.Exec(
 			`UPDATE user_amp_settings 
 			 SET upstream_url = ?, upstream_api_key = ?, model_mappings_json = ?, 
-			     force_model_mappings = ?, enabled = ?, updated_at = ? 
+			     force_model_mappings = ?, enabled = ?, web_search_mode = ?, updated_at = ? 
 			 WHERE user_id = ?`,
 			settings.UpstreamURL, settings.UpstreamAPIKey, settings.ModelMappingsJSON,
-			settings.ForceModelMappings, settings.Enabled, settings.UpdatedAt, settings.UserID,
+			settings.ForceModelMappings, settings.Enabled, settings.WebSearchMode,
+			settings.UpdatedAt, settings.UserID,
 		)
 	}
 	return err

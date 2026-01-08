@@ -217,6 +217,10 @@ func runMigrations() error {
 			name: "add_channels_enabled_priority_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_channels_enabled_priority ON channels(enabled, priority ASC, weight DESC)`,
 		},
+		{
+			name: "add_web_search_mode",
+			sql:  `ALTER TABLE user_amp_settings ADD COLUMN web_search_mode TEXT NOT NULL DEFAULT 'upstream'`,
+		},
 	}
 
 	for _, m := range migrations {
