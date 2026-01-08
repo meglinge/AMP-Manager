@@ -66,15 +66,21 @@ func IsModelInvocation(method, path string) bool {
 // normalizeProviderPath 标准化 provider 路径
 // /api/provider/anthropic/v1/messages -> /v1/messages
 // /api/provider/openai/v1/chat/completions -> /v1/chat/completions
+// /api/internal/v1/messages -> /v1/messages
 func normalizeProviderPath(path string) string {
-	if !strings.HasPrefix(path, "/api/provider/") {
-		return path
+	// Handle /api/internal/* paths (Amp CLI proxy requests)
+	if strings.HasPrefix(path, "/api/internal/") {
+		return strings.TrimPrefix(path, "/api/internal")
 	}
 
-	// /api/provider/:provider/... -> 去掉前缀
-	parts := strings.SplitN(path, "/", 5) // ["", "api", "provider", ":provider", "rest..."]
-	if len(parts) >= 5 {
-		return "/" + parts[4]
+	// Handle /api/provider/:provider/* paths
+	if strings.HasPrefix(path, "/api/provider/") {
+		// /api/provider/:provider/... -> 去掉前缀
+		parts := strings.SplitN(path, "/", 5) // ["", "api", "provider", ":provider", "rest..."]
+		if len(parts) >= 5 {
+			return "/" + parts[4]
+		}
 	}
+
 	return path
 }

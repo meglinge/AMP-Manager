@@ -54,7 +54,7 @@ func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
 		Enabled:           true,
 		MaxAttempts:       3,
-		GateTimeout:       120 * time.Second, // 增加到 120 秒，AI 模型可能需要长时间思考
+		GateTimeout:       300 * time.Second, // 5分钟，与 ReadIdleTimeout 对齐，允许 AI 长时间思考
 		MaxBodyBytes:      60 << 20,          // 60MB
 		BackoffBase:       100 * time.Millisecond,
 		BackoffMax:        2 * time.Second,
