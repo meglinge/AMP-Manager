@@ -2,6 +2,7 @@ package amp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,11 +13,28 @@ import (
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
+	"ampmanager/internal/translator"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
+
+// translationContextKey is used to store translation info in context
+type translationContextKey struct{}
+
+// TranslationInfo holds translation state for request/response conversion
+type TranslationInfo struct {
+	NeedsConversion     bool
+	IncomingFormat      translator.Format
+	OutgoingFormat      translator.Format
+	OriginalRequestBody []byte
+	ConvertedBody       []byte
+	IsStreaming         bool
+	Model               string // originalModel - for response rewriting
+	UpstreamModel       string // mappedModel - for upstream URL path
+	ResponseParam       *any
+}
 
 type channelConfigKey struct{}
 
@@ -39,6 +57,72 @@ func GetChannelConfig(c *gin.Context) *ChannelConfig {
 }
 
 var channelService = service.NewChannelService()
+
+// WithTranslationInfo stores translation info in context
+func WithTranslationInfo(ctx context.Context, info *TranslationInfo) context.Context {
+	return context.WithValue(ctx, translationContextKey{}, info)
+}
+
+// GetTranslationInfo retrieves translation info from context
+func GetTranslationInfo(ctx context.Context) *TranslationInfo {
+	if val := ctx.Value(translationContextKey{}); val != nil {
+		if info, ok := val.(*TranslationInfo); ok {
+			return info
+		}
+	}
+	return nil
+}
+
+// detectIncomingFormat determines the request format based on the request path
+func detectIncomingFormat(path string) translator.Format {
+	switch {
+	case strings.Contains(path, "/v1/chat/completions") || strings.Contains(path, "/v1/responses"):
+		return translator.FormatOpenAI
+	case strings.Contains(path, "/v1/messages"):
+		return translator.FormatClaude
+	case strings.Contains(path, "/v1beta/models/") || strings.Contains(path, "/v1beta1/publishers/google/models/"):
+		return translator.FormatGemini
+	default:
+		return translator.FormatOpenAI // Default to OpenAI format
+	}
+}
+
+// channelTypeToFormat converts channel type to translator format
+func channelTypeToFormat(channelType model.ChannelType) translator.Format {
+	switch channelType {
+	case model.ChannelTypeOpenAI:
+		return translator.FormatOpenAI
+	case model.ChannelTypeClaude:
+		return translator.FormatClaude
+	case model.ChannelTypeGemini:
+		return translator.FormatGemini
+	default:
+		return translator.FormatOpenAI
+	}
+}
+
+// needsFormatConversion checks if request/response format conversion is needed
+func needsFormatConversion(incoming, outgoing translator.Format) bool {
+	return incoming != outgoing
+}
+
+// getTargetEndpointPath returns the correct endpoint path for the target format
+func getTargetEndpointPath(targetFormat translator.Format, channel *model.Channel) string {
+	switch targetFormat {
+	case translator.FormatOpenAI:
+		if channel != nil && channel.Endpoint == model.ChannelEndpointResponses {
+			return "/v1/responses"
+		}
+		return "/v1/chat/completions"
+	case translator.FormatClaude:
+		return "/v1/messages"
+	case translator.FormatGemini:
+		// Gemini paths are handled separately with model name in path
+		return ""
+	default:
+		return "/v1/chat/completions"
+	}
+}
 
 // sanitizeURL removes sensitive query parameters from URL for safe logging
 func sanitizeURL(rawURL string) string {
@@ -197,6 +281,77 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 		}
 
+		// Detect incoming and outgoing formats for potential translation
+		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
+		outgoingFormat := channelTypeToFormat(channel.Type)
+		needsTranslation := needsFormatConversion(incomingFormat, outgoingFormat)
+
+		// Check if translation is possible when needed
+		if needsTranslation {
+			// Check if we have a request transformer registered
+			testBody := []byte(`{"model":"test"}`)
+			convertedTest, _ := translator.TranslateRequest(incomingFormat, outgoingFormat, "test", testBody, false)
+			if bytes.Equal(testBody, convertedTest) {
+				// No transformer registered, return error
+				log.Warnf("channel proxy: format conversion from %s to %s not supported", incomingFormat, outgoingFormat)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("format conversion from %s to %s is not supported", incomingFormat, outgoingFormat),
+				})
+				return
+			}
+			log.Infof("channel proxy: translating request from %s to %s", incomingFormat, outgoingFormat)
+		}
+
+		// Read and cache original request body for translation
+		var originalRequestBody []byte
+		var convertedBody []byte
+		isStreaming := false
+		if needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
+			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
+			c.Request.Body.Close()
+			if err != nil {
+				log.Errorf("channel proxy: failed to read request body for translation: %v", err)
+				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
+				return
+			}
+			originalRequestBody = bodyBytes
+
+			// Check if streaming
+			var payload struct {
+				Stream bool `json:"stream"`
+			}
+			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				isStreaming = payload.Stream
+			}
+
+			// Translate request
+			convertedBody, err = translator.TranslateRequest(incomingFormat, outgoingFormat, channelCfg.Model, bodyBytes, isStreaming)
+			if err != nil {
+				log.Warnf("channel proxy: request translation failed: %v, using original request", err)
+				convertedBody = bodyBytes
+			}
+
+			// Restore body with converted content
+			c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
+			c.Request.ContentLength = int64(len(convertedBody))
+			c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+		}
+
+		// Store translation info in context for response processing
+		var responseParam any
+		translationInfo := &TranslationInfo{
+			NeedsConversion:     needsTranslation,
+			IncomingFormat:      incomingFormat,
+			OutgoingFormat:      outgoingFormat,
+			OriginalRequestBody: originalRequestBody,
+			ConvertedBody:       convertedBody,
+			IsStreaming:         isStreaming,
+			Model:               originalModel,    // 用于响应重写
+			UpstreamModel:       channelCfg.Model, // 用于上游路径
+			ResponseParam:       &responseParam,
+		}
+		c.Request = c.Request.WithContext(WithTranslationInfo(c.Request.Context(), translationInfo))
+
 		targetURL, err := buildUpstreamURL(channel, c.Request)
 		if err != nil {
 			log.Errorf("channel proxy: failed to build upstream URL: %v", err)
@@ -300,6 +455,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			FlushInterval: -1, // Flush immediately for SSE streaming support
 			ModifyResponse: func(resp *http.Response) error {
 				trace := GetRequestTrace(resp.Request.Context())
+				transInfo := GetTranslationInfo(resp.Request.Context())
 
 				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -320,6 +476,23 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 				}
 
+				// Apply response translation if needed
+				if transInfo != nil && transInfo.NeedsConversion {
+					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+					resp.Body = newTranslatingResponseBody(
+						resp.Request.Context(),
+						resp.Body,
+						transInfo.OutgoingFormat, // from (upstream format)
+						transInfo.IncomingFormat, // to (client format)
+						transInfo.Model,
+						transInfo.OriginalRequestBody,
+						transInfo.ConvertedBody,
+						isStreaming,
+						transInfo.ResponseParam,
+					)
+					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
+				}
+
 				return nil
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
@@ -332,7 +505,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						writer.UpdateFromTrace(trace)
 					}
 				}
-				WriteErrorResponse(rw, http.StatusBadGateway, "Upstream request failed: "+err.Error())
+				// 使用清理后的错误消息，防止泄露敏感信息
+				safeMsg := SanitizeError(err)
+				WriteErrorResponse(rw, http.StatusBadGateway, "Upstream request failed: "+safeMsg)
 			},
 		}
 
@@ -365,6 +540,9 @@ func buildUpstreamURL(channel *model.Channel, req *http.Request) (string, error)
 func getEndpointPath(channel *model.Channel, req *http.Request) string {
 	originalPath := req.URL.Path
 
+	// Check if we need format conversion (OpenAI request -> Gemini channel)
+	transInfo := GetTranslationInfo(req.Context())
+
 	switch channel.Type {
 	case model.ChannelTypeOpenAI:
 		if channel.Endpoint == model.ChannelEndpointResponses {
@@ -376,6 +554,26 @@ func getEndpointPath(channel *model.Channel, req *http.Request) string {
 		return "/v1/messages"
 
 	case model.ChannelTypeGemini:
+		// When format conversion is needed (e.g., OpenAI request -> Gemini channel),
+		// we need to construct the correct Gemini path with model name
+		if transInfo != nil && transInfo.NeedsConversion {
+			incomingFormat := transInfo.IncomingFormat
+			// OpenAI/Claude format incoming, need to build Gemini path
+			if incomingFormat == translator.FormatOpenAI || incomingFormat == translator.FormatClaude {
+				modelName := transInfo.UpstreamModel // 使用 UpstreamModel
+				if modelName != "" {
+					// 移除可能存在的 models/ 前缀
+					modelName = strings.TrimPrefix(modelName, "models/")
+					// Gemini uses :streamGenerateContent for streaming, :generateContent for non-streaming
+					action := "generateContent"
+					if transInfo.IsStreaming {
+						action = "streamGenerateContent"
+					}
+					return fmt.Sprintf("/v1beta/models/%s:%s", modelName, action)
+				}
+			}
+		}
+
 		// Convert v1beta1/publishers/google/models/X:action to v1beta/models/X:action
 		if strings.Contains(originalPath, "/v1beta1/publishers/google/models/") {
 			parts := strings.Split(originalPath, "/v1beta1/publishers/google/models/")
@@ -459,4 +657,232 @@ func injectOpenAIStreamOptions(req *http.Request) {
 	req.Body = io.NopCloser(bytes.NewReader(newBody))
 	req.ContentLength = int64(len(newBody))
 	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+}
+
+// translatingResponseBody wraps an io.ReadCloser to translate response data
+type translatingResponseBody struct {
+	ctx                 context.Context
+	reader              io.ReadCloser
+	from                translator.Format
+	to                  translator.Format
+	model               string
+	originalRequestBody []byte
+	convertedBody       []byte
+	isStreaming         bool
+	param               *any
+	buffer              bytes.Buffer
+	translatedBuffer    bytes.Buffer
+	sseBuffer           bytes.Buffer // Buffer for accumulating SSE events (split by \n\n or \r\n\r\n)
+	eofReached          bool         // Track if EOF has been reached
+}
+
+// maxSSEBufferSize is the maximum size limit for SSE buffer to prevent OOM (10MB)
+const maxSSEBufferSize = 10 * 1024 * 1024
+
+// findSSEDelimiter finds the earliest SSE delimiter (\n\n or \r\n\r\n) in data
+func findSSEDelimiter(data []byte) (idx int, delimLen int) {
+	lfIdx := bytes.Index(data, []byte("\n\n"))
+	crlfIdx := bytes.Index(data, []byte("\r\n\r\n"))
+
+	if lfIdx == -1 && crlfIdx == -1 {
+		return -1, 0
+	}
+	if lfIdx == -1 {
+		return crlfIdx, 4
+	}
+	if crlfIdx == -1 {
+		return lfIdx, 2
+	}
+	if lfIdx < crlfIdx {
+		return lfIdx, 2
+	}
+	return crlfIdx, 4
+}
+
+func newTranslatingResponseBody(
+	ctx context.Context,
+	reader io.ReadCloser,
+	from, to translator.Format,
+	model string,
+	originalRequestBody, convertedBody []byte,
+	isStreaming bool,
+	param *any,
+) *translatingResponseBody {
+	return &translatingResponseBody{
+		ctx:                 ctx,
+		reader:              reader,
+		from:                from,
+		to:                  to,
+		model:               model,
+		originalRequestBody: originalRequestBody,
+		convertedBody:       convertedBody,
+		isStreaming:         isStreaming,
+		param:               param,
+	}
+}
+
+func (t *translatingResponseBody) Read(p []byte) (int, error) {
+	// If we have translated data buffered, return that first
+	if t.translatedBuffer.Len() > 0 {
+		return t.translatedBuffer.Read(p)
+	}
+
+	if t.isStreaming {
+		return t.readStreaming(p)
+	}
+	return t.readNonStreaming(p)
+}
+
+func (t *translatingResponseBody) readStreaming(p []byte) (int, error) {
+	// If we have translated data buffered, return that first
+	if t.translatedBuffer.Len() > 0 {
+		return t.translatedBuffer.Read(p)
+	}
+
+	// If EOF already reached, return EOF
+	if t.eofReached {
+		return 0, io.EOF
+	}
+
+	// Loop until we have data to return or encounter an error
+	for {
+		// Check SSE buffer size limit to prevent OOM
+		if t.sseBuffer.Len() > maxSSEBufferSize {
+			return 0, fmt.Errorf("SSE buffer overflow: exceeds %d bytes", maxSSEBufferSize)
+		}
+
+		// Read from upstream
+		buf := make([]byte, 4096)
+		n, err := t.reader.Read(buf)
+		if n > 0 {
+			t.sseBuffer.Write(buf[:n])
+		}
+
+		// Process complete SSE events (delimited by \n\n or \r\n\r\n)
+		for {
+			data := t.sseBuffer.Bytes()
+			idx, delimLen := findSSEDelimiter(data)
+			if idx == -1 {
+				break
+			}
+
+			// Extract complete event (including the delimiter)
+			event := make([]byte, idx+delimLen)
+			copy(event, data[:idx+delimLen])
+
+			// Remove processed data from buffer
+			t.sseBuffer.Reset()
+			t.sseBuffer.Write(data[idx+delimLen:])
+
+			// Translate this SSE event
+			translated, translateErr := translator.TranslateStream(
+				t.ctx,
+				t.from,
+				t.to,
+				t.model,
+				t.originalRequestBody,
+				t.convertedBody,
+				event,
+				t.param,
+			)
+			if translateErr != nil {
+				log.Warnf("channel proxy: stream translation failed: %v, using original data", translateErr)
+				translated = []string{string(event)}
+			}
+
+			for _, chunk := range translated {
+				t.translatedBuffer.WriteString(chunk)
+			}
+		}
+
+		// Return translated data if available
+		if t.translatedBuffer.Len() > 0 {
+			return t.translatedBuffer.Read(p)
+		}
+
+		// Handle EOF
+		if err == io.EOF {
+			t.eofReached = true
+			// Process any remaining data in buffer
+			if t.sseBuffer.Len() > 0 {
+				remaining := t.sseBuffer.Bytes()
+				t.sseBuffer.Reset()
+				translated, translateErr := translator.TranslateStream(
+					t.ctx,
+					t.from,
+					t.to,
+					t.model,
+					t.originalRequestBody,
+					t.convertedBody,
+					remaining,
+					t.param,
+				)
+				if translateErr != nil {
+					log.Warnf("channel proxy: stream translation failed: %v, using original data", translateErr)
+					translated = []string{string(remaining)}
+				}
+				for _, chunk := range translated {
+					t.translatedBuffer.WriteString(chunk)
+				}
+				if t.translatedBuffer.Len() > 0 {
+					return t.translatedBuffer.Read(p)
+				}
+			}
+			return 0, io.EOF
+		}
+
+		// Handle other errors
+		if err != nil {
+			return 0, err
+		}
+		// No error and no translated data yet, continue reading
+	}
+}
+
+// maxNonStreamingResponseSize is the maximum size limit for non-streaming responses (100MB)
+const maxNonStreamingResponseSize = 100 * 1024 * 1024
+
+func (t *translatingResponseBody) readNonStreaming(p []byte) (int, error) {
+	// For non-streaming, accumulate the entire response first
+	buf := make([]byte, 4096)
+	for {
+		// Check size limit before reading more data
+		if t.buffer.Len() >= maxNonStreamingResponseSize {
+			return 0, fmt.Errorf("response too large: exceeds %d bytes", maxNonStreamingResponseSize)
+		}
+
+		n, err := t.reader.Read(buf)
+		if n > 0 {
+			t.buffer.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	// Translate the complete response
+	translated, err := translator.TranslateNonStream(
+		t.ctx,
+		t.from,
+		t.to,
+		t.model,
+		t.originalRequestBody,
+		t.convertedBody,
+		t.buffer.Bytes(),
+		t.param,
+	)
+	if err != nil {
+		log.Warnf("channel proxy: response translation failed: %v, using original response", err)
+		translated = string(t.buffer.Bytes())
+	}
+
+	t.translatedBuffer.WriteString(translated)
+	return t.translatedBuffer.Read(p)
+}
+
+func (t *translatingResponseBody) Close() error {
+	return t.reader.Close()
 }

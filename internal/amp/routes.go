@@ -3,19 +3,25 @@ package amp
 import (
 	"net/http/httputil"
 
+	"ampmanager/internal/config"
+	"ampmanager/internal/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterProxyRoutes(engine *gin.Engine, proxy *httputil.ReverseProxy) {
+	cfg := config.Get()
+	proxyLimiter := middleware.NewRateLimiter(cfg.RateLimitProxyRPS, 200)
+
 	proxyHandler := ProxyHandler(proxy)
 	channelHandler := ChannelProxyHandler()
 	modelsHandler := ModelsHandler()
 
 	// Register amp proxy routes at root level
-	registerAmpProxyAPI(engine, proxyHandler, channelHandler, modelsHandler)
+	registerAmpProxyAPI(engine, proxyHandler, channelHandler, modelsHandler, proxyLimiter)
 
 	// Register management routes (user, auth, threads, etc.) - proxied to ampcode.com
-	registerManagementRoutes(engine, proxyHandler)
+	registerManagementRoutes(engine, proxyHandler, proxyLimiter)
 }
 
 // ThreadRedirectHandler redirects /threads/T-xxx to official Amp threads
@@ -67,10 +73,11 @@ func isModelsEndpoint(path string) bool {
 
 // registerManagementRoutes registers Amp management proxy routes
 // These routes proxy through to ampcode.com for OAuth, user management, threads, etc.
-func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) {
+func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc, rateLimiter *middleware.RateLimiter) {
 	// Management routes under /api/* - proxied to ampcode.com
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
+	api.Use(rateLimiter.RateLimitByAPIKey())
 
 	// User and auth management
 	api.Any("/user", proxyHandler)
@@ -116,9 +123,10 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc) 
 
 // registerAmpProxyAPI registers amp proxy routes at root /api/* level
 // This is needed because amp CLI ignores URL path and sends requests directly to /api/*
-func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, modelsHandler gin.HandlerFunc) {
+func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, modelsHandler gin.HandlerFunc, rateLimiter *middleware.RateLimiter) {
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
+	api.Use(rateLimiter.RateLimitByAPIKey())
 	api.Use(ApplyModelMappingMiddleware())
 	api.Use(ChannelRouterMiddleware())
 
@@ -130,6 +138,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	// Root level v1/v1beta routes for OpenAI/Anthropic/Gemini compatible endpoints
 	v1 := engine.Group("/v1")
 	v1.Use(APIKeyAuthMiddleware())
+	v1.Use(rateLimiter.RateLimitByAPIKey())
 	v1.Use(ApplyModelMappingMiddleware())
 	v1.Use(ChannelRouterMiddleware())
 
@@ -141,6 +150,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 
 	v1beta := engine.Group("/v1beta")
 	v1beta.Use(APIKeyAuthMiddleware())
+	v1beta.Use(rateLimiter.RateLimitByAPIKey())
 	v1beta.Use(ApplyModelMappingMiddleware())
 	v1beta.Use(ChannelRouterMiddleware())
 

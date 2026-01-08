@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -132,7 +133,7 @@ func (e *RetryExhaustedError) Unwrap() error {
 // RoundTrip 实现 http.RoundTripper 接口
 func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cfg := rt.getConfig()
-	
+
 	// 如果禁用重试或只允许1次，直接调用底层
 	if !cfg.Enabled || cfg.MaxAttempts <= 1 {
 		return rt.Base.RoundTrip(req)
@@ -149,9 +150,24 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return rt.Base.RoundTrip(req)
 	}
 
+	// 检查是否是模型调用请求，用于幂等性处理
+	isModelCall := IsModelInvocation(req.Method, req.URL.Path)
+	isStreaming := strings.Contains(req.Header.Get("Accept"), "text/event-stream") ||
+		req.URL.Query().Get("stream") == "true"
+
+	// 为模型调用请求添加幂等性 key（防止重试导致双重计费）
+	var idempotencyKey string
+	if isModelCall {
+		if traceID := req.Header.Get("X-Request-ID"); traceID != "" {
+			idempotencyKey = traceID
+		} else {
+			idempotencyKey = uuid.New().String()
+		}
+	}
+
 	var lastErr error
 	var lastResp *http.Response
-	
+
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
 		// 检查 context 是否已取消
 		if err := req.Context().Err(); err != nil {
@@ -161,11 +177,26 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// 为本次尝试准备请求
 		attemptReq := rt.cloneRequest(req, bodyBytes)
 
+		// 为模型调用请求设置幂等性 header
+		if idempotencyKey != "" {
+			attemptReq.Header.Set("Idempotency-Key", idempotencyKey)
+		}
+
 		// 发起请求
 		resp, err := rt.Base.RoundTrip(attemptReq)
-		
+
 		if err != nil {
 			lastErr = err
+
+			// 流式请求在首字节超时后不应重试（上游可能已开始处理）
+			if isStreaming && attempt > 1 {
+				var fbTimeout *FirstByteTimeoutError
+				if errors.As(err, &fbTimeout) {
+					log.Warnf("retry: streaming request first-byte timeout, not retrying (upstream may have started processing)")
+					return nil, err
+				}
+			}
+
 			if rt.shouldRetryError(err) && attempt < cfg.MaxAttempts {
 				rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, err, nil)
 				rt.backoff(req.Context(), attempt, cfg, nil)
@@ -195,22 +226,32 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		// 对流式响应进行首字节门控
 		if rt.shouldGateResponse(resp) {
-			firstByte, probeErr := rt.probeFirstByte(req.Context(), resp.Body, cfg.GateTimeout)
-			if probeErr != nil {
-				lastErr = probeErr
-				_ = resp.Body.Close()
-				if attempt < cfg.MaxAttempts {
-					rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, probeErr, resp)
-					rt.backoff(req.Context(), attempt, cfg, nil)
-					continue
+			// 流式请求在重试时不应再进行首字节门控（上游可能已开始处理）
+			if isStreaming && attempt > 1 {
+				log.Debugf("retry: skipping first-byte gate for streaming retry attempt %d", attempt)
+			} else {
+				firstByte, probeErr := rt.probeFirstByte(req.Context(), resp.Body, cfg.GateTimeout)
+				if probeErr != nil {
+					lastErr = probeErr
+					_ = resp.Body.Close()
+					// 流式请求首字节超时后不再重试
+					if isStreaming {
+						log.Warnf("retry: streaming request first-byte timeout, not retrying")
+						return nil, probeErr
+					}
+					if attempt < cfg.MaxAttempts {
+						rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, probeErr, resp)
+						rt.backoff(req.Context(), attempt, cfg, nil)
+						continue
+					}
+					return nil, &RetryExhaustedError{Attempts: attempt, LastErr: probeErr}
 				}
-				return nil, &RetryExhaustedError{Attempts: attempt, LastErr: probeErr}
-			}
 
-			// 成功读取首字节，回填到响应体
-			resp.Body = &readCloser{
-				r: io.MultiReader(bytes.NewReader(firstByte), resp.Body),
-				c: resp.Body,
+				// 成功读取首字节，回填到响应体
+				resp.Body = &readCloser{
+					r: io.MultiReader(bytes.NewReader(firstByte), resp.Body),
+					c: resp.Body,
+				}
 			}
 		}
 

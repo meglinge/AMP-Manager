@@ -46,14 +46,14 @@ type LogEntry struct {
 
 // LogWriter 异步批量日志写入器
 type LogWriter struct {
-	db          *sql.DB
-	entryChan   chan LogEntry
-	batchSize   int
+	db            *sql.DB
+	entryChan     chan LogEntry
+	batchSize     int
 	flushInterval time.Duration
-	wg          sync.WaitGroup
-	stopChan    chan struct{}
-	stopped     bool
-	mu          sync.Mutex
+	wg            sync.WaitGroup
+	stopChan      chan struct{}
+	stopped       bool
+	mu            sync.Mutex
 }
 
 // NewLogWriter 创建日志写入器

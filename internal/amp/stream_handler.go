@@ -89,6 +89,7 @@ func (h *SSEStreamHandler) keepAliveLoop() {
 			if err != nil {
 				log.Debugf("sse stream: keep-alive write failed: %v", err)
 				h.mu.Unlock()
+				h.cancel() // 取消上游连接
 				return
 			}
 			h.flusher.Flush()
@@ -160,17 +161,17 @@ func BuildSSEErrorEvent(statusCode int, message string) []byte {
 
 // SSEKeepAliveWrapper 包装 io.ReadCloser，在读取时支持心跳写入
 type SSEKeepAliveWrapper struct {
-	reader          io.ReadCloser
-	writer          http.ResponseWriter
-	flusher         http.Flusher
-	ctx             context.Context
-	cancel          context.CancelFunc
-	keepAlive       *time.Ticker
-	mu              sync.Mutex
-	closed          bool
-	wroteData       bool
-	lastActivity    time.Time
-	cfg             *StreamConfig
+	reader       io.ReadCloser
+	writer       http.ResponseWriter
+	flusher      http.Flusher
+	ctx          context.Context
+	cancel       context.CancelFunc
+	keepAlive    *time.Ticker
+	mu           sync.Mutex
+	closed       bool
+	wroteData    bool
+	lastActivity time.Time
+	cfg          *StreamConfig
 }
 
 // NewSSEKeepAliveWrapper 创建 SSE Keep-Alive 包装器
@@ -227,6 +228,7 @@ func (w *SSEKeepAliveWrapper) keepAliveLoop() {
 				if err != nil {
 					log.Debugf("sse keep-alive: write failed: %v", err)
 					w.mu.Unlock()
+					w.cancel() // 取消上游连接
 					return
 				}
 				w.flusher.Flush()

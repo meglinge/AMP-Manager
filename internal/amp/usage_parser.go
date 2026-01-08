@@ -112,9 +112,9 @@ func (p *anthropicParser) ParseResponse(body []byte) (*TokenUsage, bool) {
 type openAIChatParser struct{}
 
 type openAIChatUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens *int `json:"cached_tokens,omitempty"`
 	} `json:"prompt_tokens_details,omitempty"`
@@ -165,9 +165,9 @@ func (p *openAIChatParser) ParseResponse(body []byte) (*TokenUsage, bool) {
 type openAIResponsesParser struct{}
 
 type openAIResponsesUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	TotalTokens        int `json:"total_tokens"`
 	InputTokensDetails *struct {
 		CachedTokens *int `json:"cached_tokens,omitempty"`
 	} `json:"input_tokens_details,omitempty"`
@@ -261,8 +261,8 @@ func (p *geminiParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage, b
 	}
 
 	usage := &TokenUsage{
-		InputTokens:         intPtr(chunk.UsageMetadata.PromptTokenCount),
-		OutputTokens:        intPtr(chunk.UsageMetadata.CandidatesTokenCount),
+		InputTokens:          intPtr(chunk.UsageMetadata.PromptTokenCount),
+		OutputTokens:         intPtr(chunk.UsageMetadata.CandidatesTokenCount),
 		CacheReadInputTokens: chunk.UsageMetadata.CachedContentTokenCount,
 	}
 
@@ -282,8 +282,8 @@ func (p *geminiParser) ParseResponse(body []byte) (*TokenUsage, bool) {
 	}
 
 	usage := &TokenUsage{
-		InputTokens:         intPtr(resp.UsageMetadata.PromptTokenCount),
-		OutputTokens:        intPtr(resp.UsageMetadata.CandidatesTokenCount),
+		InputTokens:          intPtr(resp.UsageMetadata.PromptTokenCount),
+		OutputTokens:         intPtr(resp.UsageMetadata.CandidatesTokenCount),
 		CacheReadInputTokens: resp.UsageMetadata.CachedContentTokenCount,
 	}
 	return usage, true

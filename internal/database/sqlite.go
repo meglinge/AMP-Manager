@@ -2,9 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -25,8 +27,8 @@ func Init(dbPath string) error {
 			}
 		}
 
-		// 添加连接参数：WAL模式、忙等待超时、共享缓存
-		dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+		// 添加连接参数：WAL模式、忙等待超时、外键约束
+		dsn := dbPath + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 		db, err = sql.Open("sqlite", dsn)
 		if err != nil {
 			return
@@ -35,9 +37,10 @@ func Init(dbPath string) error {
 			return
 		}
 
-		// 限制连接池大小，SQLite 单写多读
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(1)
+		// 连接池配置：WAL 模式支持多读单写
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(5)
+		db.SetConnMaxLifetime(time.Hour)
 
 		err = createTables()
 		if err != nil {
@@ -175,24 +178,57 @@ func createTables() error {
 }
 
 func runMigrations() error {
-	_, _ = db.Exec(`
-		ALTER TABLE user_api_keys ADD COLUMN api_key TEXT NOT NULL DEFAULT ''
-	`)
+	migrations := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "add_api_key_column",
+			sql:  `ALTER TABLE user_api_keys ADD COLUMN api_key TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "migrate_proxy_tokens",
+			sql: `INSERT INTO user_api_keys (id, user_id, name, key_hash, prefix, last_used_at, expires_at, revoked_at, created_at)
+				SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, revoked_at, created_at
+				FROM user_proxy_tokens
+				WHERE NOT EXISTS (SELECT 1 FROM user_api_keys WHERE user_api_keys.id = user_proxy_tokens.id)`,
+		},
+		{
+			name: "add_channels_endpoint",
+			sql:  `ALTER TABLE channels ADD COLUMN endpoint TEXT NOT NULL DEFAULT 'chat_completions'`,
+		},
+		{
+			name: "add_request_logs_status",
+			sql:  `ALTER TABLE request_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'success'`,
+		},
+		{
+			name: "add_request_logs_updated_at",
+			sql:  `ALTER TABLE request_logs ADD COLUMN updated_at DATETIME`,
+		},
+		{
+			name: "add_request_logs_status_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status)`,
+		},
+		{
+			name: "add_original_model_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_original_model_time ON request_logs(original_model, created_at DESC)`,
+		},
+		{
+			name: "add_channels_enabled_priority_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_channels_enabled_priority ON channels(enabled, priority ASC, weight DESC)`,
+		},
+	}
 
-	_, _ = db.Exec(`
-		INSERT INTO user_api_keys (id, user_id, name, key_hash, prefix, last_used_at, expires_at, revoked_at, created_at)
-		SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, revoked_at, created_at
-		FROM user_proxy_tokens
-		WHERE NOT EXISTS (SELECT 1 FROM user_api_keys WHERE user_api_keys.id = user_proxy_tokens.id)
-	`)
-
-	_, _ = db.Exec(`ALTER TABLE channels ADD COLUMN endpoint TEXT NOT NULL DEFAULT 'chat_completions'`)
-
-	// Add status and updated_at columns for pending request tracking
-	_, _ = db.Exec(`ALTER TABLE request_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'success'`)
-	_, _ = db.Exec(`ALTER TABLE request_logs ADD COLUMN updated_at DATETIME`)
-	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status)`)
-
+	for _, m := range migrations {
+		_, err := db.Exec(m.sql)
+		if err != nil {
+			// ALTER TABLE 和 INSERT 迁移可能因为已存在而失败，这是正常的
+			// 只有 CREATE INDEX IF NOT EXISTS 类型的迁移失败才是真正的错误
+			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" {
+				return fmt.Errorf("migration '%s' failed: %w", m.name, err)
+			}
+		}
+	}
 	return nil
 }
 

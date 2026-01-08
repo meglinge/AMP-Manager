@@ -1,7 +1,10 @@
 package router
 
 import (
+	"strings"
+
 	"ampmanager/internal/amp"
+	"ampmanager/internal/config"
 	"ampmanager/internal/handler"
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/web"
@@ -12,16 +15,44 @@ import (
 func Setup() *gin.Engine {
 	r := gin.Default()
 
+	cfg := config.Get()
+
+	allowedOrigins := strings.Split(cfg.CORSAllowedOrigins, ",")
+	if len(allowedOrigins) == 0 || allowedOrigins[0] == "" {
+		allowedOrigins = []string{"*"}
+	}
+
 	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+
+		allowed := false
+		for _, o := range allowedOrigins {
+			o = strings.TrimSpace(o)
+			if o == "*" || o == origin {
+				allowed = true
+				break
+			}
+		}
+
+		if allowed && origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+		} else if allowedOrigins[0] == "*" {
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Vary", "Origin")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
 		c.Next()
 	})
+
+	authLimiter := middleware.NewRateLimiter(cfg.RateLimitAuthRPS, 10)
 
 	userHandler := handler.NewUserHandler()
 	ampHandler := handler.NewAmpHandler()
@@ -35,6 +66,7 @@ func Setup() *gin.Engine {
 	{
 		// Local management auth (using /manage/auth to avoid conflict with proxy /api/auth/*)
 		manageAuth := api.Group("/manage/auth")
+		manageAuth.Use(authLimiter.RateLimitByIP())
 		{
 			manageAuth.POST("/register", userHandler.Register)
 			manageAuth.POST("/login", userHandler.Login)

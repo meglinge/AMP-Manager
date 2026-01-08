@@ -21,6 +21,10 @@ func main() {
 
 	cfg := config.Load()
 
+	if err := config.ValidateSecurityConfig(cfg); err != nil {
+		log.Fatalf("Security check failed: %v", err)
+	}
+
 	if err := database.Init("./data/data.db"); err != nil {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}

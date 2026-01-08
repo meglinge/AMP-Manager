@@ -18,10 +18,10 @@ type ModelMetadata struct {
 
 // modelMetadataCache caches model metadata from database
 type modelMetadataCache struct {
-	mu        sync.RWMutex
-	data      map[string]*ModelMetadata
-	loadedAt  time.Time
-	cacheTTL  time.Duration
+	mu       sync.RWMutex
+	data     map[string]*ModelMetadata
+	loadedAt time.Time
+	cacheTTL time.Duration
 }
 
 var metadataCache = &modelMetadataCache{

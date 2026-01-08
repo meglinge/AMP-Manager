@@ -138,8 +138,8 @@ func (h *AmpHandler) GetAPIKey(c *gin.Context) {
 		} else if errors.Is(err, service.ErrNotOwner) {
 			status = http.StatusForbidden
 			msg = err.Error()
-		} else if errors.Is(err, service.ErrAPIKeyMissing) {
-			status = http.StatusConflict
+		} else if errors.Is(err, service.ErrAPIKeyNotRetrievable) {
+			status = http.StatusGone
 			msg = err.Error()
 		}
 

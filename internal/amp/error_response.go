@@ -3,6 +3,7 @@ package amp
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -149,6 +150,35 @@ func IsRetryableError(status int) bool {
 	default:
 		return false
 	}
+}
+
+// sensitivePatterns 敏感信息正则模式（编译一次复用）
+var sensitivePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)key=[^&\s]+`),
+	regexp.MustCompile(`(?i)api_key=[^&\s]+`),
+	regexp.MustCompile(`(?i)token=[^&\s]+`),
+	regexp.MustCompile(`(?i)Bearer\s+[^\s]+`),
+	regexp.MustCompile(`(?i)x-api-key:\s*[^\s]+`),
+	regexp.MustCompile(`(?i)authorization:\s*[^\s]+`),
+	regexp.MustCompile(`sk-[a-zA-Z0-9-_]+`),
+	regexp.MustCompile(`(?i)password=[^&\s]+`),
+	regexp.MustCompile(`(?i)secret=[^&\s]+`),
+}
+
+// SanitizeError 清理错误消息中的敏感信息
+func SanitizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return SanitizeErrorMessage(err.Error())
+}
+
+// SanitizeErrorMessage 清理错误消息字符串中的敏感信息
+func SanitizeErrorMessage(msg string) string {
+	for _, pattern := range sensitivePatterns {
+		msg = pattern.ReplaceAllString(msg, "[REDACTED]")
+	}
+	return msg
 }
 
 // NewStandardError 创建标准化错误响应对象（用于 Gin 的 AbortWithStatusJSON）

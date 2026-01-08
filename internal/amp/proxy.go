@@ -269,8 +269,9 @@ func modifyResponse(resp *http.Response) error {
 	originalBody := resp.Body
 	contentEncoding := resp.Header.Get("Content-Encoding")
 
-	// 读取完整响应体
-	compressedData, err := io.ReadAll(io.LimitReader(originalBody, 10*1024*1024))
+	// 读取完整响应体（限制 10MB + 1 字节用于检测截断）
+	const maxResponseSize = 10 * 1024 * 1024
+	compressedData, err := io.ReadAll(io.LimitReader(originalBody, maxResponseSize+1))
 	_ = originalBody.Close()
 	if err != nil {
 		log.Warnf("amp proxy: failed to read response body: %v", err)
@@ -281,7 +282,21 @@ func modifyResponse(resp *http.Response) error {
 		return nil
 	}
 
+	// 检测响应是否被截断
+	if len(compressedData) > maxResponseSize {
+		log.Warnf("amp proxy: response too large (%d bytes), skipping token extraction", len(compressedData))
+		// 截断到限制大小并透传
+		resp.Body = io.NopCloser(bytes.NewReader(compressedData[:maxResponseSize]))
+		resp.ContentLength = int64(maxResponseSize)
+		resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+		if trace != nil {
+			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+		}
+		return nil
+	}
+
 	var bodyData []byte
+	const maxDecompressedSize = 50 * 1024 * 1024 // 50MB 解压限制，防止 zip 炸弹
 
 	// 根据 Content-Encoding 解压
 	switch strings.ToLower(contentEncoding) {
@@ -291,10 +306,14 @@ func modifyResponse(resp *http.Response) error {
 			log.Warnf("amp proxy: failed to create gzip reader: %v", err)
 			bodyData = compressedData
 		} else {
-			decompressed, err := io.ReadAll(gzipReader)
+			decompressed, err := io.ReadAll(io.LimitReader(gzipReader, maxDecompressedSize+1))
 			_ = gzipReader.Close()
 			if err != nil {
 				log.Warnf("amp proxy: failed to decompress gzip: %v", err)
+				bodyData = compressedData
+			} else if len(decompressed) > maxDecompressedSize {
+				log.Warnf("amp proxy: decompressed response too large (%d bytes), skipping token extraction", len(decompressed))
+				// 解压后太大，使用原始压缩数据
 				bodyData = compressedData
 			} else {
 				bodyData = decompressed
@@ -307,11 +326,16 @@ func modifyResponse(resp *http.Response) error {
 		if len(compressedData) >= 2 && compressedData[0] == 0x1f && compressedData[1] == 0x8b {
 			gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
 			if err == nil {
-				decompressed, err := io.ReadAll(gzipReader)
+				decompressed, err := io.ReadAll(io.LimitReader(gzipReader, maxDecompressedSize+1))
 				_ = gzipReader.Close()
 				if err == nil {
-					bodyData = decompressed
-					log.Debugf("amp proxy: decompressed implicit gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
+					if len(decompressed) > maxDecompressedSize {
+						log.Warnf("amp proxy: implicit gzip decompressed too large (%d bytes), skipping token extraction", len(decompressed))
+						bodyData = compressedData
+					} else {
+						bodyData = decompressed
+						log.Debugf("amp proxy: decompressed implicit gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
+					}
 				} else {
 					bodyData = compressedData
 				}
@@ -365,7 +389,9 @@ func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 			writer.UpdateFromTrace(trace)
 		}
 	}
-	WriteErrorResponse(rw, http.StatusBadGateway, "Failed to reach Amp upstream: "+err.Error())
+	// 使用清理后的错误消息，防止泄露敏感信息
+	safeMsg := SanitizeError(err)
+	WriteErrorResponse(rw, http.StatusBadGateway, "Failed to reach Amp upstream: "+safeMsg)
 }
 
 func ProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {

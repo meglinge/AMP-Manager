@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ampmanager/internal/model"
@@ -19,13 +21,23 @@ var (
 
 type ChannelService struct {
 	repo      *repository.ChannelRepository
-	rrCounter sync.Map
+	rrCounter sync.Map // map[string]*atomic.Uint64
 }
 
 func NewChannelService() *ChannelService {
 	return &ChannelService{
 		repo: repository.NewChannelRepository(),
 	}
+}
+
+// getRRCounter 获取或创建指定 key 的原子计数器
+func (s *ChannelService) getRRCounter(key string) *atomic.Uint64 {
+	if v, ok := s.rrCounter.Load(key); ok {
+		return v.(*atomic.Uint64)
+	}
+	counter := &atomic.Uint64{}
+	actual, _ := s.rrCounter.LoadOrStore(key, counter)
+	return actual.(*atomic.Uint64)
 }
 
 func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelResponse, error) {
@@ -298,11 +310,15 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 		}
 	}
 
-	key := modelName
-	counterVal, _ := s.rrCounter.LoadOrStore(key, 0)
-	counter := counterVal.(int)
-	selected := priorityCandidates[counter%len(priorityCandidates)]
-	s.rrCounter.Store(key, counter+1)
+	// 按 ID 排序确保稳定顺序
+	sort.Slice(priorityCandidates, func(i, j int) bool {
+		return priorityCandidates[i].ID < priorityCandidates[j].ID
+	})
+
+	// 使用原子计数器实现线程安全的 round-robin
+	counter := s.getRRCounter(modelName)
+	idx := int(counter.Add(1) - 1)
+	selected := priorityCandidates[idx%len(priorityCandidates)]
 
 	return selected, nil
 }

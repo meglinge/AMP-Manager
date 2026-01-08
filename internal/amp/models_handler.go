@@ -30,7 +30,7 @@ func ModelsHandler() gin.HandlerFunc {
 // handleOpenAIModels returns OpenAI-compatible model list
 func handleOpenAIModels(c *gin.Context) {
 	models := getModelsForProvider("openai")
-	
+
 	data := make([]gin.H, 0, len(models))
 	for _, m := range models {
 		data = append(data, gin.H{

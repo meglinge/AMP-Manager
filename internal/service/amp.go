@@ -8,18 +8,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
+	"ampmanager/internal/config"
+	"ampmanager/internal/crypto"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 )
 
 var (
-	ErrAPIKeyNotFound = errors.New("API Key 不存在")
-	ErrAPIKeyRevoked  = errors.New("API Key 已被撤销")
-	ErrAPIKeyMissing  = errors.New("API Key 明文不可用，请重新创建")
-	ErrNotOwner       = errors.New("无权操作此资源")
+	ErrAPIKeyNotFound      = errors.New("API Key 不存在")
+	ErrAPIKeyRevoked       = errors.New("API Key 已被撤销")
+	ErrAPIKeyNotRetrievable = errors.New("API Key 只在创建时显示一次，无法再次获取")
+	ErrNotOwner            = errors.New("无权操作此资源")
 )
 
 type AmpService struct {
@@ -84,8 +87,18 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 
 	if existing != nil && req.UpstreamAPIKey == "" {
 		settings.UpstreamAPIKey = existing.UpstreamAPIKey
-	} else {
-		settings.UpstreamAPIKey = req.UpstreamAPIKey
+	} else if req.UpstreamAPIKey != "" {
+		encKey := config.Get().GetEncryptionKey()
+		if encKey != nil {
+			encrypted, err := crypto.Encrypt([]byte(req.UpstreamAPIKey), encKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt upstream API key: %w", err)
+			}
+			settings.UpstreamAPIKey = encrypted
+		} else {
+			log.Println("[WARN] DATA_ENCRYPTION_KEY not set, storing upstream API key in plaintext")
+			settings.UpstreamAPIKey = req.UpstreamAPIKey
+		}
 	}
 
 	if req.ModelMappings != nil {
@@ -140,8 +153,9 @@ func (s *AmpService) TestConnection(userID string) (*model.TestConnectionRespons
 	}
 
 	if settings.UpstreamAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+settings.UpstreamAPIKey)
-		req.Header.Set("X-Api-Key", settings.UpstreamAPIKey)
+		apiKey := s.decryptUpstreamAPIKey(settings.UpstreamAPIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("X-Api-Key", apiKey)
 	}
 
 	start := time.Now()
@@ -204,7 +218,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Name:    req.Name,
 		Prefix:  prefix,
 		KeyHash: keyHash,
-		APIKey:  rawKey,
+		APIKey:  "", // Never store plaintext API key
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -217,7 +231,7 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Prefix:    apiKey.Prefix,
 		APIKey:    rawKey,
 		CreatedAt: apiKey.CreatedAt,
-		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
+		Message:   "API Key 创建成功，请妥善保存。此密钥只显示一次，无法再次查看。",
 	}, nil
 }
 
@@ -270,16 +284,8 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 	if key.UserID != userID {
 		return nil, ErrNotOwner
 	}
-	if key.APIKey == "" {
-		return nil, ErrAPIKeyMissing
-	}
-	return &model.APIKeyRevealResponse{
-		ID:        key.ID,
-		Name:      key.Name,
-		Prefix:    key.Prefix,
-		APIKey:    key.APIKey,
-		CreatedAt: key.CreatedAt,
-	}, nil
+	// API keys are no longer stored in plaintext - they can only be viewed once at creation
+	return nil, ErrAPIKeyNotRetrievable
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {
@@ -300,7 +306,14 @@ func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, erro
 }
 
 func (s *AmpService) GetSettingsInternal(userID string) (*model.AmpSettings, error) {
-	return s.settingsRepo.GetByUserID(userID)
+	settings, err := s.settingsRepo.GetByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	if settings != nil && settings.UpstreamAPIKey != "" {
+		settings.UpstreamAPIKey = s.decryptUpstreamAPIKey(settings.UpstreamAPIKey)
+	}
+	return settings, nil
 }
 
 func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
@@ -321,4 +334,22 @@ func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
 	go s.apiKeyRepo.UpdateLastUsed(key.ID)
 
 	return key, nil
+}
+
+func (s *AmpService) decryptUpstreamAPIKey(storedKey string) string {
+	if storedKey == "" {
+		return ""
+	}
+
+	encKey := config.Get().GetEncryptionKey()
+	if encKey == nil {
+		return storedKey
+	}
+
+	decrypted, err := crypto.Decrypt(storedKey, encKey)
+	if err != nil {
+		log.Printf("[WARN] Failed to decrypt upstream API key (may be plaintext from before encryption was enabled): %v", err)
+		return storedKey
+	}
+	return string(decrypted)
 }

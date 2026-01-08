@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	ErrInvalidToken = errors.New("无效的 Token")
-	ErrExpiredToken = errors.New("Token 已过期")
+	ErrInvalidToken    = errors.New("无效的 Token")
+	ErrExpiredToken    = errors.New("Token 已过期")
+	ErrInvalidIssuer   = errors.New("无效的 Token 签发者")
+	ErrInvalidAudience = errors.New("无效的 Token 受众")
 )
 
 type JWTClaims struct {
@@ -33,6 +35,8 @@ func (s *JWTService) GenerateToken(userID, username string) (string, error) {
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    cfg.JWTIssuer,
+			Audience:  jwt.ClaimStrings{cfg.JWTAudience},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
@@ -63,6 +67,21 @@ func (s *JWTService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	claims, ok := token.Claims.(*JWTClaims)
 	if !ok || !token.Valid {
 		return nil, ErrInvalidToken
+	}
+
+	if claims.Issuer != cfg.JWTIssuer {
+		return nil, ErrInvalidIssuer
+	}
+
+	validAudience := false
+	for _, aud := range claims.Audience {
+		if aud == cfg.JWTAudience {
+			validAudience = true
+			break
+		}
+	}
+	if !validAudience {
+		return nil, ErrInvalidAudience
 	}
 
 	return claims, nil
