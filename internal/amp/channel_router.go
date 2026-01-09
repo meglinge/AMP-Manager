@@ -624,6 +624,10 @@ func buildUpstreamURL(channel *model.Channel, req *http.Request) (string, error)
 	if channel.Type == model.ChannelTypeGemini {
 		q := parsed.Query()
 		q.Set("key", channel.APIKey)
+		// For streaming requests, add alt=sse to get SSE format responses
+		if strings.Contains(upstreamPath, "streamGenerateContent") {
+			q.Set("alt", "sse")
+		}
 		parsed.RawQuery = q.Encode()
 	}
 
