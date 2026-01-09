@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -61,7 +60,12 @@ func NewHealthyStreamWrapper(ctx context.Context, reader io.ReadCloser, trace *R
 	}
 }
 
-// Read 带健康检查的读取
+// deadlineReader 检测底层是否支持 SetReadDeadline
+type deadlineReader interface {
+	SetReadDeadline(t time.Time) error
+}
+
+// Read 带健康检查的读取（同步化，无数据竞争）
 func (h *HealthyStreamWrapper) Read(p []byte) (int, error) {
 	h.mu.Lock()
 	if h.closed {
@@ -77,40 +81,54 @@ func (h *HealthyStreamWrapper) Read(p []byte) (int, error) {
 	default:
 	}
 
-	// 带超时的读取
-	type readResult struct {
-		n   int
-		err error
+	// 尝试设置读取超时（如果底层支持）
+	if dr, ok := h.reader.(deadlineReader); ok {
+		deadline := time.Now().Add(h.cfg.ReadIdleTimeout)
+		_ = dr.SetReadDeadline(deadline)
+		defer dr.SetReadDeadline(time.Time{}) // 清除 deadline
 	}
-	ch := make(chan readResult, 1)
 
-	go func() {
-		n, err := h.reader.Read(p)
-		ch <- readResult{n, err}
-	}()
+	// 同步读取 - 无 goroutine，无数据竞争
+	n, err := h.reader.Read(p)
 
-	timer := time.NewTimer(h.cfg.ReadIdleTimeout)
-	defer timer.Stop()
-
-	select {
-	case res := <-ch:
-		if res.n > 0 {
-			h.mu.Lock()
-			h.lastReadTime = time.Now()
-			h.mu.Unlock()
-		}
-		return res.n, res.err
-	case <-timer.C:
-		// 读取超时 - 上游可能已断开
-		h.logConnectionIssue("read idle timeout", nil)
-		h.forceClose()
-		return 0, &StreamTimeoutError{
-			Duration: h.cfg.ReadIdleTimeout,
-			Phase:    "read_idle",
-		}
-	case <-h.ctx.Done():
-		return 0, h.ctx.Err()
+	// 更新最后读取时间
+	if n > 0 {
+		h.mu.Lock()
+		h.lastReadTime = time.Now()
+		h.mu.Unlock()
 	}
+
+	// 处理超时错误
+	if err != nil {
+		if isTimeoutError(err) {
+			h.logConnectionIssue("read idle timeout", err)
+			h.forceClose()
+			return n, &StreamTimeoutError{
+				Duration: h.cfg.ReadIdleTimeout,
+				Phase:    "read_idle",
+			}
+		}
+		// 检查 context 取消
+		select {
+		case <-h.ctx.Done():
+			return n, h.ctx.Err()
+		default:
+		}
+	}
+
+	return n, err
+}
+
+// isTimeoutError 检查是否为超时错误
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return errors.Is(err, context.DeadlineExceeded)
 }
 
 // Close 安全关闭
@@ -149,9 +167,13 @@ func (h *HealthyStreamWrapper) forceClose() {
 
 func (h *HealthyStreamWrapper) logConnectionIssue(msg string, err error) {
 	if h.cfg.VerboseLogging {
+		h.mu.Lock()
+		lastRead := h.lastReadTime
+		h.mu.Unlock()
+
 		fields := log.Fields{
-			"lastRead": h.lastReadTime,
-			"elapsed":  time.Since(h.lastReadTime),
+			"lastRead": lastRead,
+			"elapsed":  time.Since(lastRead),
 		}
 		if err != nil {
 			fields["error"] = err.Error()
@@ -174,36 +196,15 @@ func (e *StreamTimeoutError) Timeout() bool   { return true }
 func (e *StreamTimeoutError) Temporary() bool { return true }
 
 // IsClientDisconnect 判断错误是否是客户端主动断开
+// 修复: 只对明确的断开场景返回 true，不再将所有 net.Error 都判为客户端断开
 func IsClientDisconnect(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// 检查常见的客户端断开错误
-	if errors.Is(err, context.Canceled) {
-		return true
-	}
-	if errors.Is(err, io.ErrClosedPipe) {
-		return true
-	}
-
-	// 检查网络错误
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-
-	// 检查系统调用错误
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		if errors.Is(opErr.Err, syscall.ECONNRESET) ||
-			errors.Is(opErr.Err, syscall.EPIPE) ||
-			errors.Is(opErr.Err, syscall.ECONNABORTED) {
-			return true
-		}
-	}
-
-	return false
+	// 使用统一的错误分类器
+	class := ClassifyError(err, "")
+	return class == ErrorClassClientClosed
 }
 
 // LogStreamError 记录流错误（带分类）
@@ -231,35 +232,35 @@ func LogStreamError(err error, requestID string) {
 }
 
 // ClassifyStreamError 分类流错误
+// 使用统一的错误分类器，返回兼容的字符串分类
 func ClassifyStreamError(err error) string {
 	if err == nil {
 		return "none"
 	}
 
-	if IsClientDisconnect(err) {
+	// 使用统一的错误分类器
+	class := ClassifyError(err, "read")
+
+	// 映射到旧的字符串分类（保持向后兼容）
+	switch class {
+	case ErrorClassTimeout:
+		return "upstream_timeout"
+	case ErrorClassClientClosed:
 		return "client_disconnect"
-	}
-
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "upstream_timeout"
-	}
-
-	var streamTimeout *StreamTimeoutError
-	if errors.As(err, &streamTimeout) {
-		return "upstream_timeout"
-	}
-
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		if netErr.Timeout() {
-			return "upstream_timeout"
-		}
-		return "network_error"
-	}
-
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	case ErrorClassServerCancel:
+		return "server_cancel"
+	case ErrorClassBackpressure:
+		return "backpressure"
+	case ErrorClassUpstreamReset:
 		return "upstream_closed"
+	case ErrorClassProtocol:
+		return "protocol_error"
+	default:
+		// 对于未知错误，进行细化检查
+		var netErr net.Error
+		if errors.As(err, &netErr) {
+			return "network_error"
+		}
+		return "unknown"
 	}
-
-	return "unknown"
 }

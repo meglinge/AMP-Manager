@@ -19,6 +19,32 @@ var (
 	ErrChannelNotFound = errors.New("渠道不存在")
 )
 
+// modelsCache 缓存 ModelsJSON -> []model.ChannelModel 的解析结果
+// key: ModelsJSON 字符串, value: *parsedModelsEntry
+var modelsCache sync.Map
+
+type parsedModelsEntry struct {
+	models []model.ChannelModel
+	valid  bool
+}
+
+// getParsedModels 从缓存获取或解析 ModelsJSON
+func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
+	if cached, ok := modelsCache.Load(modelsJSON); ok {
+		entry := cached.(*parsedModelsEntry)
+		return entry.models, entry.valid
+	}
+
+	var models []model.ChannelModel
+	err := json.Unmarshal([]byte(modelsJSON), &models)
+	entry := &parsedModelsEntry{
+		models: models,
+		valid:  err == nil,
+	}
+	modelsCache.Store(modelsJSON, entry)
+	return models, entry.valid
+}
+
 type ChannelService struct {
 	repo      repository.ChannelRepositoryInterface
 	rrCounter sync.Map // map[string]*atomic.Uint64
@@ -330,8 +356,8 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 }
 
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
-	var models []model.ChannelModel
-	if err := json.Unmarshal([]byte(channel.ModelsJSON), &models); err != nil {
+	models, valid := getParsedModels(channel.ModelsJSON)
+	if !valid {
 		return false
 	}
 

@@ -11,6 +11,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// 预编译正则表达式，避免热路径重复编译
+var (
+	dateRe8Digit = regexp.MustCompile(`(\d{8})`)           // YYYYMMDD 格式
+	dateReDash   = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`) // YYYY-MM-DD 格式
+)
+
 // CostCalculator 成本计算器
 type CostCalculator struct {
 	store *PriceStore
@@ -156,15 +162,13 @@ func extractModelSeries(model string) string {
 // extractVersionDate 从模型名提取版本日期（返回 YYYYMMDD 格式整数）
 func extractVersionDate(model string) int {
 	// 匹配 YYYYMMDD 格式
-	re8 := regexp.MustCompile(`(\d{8})`)
-	if m := re8.FindString(model); m != "" {
+	if m := dateRe8Digit.FindString(model); m != "" {
 		if v, err := strconv.Atoi(m); err == nil {
 			return v
 		}
 	}
 	// 匹配 YYYY-MM-DD 格式
-	reDash := regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`)
-	if m := reDash.FindStringSubmatch(model); len(m) == 4 {
+	if m := dateReDash.FindStringSubmatch(model); len(m) == 4 {
 		dateStr := m[1] + m[2] + m[3]
 		if v, err := strconv.Atoi(dateStr); err == nil {
 			return v

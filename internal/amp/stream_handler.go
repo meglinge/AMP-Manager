@@ -31,7 +31,8 @@ type SSEStreamHandler struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	keepAlive       *time.Ticker
-	mu              sync.Mutex
+	mu              sync.Mutex    // 保护共享状态
+	writeMu         sync.Mutex    // 串行化写入操作，防止交错
 	closed          bool
 	wroteFirstChunk bool
 	cfg             *StreamConfig
@@ -74,61 +75,105 @@ func (h *SSEStreamHandler) keepAliveLoop() {
 	}
 	defer h.keepAlive.Stop()
 
+	keepAliveData := []byte(": keep-alive\n\n")
+
 	for {
 		select {
 		case <-h.ctx.Done():
 			return
 		case <-h.keepAlive.C:
+			// 锁内只检查状态
 			h.mu.Lock()
 			if h.closed {
 				h.mu.Unlock()
 				return
 			}
-			// SSE 心跳格式: 注释行
-			_, err := h.writer.Write([]byte(": keep-alive\n\n"))
+			h.mu.Unlock()
+
+			// 写操作在状态锁外执行，使用写锁串行化
+			h.writeMu.Lock()
+			_, err := h.writer.Write(keepAliveData)
+			if err == nil {
+				h.flusher.Flush()
+			}
+			h.writeMu.Unlock()
+
 			if err != nil {
 				log.Debugf("sse stream: keep-alive write failed: %v", err)
-				h.mu.Unlock()
-				h.cancel() // 取消上游连接
+				h.Close() // 写失败时调用 Close() 统一设置 closed=true 并 cancel()
 				return
 			}
-			h.flusher.Flush()
-			h.mu.Unlock()
 		}
 	}
 }
 
 // WriteChunk 写入数据块
 func (h *SSEStreamHandler) WriteChunk(data []byte) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if h.closed {
-		return io.ErrClosedPipe
+	// 先检查 context 是否已取消
+	select {
+	case <-h.ctx.Done():
+		return h.ctx.Err()
+	default:
 	}
 
-	_, err := h.writer.Write(data)
+	// 锁内只检查状态
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return io.ErrClosedPipe
+	}
+	h.mu.Unlock()
+
+	// 复制数据用于锁外写入（避免调用方修改）
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+
+	// 写操作在状态锁外执行，使用写锁串行化
+	h.writeMu.Lock()
+	_, err := h.writer.Write(dataCopy)
+	if err == nil {
+		h.flusher.Flush()
+	}
+	h.writeMu.Unlock()
+
 	if err != nil {
 		return err
 	}
-	h.flusher.Flush()
+
+	// 更新状态
+	h.mu.Lock()
 	h.wroteFirstChunk = true
+	h.mu.Unlock()
+
 	return nil
 }
 
 // WriteTerminalError 在流末尾写入错误信息
 // 只有在已经开始发送数据后才使用此方法
 func (h *SSEStreamHandler) WriteTerminalError(statusCode int, message string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if h.closed {
+	// 先检查 context 是否已取消
+	select {
+	case <-h.ctx.Done():
 		return
+	default:
 	}
 
+	// 锁内只检查状态
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return
+	}
+	h.mu.Unlock()
+
+	// 准备数据
 	errPayload := BuildSSEErrorEvent(statusCode, message)
+
+	// 写操作在状态锁外执行，使用写锁串行化
+	h.writeMu.Lock()
 	_, _ = h.writer.Write(errPayload)
 	h.flusher.Flush()
+	h.writeMu.Unlock()
 }
 
 // Close 关闭流处理器
@@ -167,7 +212,8 @@ type SSEKeepAliveWrapper struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	keepAlive    *time.Ticker
-	mu           sync.Mutex
+	mu           sync.Mutex // 保护共享状态
+	writeMu      sync.Mutex // 串行化写入操作
 	closed       bool
 	wroteData    bool
 	lastActivity time.Time
@@ -212,28 +258,39 @@ func (w *SSEKeepAliveWrapper) keepAliveLoop() {
 	}
 	defer w.keepAlive.Stop()
 
+	keepAliveData := []byte(": keep-alive\n\n")
+
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
 		case <-w.keepAlive.C:
+			// 锁内只检查状态和时间
 			w.mu.Lock()
 			if w.closed {
 				w.mu.Unlock()
 				return
 			}
-			// 只有超过间隔时间没有活动才发送心跳
-			if time.Since(w.lastActivity) >= w.cfg.KeepAliveInterval {
-				_, err := w.writer.Write([]byte(": keep-alive\n\n"))
-				if err != nil {
-					log.Debugf("sse keep-alive: write failed: %v", err)
-					w.mu.Unlock()
-					w.cancel() // 取消上游连接
-					return
-				}
+			shouldSend := time.Since(w.lastActivity) >= w.cfg.KeepAliveInterval
+			w.mu.Unlock()
+
+			if !shouldSend {
+				continue
+			}
+
+			// 写操作在状态锁外执行，使用写锁串行化
+			w.writeMu.Lock()
+			_, err := w.writer.Write(keepAliveData)
+			if err == nil {
 				w.flusher.Flush()
 			}
-			w.mu.Unlock()
+			w.writeMu.Unlock()
+
+			if err != nil {
+				log.Debugf("sse keep-alive: write failed: %v", err)
+				w.Close() // 写失败时调用 Close() 统一设置 closed=true 并 cancel()
+				return
+			}
 		}
 	}
 }
@@ -269,14 +326,27 @@ func (w *SSEKeepAliveWrapper) Close() error {
 
 // WriteTerminalError 写入终端错误
 func (w *SSEKeepAliveWrapper) WriteTerminalError(statusCode int, message string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
+	// 先检查 context 是否已取消
+	select {
+	case <-w.ctx.Done():
 		return
+	default:
 	}
 
+	// 锁内只检查状态
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+
+	// 准备数据
 	errPayload := BuildSSEErrorEvent(statusCode, message)
+
+	// 写操作在状态锁外执行，使用写锁串行化
+	w.writeMu.Lock()
 	_, _ = w.writer.Write(errPayload)
 	w.flusher.Flush()
+	w.writeMu.Unlock()
 }
