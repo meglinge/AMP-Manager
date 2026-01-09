@@ -70,8 +70,54 @@ func (rw *ResponseRewriter) Flush() {
 // modelFieldPaths lists all JSON paths where model name may appear
 var modelFieldPaths = []string{"model", "modelVersion", "response.modelVersion", "message.model"}
 
+// suppressThinkingIfToolUse suppresses thinking blocks when tool_use is detected
+// Amp client has rendering issues when it sees both thinking and tool_use blocks
+func suppressThinkingIfToolUse(data []byte) []byte {
+	// Check if tool_use exists
+	if !gjson.GetBytes(data, `content.#(type=="tool_use")`).Exists() {
+		return data
+	}
+
+	// Filter out thinking and redacted_thinking blocks
+	filtered := gjson.GetBytes(data, `content.#(type!="thinking")#`)
+	if !filtered.Exists() {
+		return data
+	}
+
+	// Also filter redacted_thinking
+	result := filtered.Value()
+	if arr, ok := result.([]interface{}); ok {
+		var newArr []interface{}
+		for _, item := range arr {
+			if m, ok := item.(map[string]interface{}); ok {
+				if t, ok := m["type"].(string); ok && t == "redacted_thinking" {
+					continue
+				}
+			}
+			newArr = append(newArr, item)
+		}
+		result = newArr
+	}
+
+	originalCount := gjson.GetBytes(data, "content.#").Int()
+	if arr, ok := result.([]interface{}); ok && int64(len(arr)) < originalCount {
+		newData, err := sjson.SetBytes(data, "content", result)
+		if err != nil {
+			log.Warnf("response rewriter: failed to suppress thinking blocks: %v", err)
+			return data
+		}
+		log.Debugf("response rewriter: suppressed %d thinking blocks due to tool usage", originalCount-int64(len(arr)))
+		return newData
+	}
+
+	return data
+}
+
 // rewriteModelInResponse replaces all occurrences of the mapped model with the original model in JSON
 func (rw *ResponseRewriter) rewriteModelInResponse(data []byte) []byte {
+	// Suppress thinking blocks first (if tool_use exists)
+	data = suppressThinkingIfToolUse(data)
+
 	if rw.originalModel == "" {
 		return data
 	}
@@ -85,17 +131,15 @@ func (rw *ResponseRewriter) rewriteModelInResponse(data []byte) []byte {
 
 // rewriteStreamChunk rewrites model names in SSE stream chunks
 func (rw *ResponseRewriter) rewriteStreamChunk(chunk []byte) []byte {
-	if rw.originalModel == "" {
-		return chunk
-	}
-
 	// SSE format: "data: {json}\n\n"
 	lines := bytes.Split(chunk, []byte("\n"))
 	for i, line := range lines {
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			jsonData := bytes.TrimPrefix(line, []byte("data: "))
 			if len(jsonData) > 0 && jsonData[0] == '{' {
-				// Rewrite JSON in the data line
+				// Suppress thinking blocks first
+				jsonData = suppressThinkingIfToolUse(jsonData)
+				// Then rewrite model
 				rewritten := rw.rewriteModelInResponse(jsonData)
 				lines[i] = append([]byte("data: "), rewritten...)
 			}

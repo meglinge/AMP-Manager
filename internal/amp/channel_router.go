@@ -24,6 +24,24 @@ import (
 // translationContextKey is used to store translation info in context
 type translationContextKey struct{}
 
+// responseWriterContextKey is used to store ResponseWriter in context for SSE keep-alive
+type responseWriterContextKey struct{}
+
+// WithResponseWriter stores ResponseWriter in context
+func WithResponseWriter(ctx context.Context, w http.ResponseWriter) context.Context {
+	return context.WithValue(ctx, responseWriterContextKey{}, w)
+}
+
+// GetResponseWriter retrieves ResponseWriter from context
+func GetResponseWriter(ctx context.Context) http.ResponseWriter {
+	if val := ctx.Value(responseWriterContextKey{}); val != nil {
+		if w, ok := val.(http.ResponseWriter); ok {
+			return w
+		}
+	}
+	return nil
+}
+
 // TranslationInfo holds translation state for request/response conversion
 type TranslationInfo struct {
 	NeedsConversion     bool
@@ -77,8 +95,10 @@ func GetTranslationInfo(ctx context.Context) *TranslationInfo {
 // detectIncomingFormat determines the request format based on the request path
 func detectIncomingFormat(path string) translator.Format {
 	switch {
-	case strings.Contains(path, "/v1/chat/completions") || strings.Contains(path, "/v1/responses"):
-		return translator.FormatOpenAI
+	case strings.Contains(path, "/v1/chat/completions"):
+		return translator.FormatOpenAIChat
+	case strings.Contains(path, "/v1/responses"):
+		return translator.FormatOpenAIResponses
 	case strings.Contains(path, "/v1/messages"):
 		return translator.FormatClaude
 	case strings.Contains(path, "/v1beta/models/") || strings.Contains(path, "/v1beta1/publishers/google/models/"):
@@ -88,11 +108,17 @@ func detectIncomingFormat(path string) translator.Format {
 	}
 }
 
-// channelTypeToFormat converts channel type to translator format
-func channelTypeToFormat(channelType model.ChannelType) translator.Format {
-	switch channelType {
-	case model.ChannelTypeOpenAI:
+// channelTypeToFormat converts channel type and endpoint to translator format
+func channelTypeToFormat(channel *model.Channel) translator.Format {
+	if channel == nil {
 		return translator.FormatOpenAI
+	}
+	switch channel.Type {
+	case model.ChannelTypeOpenAI:
+		if channel.Endpoint == model.ChannelEndpointResponses {
+			return translator.FormatOpenAIResponses
+		}
+		return translator.FormatOpenAIChat
 	case model.ChannelTypeClaude:
 		return translator.FormatClaude
 	case model.ChannelTypeGemini:
@@ -115,6 +141,10 @@ func getTargetEndpointPath(targetFormat translator.Format, channel *model.Channe
 			return "/v1/responses"
 		}
 		return "/v1/chat/completions"
+	case translator.FormatOpenAIChat:
+		return "/v1/chat/completions"
+	case translator.FormatOpenAIResponses:
+		return "/v1/responses"
 	case translator.FormatClaude:
 		return "/v1/messages"
 	case translator.FormatGemini:
@@ -284,7 +314,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 		// Detect incoming and outgoing formats for potential translation
 		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
-		outgoingFormat := channelTypeToFormat(channel.Type)
+		outgoingFormat := channelTypeToFormat(channel)
 		needsTranslation := needsFormatConversion(incomingFormat, outgoingFormat)
 
 		// Check if translation is possible when needed
@@ -464,6 +494,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Inject ProviderInfo into request context for token extraction
 				*req = *req.WithContext(WithProviderInfo(req.Context(), providerInfo))
 
+				// Inject ResponseWriter for SSE keep-alive support
+				*req = *req.WithContext(WithResponseWriter(req.Context(), c.Writer))
+
 				// Remove client auth headers (ReverseProxy handles hop-by-hop headers automatically)
 				req.Header.Del("Authorization")
 				req.Header.Del("X-Api-Key")
@@ -540,6 +573,17 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						transInfo.ResponseParam,
 					)
 					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
+				}
+
+				// Wrap SSE responses with keep-alive for long-running streams
+				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+				if isStreaming {
+					if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
+						if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
+							resp.Body = wrapper
+							log.Debugf("channel proxy: enabled SSE keep-alive for streaming response")
+						}
+					}
 				}
 
 				return nil

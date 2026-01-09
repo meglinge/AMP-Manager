@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 // FirstByteTimeoutError 首字节超时错误，实现 net.Error 接口
@@ -208,6 +209,10 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// 检查是否需要根据状态码重试
 		if rt.shouldRetryStatusCode(resp.StatusCode, cfg) && attempt < cfg.MaxAttempts {
 			retryAfter := rt.parseRetryAfter(resp, cfg)
+			if retryAfter == nil {
+				// 尝试从响应体解析 retry delay
+				retryAfter = rt.parseRetryDelayFromBody(resp, 64<<10) // 64KB limit
+			}
 			rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, nil, resp)
 			_ = resp.Body.Close()
 			rt.backoff(req.Context(), attempt, cfg, retryAfter)
@@ -512,6 +517,54 @@ func (rt *RetryTransport) parseRetryAfter(resp *http.Response, cfg *RetryConfig)
 		d := time.Until(t)
 		if d > 0 {
 			return &d
+		}
+	}
+
+	return nil
+}
+
+// parseRetryDelayFromBody 从响应体解析 retry delay
+// 支持 Google API 格式: error.details[].retryDelay 或 error.details[].metadata.quotaResetDelay
+func (rt *RetryTransport) parseRetryDelayFromBody(resp *http.Response, limit int64) *time.Duration {
+	if resp.Body == nil || resp.Body == http.NoBody {
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil || len(body) == 0 {
+		return nil
+	}
+
+	// 重置 body 以便后续读取
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	// 使用 gjson 解析 error.details 数组
+	details := gjson.GetBytes(body, "error.details")
+	if !details.Exists() || !details.IsArray() {
+		return nil
+	}
+
+	for _, detail := range details.Array() {
+		typeVal := detail.Get("@type").String()
+
+		// 尝试 RetryInfo.retryDelay
+		if typeVal == "type.googleapis.com/google.rpc.RetryInfo" {
+			retryDelay := detail.Get("retryDelay").String()
+			if retryDelay != "" {
+				if d, err := time.ParseDuration(retryDelay); err == nil && d > 0 {
+					return &d
+				}
+			}
+		}
+
+		// 尝试 ErrorInfo.metadata.quotaResetDelay
+		if typeVal == "type.googleapis.com/google.rpc.ErrorInfo" {
+			quotaResetDelay := detail.Get("metadata.quotaResetDelay").String()
+			if quotaResetDelay != "" {
+				if d, err := time.ParseDuration(quotaResetDelay); err == nil && d > 0 {
+					return &d
+				}
+			}
 		}
 	}
 
