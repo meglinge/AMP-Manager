@@ -13,6 +13,20 @@ import (
 
 var ErrUserNotFound = errors.New("用户不存在")
 
+type UserRepositoryInterface interface {
+	Create(user *model.User) error
+	GetByUsername(username string) (*model.User, error)
+	ExistsByUsername(username string) (bool, error)
+	GetByID(id string) (*model.User, error)
+	List() ([]*model.User, error)
+	UpdatePassword(id string, passwordHash string) error
+	UpdateUsername(id string, username string) error
+	SetAdmin(id string, isAdmin bool) error
+	Delete(id string) error
+}
+
+var _ UserRepositoryInterface = (*UserRepository)(nil)
+
 type UserRepository struct{}
 
 func NewUserRepository() *UserRepository {

@@ -8,46 +8,15 @@ import {
   testChannel,
   Channel,
   ChannelRequest,
-  ChannelType,
-  ChannelEndpoint,
-  ChannelModel,
   TestChannelResult,
 } from '../api/channels'
 import { fetchChannelModels } from '../api/models'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
-
-const CHANNEL_TYPES: { value: ChannelType; label: string; defaultUrl: string; defaultEndpoint: ChannelEndpoint }[] = [
-  { value: 'gemini', label: 'Gemini', defaultUrl: 'https://generativelanguage.googleapis.com', defaultEndpoint: 'generate_content' },
-  { value: 'claude', label: 'Claude', defaultUrl: 'https://api.anthropic.com', defaultEndpoint: 'messages' },
-  { value: 'openai', label: 'OpenAI', defaultUrl: 'https://api.openai.com', defaultEndpoint: 'chat_completions' },
-]
-
-const OPENAI_ENDPOINTS: { value: ChannelEndpoint; label: string }[] = [
-  { value: 'chat_completions', label: '/v1/chat/completions' },
-  { value: 'responses', label: '/v1/responses' },
-]
+import { ChannelTable } from '@/components/channels/ChannelTable'
+import { ChannelFormDialog } from '@/components/channels/ChannelFormDialog'
+import { TestResultsDisplay } from '@/components/channels/TestResultsDisplay'
 
 export default function Channels() {
   const [channels, setChannels] = useState<Channel[]>([])
@@ -86,16 +55,6 @@ export default function Channels() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleTypeChange = (type: ChannelType) => {
-    const typeInfo = CHANNEL_TYPES.find(t => t.value === type)
-    setFormData(prev => ({
-      ...prev,
-      type,
-      baseUrl: typeInfo?.defaultUrl || prev.baseUrl,
-      endpoint: typeInfo?.defaultEndpoint || 'chat_completions',
-    }))
   }
 
   const handleCreate = () => {
@@ -205,44 +164,6 @@ export default function Channels() {
     }
   }
 
-  const handleAddModel = () => {
-    setFormData(prev => ({
-      ...prev,
-      models: [...(prev.models || []), { name: '', alias: '' }],
-    }))
-  }
-
-  const handleRemoveModel = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      models: prev.models?.filter((_, i) => i !== index) || [],
-    }))
-  }
-
-  const handleModelChange = (index: number, field: keyof ChannelModel, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      models: prev.models?.map((m, i) => (i === index ? { ...m, [field]: value } : m)) || [],
-    }))
-  }
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
-  }
-
-  const getTypeBadgeVariant = (type: ChannelType) => {
-    switch (type) {
-      case 'gemini':
-        return 'default'
-      case 'claude':
-        return 'secondary'
-      case 'openai':
-        return 'outline'
-      default:
-        return 'default'
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -273,241 +194,32 @@ export default function Channels() {
               暂无渠道，点击上方按钮添加
             </div>
           ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>名称</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>Base URL</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>优先级/权重</TableHead>
-                    <TableHead>更新时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {channels.map((channel) => (
-                    <TableRow key={channel.id}>
-                      <TableCell className="font-medium">{channel.name}</TableCell>
-                      <TableCell>
-                        <Badge variant={getTypeBadgeVariant(channel.type)}>
-                          {channel.type.toUpperCase()}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate" title={channel.baseUrl}>
-                        {channel.baseUrl}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={channel.enabled}
-                            onCheckedChange={(checked) => handleToggleEnabled(channel.id, checked)}
-                          />
-                          <span className="text-sm text-muted-foreground">
-                            {channel.enabled ? '启用' : '禁用'}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{channel.priority} / {channel.weight}</TableCell>
-                      <TableCell>{formatDate(channel.updatedAt)}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleTest(channel.id)}>
-                          测试
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleFetchModels(channel.id)}
-                          disabled={fetchingModels[channel.id]}
-                        >
-                          {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                          {modelCounts[channel.id] !== undefined && (
-                            <span className="ml-1 text-xs text-muted-foreground">
-                              ({modelCounts[channel.id]})
-                            </span>
-                          )}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(channel)}>
-                          编辑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(channel.id, channel.name)}
-                        >
-                          删除
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <ChannelTable
+              channels={channels}
+              testResults={testResults}
+              fetchingModels={fetchingModels}
+              modelCounts={modelCounts}
+              onToggleEnabled={handleToggleEnabled}
+              onTest={handleTest}
+              onFetchModels={handleFetchModels}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
           )}
 
-          {Object.keys(testResults).length > 0 && (
-            <div className="mt-4 space-y-2">
-              {Object.entries(testResults).map(([id, result]) => {
-                const channel = channels.find(c => c.id === id)
-                return (
-                  <Alert key={id} variant={result.success ? 'default' : 'destructive'}>
-                    <AlertDescription>
-                      <strong>{channel?.name}:</strong> {result.message}
-                      {result.latencyMs && ` (${result.latencyMs}ms)`}
-                    </AlertDescription>
-                  </Alert>
-                )
-              })}
-            </div>
-          )}
+          <TestResultsDisplay testResults={testResults} channels={channels} />
         </CardContent>
       </Card>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingChannel ? '编辑渠道' : '添加渠道'}</DialogTitle>
-            <DialogDescription>
-              配置 API 代理渠道的基本信息和模型规则
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label>类型 *</Label>
-              <select
-                value={formData.type}
-                onChange={(e) => handleTypeChange(e.target.value as ChannelType)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {CHANNEL_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {formData.type === 'openai' && (
-              <div className="space-y-2">
-                <Label>Endpoint</Label>
-                <select
-                  value={formData.endpoint}
-                  onChange={(e) => setFormData(prev => ({ ...prev, endpoint: e.target.value as ChannelEndpoint }))}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {OPENAI_ENDPOINTS.map(e => (
-                    <option key={e.value} value={e.value}>{e.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>名称 *</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="例如：OpenAI-主力"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Base URL *</Label>
-              <Input
-                value={formData.baseUrl}
-                onChange={(e) => setFormData(prev => ({ ...prev, baseUrl: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>API Key {editingChannel ? '(留空不更新)' : '*'}</Label>
-              <Input
-                type="password"
-                value={formData.apiKey}
-                onChange={(e) => setFormData(prev => ({ ...prev, apiKey: e.target.value }))}
-                placeholder={editingChannel ? '留空保持原值' : ''}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>权重</Label>
-              <Input
-                type="number"
-                min="1"
-                value={formData.weight}
-                onChange={(e) => setFormData(prev => ({ ...prev, weight: parseInt(e.target.value) || 1 }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>优先级 (越小越优先)</Label>
-              <Input
-                type="number"
-                min="1"
-                value={formData.priority}
-                onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 100 }))}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 col-span-2">
-              <Switch
-                id="enabled"
-                checked={formData.enabled}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
-              />
-              <Label htmlFor="enabled">启用</Label>
-            </div>
-
-            <div className="col-span-2 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>模型规则 (留空则按类型自动匹配)</Label>
-                <Button type="button" variant="link" size="sm" onClick={handleAddModel}>
-                  + 添加规则
-                </Button>
-              </div>
-              {formData.models && formData.models.length > 0 && (
-                <div className="space-y-2">
-                  {formData.models.map((model, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <Input
-                        value={model.name}
-                        onChange={(e) => handleModelChange(index, 'name', e.target.value)}
-                        placeholder="模型名 (支持 * 通配符)"
-                        className="flex-1"
-                      />
-                      <Input
-                        value={model.alias || ''}
-                        onChange={(e) => handleModelChange(index, 'alias', e.target.value)}
-                        placeholder="别名 (可选)"
-                        className="flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => handleRemoveModel(index)}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSubmit} disabled={saving}>
-              {saving ? '保存中...' : '保存'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ChannelFormDialog
+        open={showForm}
+        onOpenChange={setShowForm}
+        editingChannel={editingChannel}
+        formData={formData}
+        setFormData={setFormData}
+        onSubmit={handleSubmit}
+        saving={saving}
+      />
 
       <Card>
         <CardHeader>

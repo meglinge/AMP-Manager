@@ -20,14 +20,20 @@ var (
 )
 
 type ChannelService struct {
-	repo      *repository.ChannelRepository
+	repo      repository.ChannelRepositoryInterface
 	rrCounter sync.Map // map[string]*atomic.Uint64
 }
 
-func NewChannelService() *ChannelService {
+// NewChannelServiceWithRepo 使用指定的 repository 创建 ChannelService（用于依赖注入）
+func NewChannelServiceWithRepo(repo repository.ChannelRepositoryInterface) *ChannelService {
 	return &ChannelService{
-		repo: repository.NewChannelRepository(),
+		repo: repo,
 	}
+}
+
+// NewChannelService 使用默认 repository 创建 ChannelService（便利方法）
+func NewChannelService() *ChannelService {
+	return NewChannelServiceWithRepo(repository.NewChannelRepository())
 }
 
 // getRRCounter 获取或创建指定 key 的原子计数器

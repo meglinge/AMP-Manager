@@ -17,13 +17,19 @@ var (
 )
 
 type UserService struct {
-	repo *repository.UserRepository
+	repo repository.UserRepositoryInterface
 }
 
-func NewUserService() *UserService {
+// NewUserServiceWithRepo 使用指定的仓库实现创建 UserService（用于依赖注入和测试）
+func NewUserServiceWithRepo(repo repository.UserRepositoryInterface) *UserService {
 	return &UserService{
-		repo: repository.NewUserRepository(),
+		repo: repo,
 	}
+}
+
+// NewUserService 创建使用默认仓库的 UserService（便利方法）
+func NewUserService() *UserService {
+	return NewUserServiceWithRepo(repository.NewUserRepository())
 }
 
 func (s *UserService) Register(req *model.RegisterRequest) (*model.User, error) {

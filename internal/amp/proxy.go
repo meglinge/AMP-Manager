@@ -1,8 +1,6 @@
 package amp
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -12,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -251,144 +248,39 @@ func modifyResponse(resp *http.Response) error {
 		info = ProviderInfo{Provider: ProviderAnthropic}
 	}
 
-	// 处理流式响应 - 包装 body 以提取 token
-	if isStreamingResponse(resp) {
-		if trace != nil {
-			trace.SetStreaming(true)
-			// 1. 首先用健康检查包装器（最内层）
-			healthWrapper := NewHealthyStreamWrapper(
-				resp.Request.Context(),
-				resp.Body,
-				trace,
-				DefaultConnectionHealthConfig(),
-			)
-			// 2. 然后是 token 提取器
-			tokenExtractor := NewSSETokenExtractor(healthWrapper, trace, info)
-			// 3. 响应捕获包装器（用于存储响应详情）
-			captureWrapper := NewResponseCaptureWrapper(tokenExtractor, trace.RequestID, resp.Header)
-			// 4. 最后是日志包装器（最外层）
-			resp.Body = NewLoggingBodyWrapper(captureWrapper, trace, resp.StatusCode)
-		}
-		return nil
+	// 构建响应上下文
+	rctx := &ResponseContext{
+		Ctx:        resp.Request.Context(),
+		Trace:      trace,
+		Provider:   info,
+		Headers:    resp.Header,
+		StatusCode: resp.StatusCode,
 	}
-
-	// Handle non-2xx responses
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if trace != nil {
-			trace.SetError("upstream_error")
-			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
-		}
-		return nil
-	}
-
-	// 处理非流式响应：读取完整 body 并提取 token
-	originalBody := resp.Body
-	contentEncoding := resp.Header.Get("Content-Encoding")
-
-	// 读取完整响应体（限制 10MB + 1 字节用于检测截断）
-	const maxResponseSize = 10 * 1024 * 1024
-	compressedData, err := io.ReadAll(io.LimitReader(originalBody, maxResponseSize+1))
-	_ = originalBody.Close()
-	if err != nil {
-		log.Warnf("amp proxy: failed to read response body: %v", err)
-		resp.Body = io.NopCloser(bytes.NewReader(compressedData))
-		if trace != nil {
-			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
-		}
-		return nil
-	}
-
-	// 检测响应是否被截断
-	if len(compressedData) > maxResponseSize {
-		log.Warnf("amp proxy: response too large (%d bytes), skipping token extraction", len(compressedData))
-		// 截断到限制大小并透传
-		resp.Body = io.NopCloser(bytes.NewReader(compressedData[:maxResponseSize]))
-		resp.ContentLength = int64(maxResponseSize)
-		resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
-		if trace != nil {
-			resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
-		}
-		return nil
-	}
-
-	var bodyData []byte
-	const maxDecompressedSize = 50 * 1024 * 1024 // 50MB 解压限制，防止 zip 炸弹
-
-	// 根据 Content-Encoding 解压
-	switch strings.ToLower(contentEncoding) {
-	case "gzip":
-		gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
-		if err != nil {
-			log.Warnf("amp proxy: failed to create gzip reader: %v", err)
-			bodyData = compressedData
-		} else {
-			decompressed, err := io.ReadAll(io.LimitReader(gzipReader, maxDecompressedSize+1))
-			_ = gzipReader.Close()
-			if err != nil {
-				log.Warnf("amp proxy: failed to decompress gzip: %v", err)
-				bodyData = compressedData
-			} else if len(decompressed) > maxDecompressedSize {
-				log.Warnf("amp proxy: decompressed response too large (%d bytes), skipping token extraction", len(decompressed))
-				// 解压后太大，使用原始压缩数据
-				bodyData = compressedData
-			} else {
-				bodyData = decompressed
-				resp.Header.Del("Content-Encoding")
-				log.Debugf("amp proxy: decompressed gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
-			}
-		}
-	case "":
-		// 无压缩，但可能是隐式 gzip（检查 magic bytes）
-		if len(compressedData) >= 2 && compressedData[0] == 0x1f && compressedData[1] == 0x8b {
-			gzipReader, err := gzip.NewReader(bytes.NewReader(compressedData))
-			if err == nil {
-				decompressed, err := io.ReadAll(io.LimitReader(gzipReader, maxDecompressedSize+1))
-				_ = gzipReader.Close()
-				if err == nil {
-					if len(decompressed) > maxDecompressedSize {
-						log.Warnf("amp proxy: implicit gzip decompressed too large (%d bytes), skipping token extraction", len(decompressed))
-						bodyData = compressedData
-					} else {
-						bodyData = decompressed
-						log.Debugf("amp proxy: decompressed implicit gzip response (%d -> %d bytes)", len(compressedData), len(bodyData))
-					}
-				} else {
-					bodyData = compressedData
-				}
-			} else {
-				bodyData = compressedData
-			}
-		} else {
-			bodyData = compressedData
-		}
-	default:
-		// 不支持的压缩格式（如 br），直接使用原始数据
-		log.Debugf("amp proxy: unsupported Content-Encoding: %s, skipping token extraction", contentEncoding)
-		bodyData = compressedData
-	}
-
-	// 提取 token 使用量
-	if trace != nil && len(bodyData) > 0 {
-		if usage := ExtractTokenUsage(bodyData, info); usage != nil {
-			trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
-			log.Debugf("amp proxy: extracted non-streaming token usage - input=%v, output=%v",
-				ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens))
-		}
-		// Store response detail for non-streaming response
-		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), bodyData)
-	}
-
-	// 设置响应体（返回解压后的数据）
-	resp.Body = io.NopCloser(bytes.NewReader(bodyData))
-	resp.ContentLength = int64(len(bodyData))
-	resp.Header.Del("Content-Length")
-	resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
-
-	// Wrap for logging on close
 	if trace != nil {
-		resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+		rctx.RequestID = trace.RequestID
 	}
 
+	// 根据响应类型选择处理管道
+	if isStreamingResponse(resp) {
+		pipeline := NewStreamingPipelineWithContext(resp.Request.Context())
+		return pipeline.ProcessStreamingResponse(resp, rctx)
+	}
+
+	// 处理非 2xx 响应
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return handleErrorResponse(resp, rctx)
+	}
+
+	// 处理非流式响应
+	return NewDefaultNonStreamingPipeline().ProcessNonStreamingResponse(resp, rctx)
+}
+
+// handleErrorResponse 处理错误响应
+func handleErrorResponse(resp *http.Response, ctx *ResponseContext) error {
+	if ctx.Trace != nil {
+		ctx.Trace.SetError("upstream_error")
+		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode)
+	}
 	return nil
 }
 

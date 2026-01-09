@@ -20,6 +20,12 @@ func Register(format translator.Format, filter RequestFilter) {
 	registry[format] = append(registry[format], filter)
 }
 
+// RegisterFilters registers all filters.
+// Call this explicitly during initialization.
+func RegisterFilters() {
+	RegisterClaudeFilters()
+}
+
 // ApplyFilters applies all registered filters for the given format
 func ApplyFilters(format translator.Format, body []byte) ([]byte, error) {
 	filters, ok := registry[format]

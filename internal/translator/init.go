@@ -34,11 +34,12 @@ const (
 	FormatGemini          Format = "gemini"
 )
 
-func init() {
+// RegisterAll registers all translator transforms to the given registry.
+func RegisterAll(registry *Registry) {
 	// ===== OpenAI ↔ Claude =====
 	// When client sends Claude format, channel is OpenAI
 	// Request: Claude -> OpenAI, Response: OpenAI -> Claude
-	Register(
+	registry.Register(
 		FormatClaude, // from (incoming request format)
 		FormatOpenAI, // to (channel/outgoing format)
 		openaiClaude.ConvertClaudeRequestToOpenAI,
@@ -51,7 +52,7 @@ func init() {
 
 	// When client sends OpenAI format, channel is Claude
 	// Request: OpenAI -> Claude, Response: Claude -> OpenAI
-	Register(
+	registry.Register(
 		FormatOpenAI, // from (incoming request format)
 		FormatClaude, // to (channel/outgoing format)
 		claudeOpenai.ConvertOpenAIRequestToClaude,
@@ -64,7 +65,7 @@ func init() {
 	// ===== OpenAI ↔ Gemini =====
 	// When client sends Gemini format, channel is OpenAI
 	// Request: Gemini -> OpenAI, Response: OpenAI -> Gemini
-	Register(
+	registry.Register(
 		FormatGemini, // from (incoming request format)
 		FormatOpenAI, // to (channel/outgoing format)
 		openaiGemini.ConvertGeminiRequestToOpenAI,
@@ -76,7 +77,7 @@ func init() {
 
 	// When client sends OpenAI format, channel is Gemini
 	// Request: OpenAI -> Gemini, Response: Gemini -> OpenAI
-	Register(
+	registry.Register(
 		FormatOpenAI, // from (incoming request format)
 		FormatGemini, // to (channel/outgoing format)
 		geminiOpenai.ConvertOpenAIRequestToGemini,
@@ -89,7 +90,7 @@ func init() {
 	// ===== Claude ↔ Gemini =====
 	// When client sends Gemini format, channel is Claude
 	// Request: Gemini -> Claude, Response: Claude -> Gemini
-	Register(
+	registry.Register(
 		FormatGemini, // from (incoming request format)
 		FormatClaude, // to (channel/outgoing format)
 		claudeGemini.ConvertGeminiRequestToClaude,
@@ -101,7 +102,7 @@ func init() {
 
 	// When client sends Claude format, channel is Gemini
 	// Request: Claude -> Gemini, Response: Gemini -> Claude
-	Register(
+	registry.Register(
 		FormatClaude, // from (incoming request format)
 		FormatGemini, // to (channel/outgoing format)
 		geminiClaude.ConvertClaudeRequestToGemini,
@@ -115,7 +116,7 @@ func init() {
 	// ===== OpenAI Chat ↔ OpenAI Responses =====
 	// When client sends Chat format, channel is Responses
 	// Request: Chat -> Responses, Response: Responses -> Chat
-	Register(
+	registry.Register(
 		FormatOpenAIChat,      // from (incoming request format)
 		FormatOpenAIResponses, // to (channel/outgoing format)
 		openaiResponses.ConvertChatToResponsesRequest,
@@ -127,7 +128,7 @@ func init() {
 
 	// When client sends Responses format, channel is Chat
 	// Request: Responses -> Chat, Response: Chat -> Responses
-	Register(
+	registry.Register(
 		FormatOpenAIResponses, // from (incoming request format)
 		FormatOpenAIChat,      // to (channel/outgoing format)
 		openaiResponses.ConvertResponsesToChatRequest,
@@ -139,7 +140,7 @@ func init() {
 
 	// ===== OpenAIChat ↔ Claude =====
 	// When client sends OpenAI Chat format, channel is Claude
-	Register(
+	registry.Register(
 		FormatOpenAIChat, // from
 		FormatClaude,     // to
 		claudeOpenai.ConvertOpenAIRequestToClaude,
@@ -150,7 +151,7 @@ func init() {
 	)
 
 	// When client sends Claude format, channel is OpenAI Chat
-	Register(
+	registry.Register(
 		FormatClaude,     // from
 		FormatOpenAIChat, // to
 		openaiClaude.ConvertClaudeRequestToOpenAI,
@@ -163,7 +164,7 @@ func init() {
 
 	// ===== OpenAIResponses ↔ Claude =====
 	// When client sends OpenAI Responses format, channel is Claude
-	Register(
+	registry.Register(
 		FormatOpenAIResponses, // from
 		FormatClaude,          // to
 		claudeOpenai.ConvertOpenAIRequestToClaude,
@@ -174,7 +175,7 @@ func init() {
 	)
 
 	// When client sends Claude format, channel is OpenAI Responses
-	Register(
+	registry.Register(
 		FormatClaude,          // from
 		FormatOpenAIResponses, // to
 		openaiClaude.ConvertClaudeRequestToOpenAI,
@@ -187,7 +188,7 @@ func init() {
 
 	// ===== OpenAIChat ↔ Gemini =====
 	// When client sends OpenAI Chat format, channel is Gemini
-	Register(
+	registry.Register(
 		FormatOpenAIChat, // from
 		FormatGemini,     // to
 		geminiOpenai.ConvertOpenAIRequestToGemini,
@@ -198,7 +199,7 @@ func init() {
 	)
 
 	// When client sends Gemini format, channel is OpenAI Chat
-	Register(
+	registry.Register(
 		FormatGemini,     // from
 		FormatOpenAIChat, // to
 		openaiGemini.ConvertGeminiRequestToOpenAI,
@@ -210,7 +211,7 @@ func init() {
 
 	// ===== OpenAIResponses ↔ Gemini =====
 	// When client sends OpenAI Responses format, channel is Gemini
-	Register(
+	registry.Register(
 		FormatOpenAIResponses, // from
 		FormatGemini,          // to
 		geminiOpenai.ConvertOpenAIRequestToGemini,
@@ -221,7 +222,7 @@ func init() {
 	)
 
 	// When client sends Gemini format, channel is OpenAI Responses
-	Register(
+	registry.Register(
 		FormatGemini,          // from
 		FormatOpenAIResponses, // to
 		openaiGemini.ConvertGeminiRequestToOpenAI,

@@ -10,6 +10,18 @@ import (
 	"github.com/google/uuid"
 )
 
+type ChannelRepositoryInterface interface {
+	Create(channel *model.Channel) error
+	GetByID(id string) (*model.Channel, error)
+	List() ([]*model.Channel, error)
+	ListEnabled() ([]*model.Channel, error)
+	Update(channel *model.Channel) error
+	Delete(id string) error
+	SetEnabled(id string, enabled bool) error
+}
+
+var _ ChannelRepositoryInterface = (*ChannelRepository)(nil)
+
 type ChannelRepository struct{}
 
 func NewChannelRepository() *ChannelRepository {

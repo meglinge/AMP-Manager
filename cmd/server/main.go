@@ -10,6 +10,8 @@ import (
 	"ampmanager/internal/database"
 	"ampmanager/internal/router"
 	"ampmanager/internal/service"
+	"ampmanager/internal/translator"
+	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -19,6 +21,10 @@ func main() {
 	_ = godotenv.Load()
 
 	gin.SetMode(gin.ReleaseMode)
+
+	// 显式初始化 translator registry 和 filters
+	_ = translator.DefaultRegistry()
+	filters.RegisterFilters()
 
 	cfg := config.Load()
 

@@ -104,39 +104,56 @@ func (r *Registry) TranslateTokenCount(ctx context.Context, from, to Format, cou
 	return string(rawJSON)
 }
 
-var defaultRegistry = NewRegistry()
+var (
+	defaultRegistry     *Registry
+	defaultRegistryOnce sync.Once
+)
 
-// Default exposes the package-level registry for shared use.
-func Default() *Registry {
+// initDefaultRegistry initializes the default registry with all translators.
+// This is called lazily on first access.
+func initDefaultRegistry() {
+	defaultRegistry = NewRegistry()
+	RegisterAll(defaultRegistry)
+}
+
+// DefaultRegistry returns the initialized default registry.
+// It ensures all translators are registered before returning.
+func DefaultRegistry() *Registry {
+	defaultRegistryOnce.Do(initDefaultRegistry)
 	return defaultRegistry
+}
+
+// Default exposes the package-level registry for shared use (alias for DefaultRegistry).
+func Default() *Registry {
+	return DefaultRegistry()
 }
 
 // Register attaches transforms to the default registry.
 func Register(from, to Format, request RequestTransform, response ResponseTransform) {
-	defaultRegistry.Register(from, to, request, response)
+	DefaultRegistry().Register(from, to, request, response)
 }
 
 // TranslateRequest is a helper on the default registry.
 func TranslateRequest(from, to Format, model string, rawJSON []byte, stream bool) ([]byte, error) {
-	return defaultRegistry.TranslateRequest(from, to, model, rawJSON, stream)
+	return DefaultRegistry().TranslateRequest(from, to, model, rawJSON, stream)
 }
 
 // HasResponseTransformer inspects the default registry.
 func HasResponseTransformer(from, to Format) bool {
-	return defaultRegistry.HasResponseTransformer(from, to)
+	return DefaultRegistry().HasResponseTransformer(from, to)
 }
 
 // TranslateStream is a helper on the default registry.
 func TranslateStream(ctx context.Context, from, to Format, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) ([]string, error) {
-	return defaultRegistry.TranslateStream(ctx, from, to, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+	return DefaultRegistry().TranslateStream(ctx, from, to, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
 }
 
 // TranslateNonStream is a helper on the default registry.
 func TranslateNonStream(ctx context.Context, from, to Format, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) (string, error) {
-	return defaultRegistry.TranslateNonStream(ctx, from, to, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+	return DefaultRegistry().TranslateNonStream(ctx, from, to, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
 }
 
 // TranslateTokenCount is a helper on the default registry.
 func TranslateTokenCount(ctx context.Context, from, to Format, count int64, rawJSON []byte) string {
-	return defaultRegistry.TranslateTokenCount(ctx, from, to, count, rawJSON)
+	return DefaultRegistry().TranslateTokenCount(ctx, from, to, count, rawJSON)
 }
