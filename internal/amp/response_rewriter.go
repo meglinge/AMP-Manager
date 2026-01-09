@@ -20,6 +20,7 @@ type ResponseRewriter struct {
 	body          *bytes.Buffer
 	originalModel string
 	isStreaming   bool
+	flushed       bool // 标记是否已经 flush，确保幂等性
 }
 
 // NewResponseRewriter creates a new response rewriter for model name substitution
@@ -53,6 +54,7 @@ func (rw *ResponseRewriter) Write(data []byte) (int, error) {
 }
 
 // Flush writes the buffered response with model names rewritten
+// 幂等设计：多次调用只会写入一次
 func (rw *ResponseRewriter) Flush() {
 	if rw.isStreaming {
 		if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
@@ -60,10 +62,16 @@ func (rw *ResponseRewriter) Flush() {
 		}
 		return
 	}
+	// 非流式：确保只 flush 一次
+	if rw.flushed {
+		return
+	}
+	rw.flushed = true
 	if rw.body.Len() > 0 {
 		if _, err := rw.ResponseWriter.Write(rw.rewriteModelInResponse(rw.body.Bytes())); err != nil {
 			log.Warnf("amp response rewriter: failed to write rewritten response: %v", err)
 		}
+		rw.body.Reset() // 清空 buffer 释放内存
 	}
 }
 

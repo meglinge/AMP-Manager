@@ -21,6 +21,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// sharedChannelTransport 是共享的 Channel Proxy Transport，用于连接复用
+var sharedChannelTransport = NewStreamingTransport()
+
 // translationContextKey is used to store translation info in context
 type translationContextKey struct{}
 
@@ -482,8 +485,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		proxy := &httputil.ReverseProxy{
-			// 使用针对 AI 流式请求优化的 Transport，解决 60 秒超时问题
-			Transport: NewStreamingTransport(),
+			// 使用共享的流式 Transport，支持连接复用
+			Transport: sharedChannelTransport,
 			Director: func(req *http.Request) {
 				req.URL.Scheme = parsed.Scheme
 				req.URL.Host = parsed.Host
@@ -607,6 +610,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Wrap ResponseWriter to rewrite model names in responses
 		wrappedWriter := newRewritingResponseWriter(c.Writer, originalModel)
 		proxy.ServeHTTP(wrappedWriter, c.Request)
+		wrappedWriter.Flush() // 确保非流式响应被发送给客户端
 	}
 }
 
@@ -940,7 +944,15 @@ func (t *translatingResponseBody) readStreaming(p []byte) (int, error) {
 const maxNonStreamingResponseSize = 100 * 1024 * 1024
 
 func (t *translatingResponseBody) readNonStreaming(p []byte) (int, error) {
-	// For non-streaming, accumulate the entire response first
+	// If already processed, only read from translatedBuffer
+	if t.eofReached {
+		if t.translatedBuffer.Len() > 0 {
+			return t.translatedBuffer.Read(p)
+		}
+		return 0, io.EOF
+	}
+
+	// First call: read the complete upstream response
 	buf := make([]byte, 4096)
 	for {
 		// Check size limit before reading more data
@@ -976,6 +988,7 @@ func (t *translatingResponseBody) readNonStreaming(p []byte) (int, error) {
 		translated = string(t.buffer.Bytes())
 	}
 
+	t.eofReached = true // Mark as processed
 	t.translatedBuffer.WriteString(translated)
 	return t.translatedBuffer.Read(p)
 }
