@@ -539,6 +539,15 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			ModifyResponse: func(resp *http.Response) error {
 				trace := GetRequestTrace(resp.Request.Context())
 				transInfo := GetTranslationInfo(resp.Request.Context())
+				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+
+				// 关键修复：对于所有非流式响应，删除 Content-Length
+				// 因为 ResponseRewriter 会修改响应体（重写模型名），导致实际长度与原始 Content-Length 不匹配
+				// 这是导致 "Unexpected end of JSON input" 错误的根本原因
+				if !isStreaming {
+					resp.Header.Del("Content-Length")
+					resp.ContentLength = -1
+				}
 
 				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -553,7 +562,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Extract token usage from response and wrap for logging
 				if trace != nil {
 					info, _ := GetProviderInfo(resp.Request.Context())
-					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
 					// Capture response detail for logging (same as amp upstream proxy)
 					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
@@ -563,7 +571,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Apply response translation if needed
 				if transInfo != nil && transInfo.NeedsConversion {
-					isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 					resp.Body = newTranslatingResponseBody(
 						resp.Request.Context(),
 						resp.Body,
@@ -575,17 +582,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						isStreaming,
 						transInfo.ResponseParam,
 					)
-					// 关键修复：删除 Content-Length，因为翻译后内容长度可能已改变
-					// 对于非流式响应，让 HTTP 框架自动计算正确的长度或使用 chunked 编码
-					if !isStreaming {
-						resp.Header.Del("Content-Length")
-						resp.ContentLength = -1 // 告诉 Go HTTP 框架自动处理
-					}
 					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
 				}
 
 				// Wrap SSE responses with keep-alive for long-running streams
-				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 				if isStreaming {
 					if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
 						if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
