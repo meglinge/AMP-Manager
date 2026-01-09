@@ -11,37 +11,38 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// ResponseRewriter wraps a gin.ResponseWriter to intercept and modify the response body
-// It's used to rewrite model names in responses when model mapping is used
-// This is the key mechanism: by returning the original model name (e.g., claude-opus),
-// Amp client will use that model's context length (168k/200k) instead of the mapped model's (968k)
+// ResponseRewriter wraps a gin.ResponseWriter to intercept and modify streaming response data
+// For streaming (SSE) responses: rewrites model names in real-time
+// For non-streaming responses: passes through directly (model rewriting handled in ModifyResponse)
 type ResponseRewriter struct {
 	gin.ResponseWriter
-	body          *bytes.Buffer
-	originalModel string
-	isStreaming   bool
-	flushed       bool // 标记是否已经 flush，确保幂等性
+	originalModel     string
+	isStreaming       bool
+	streamingDetected bool
 }
 
 // NewResponseRewriter creates a new response rewriter for model name substitution
 func NewResponseRewriter(w gin.ResponseWriter, originalModel string) *ResponseRewriter {
 	return &ResponseRewriter{
 		ResponseWriter: w,
-		body:           &bytes.Buffer{},
 		originalModel:  originalModel,
 	}
 }
 
-// Write intercepts response writes and buffers them for model name replacement
+// Write intercepts response writes
+// For streaming: rewrites model names in SSE chunks
+// For non-streaming: passes through directly without buffering
 func (rw *ResponseRewriter) Write(data []byte) (int, error) {
 	// Detect streaming on first write
-	if rw.body.Len() == 0 && !rw.isStreaming {
+	if !rw.streamingDetected {
+		rw.streamingDetected = true
 		contentType := rw.Header().Get("Content-Type")
 		rw.isStreaming = strings.Contains(contentType, "text/event-stream") ||
 			strings.Contains(contentType, "stream")
 	}
 
 	if rw.isStreaming {
+		// For streaming responses, rewrite model names in real-time
 		n, err := rw.ResponseWriter.Write(rw.rewriteStreamChunk(data))
 		if err == nil {
 			if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
@@ -50,34 +51,18 @@ func (rw *ResponseRewriter) Write(data []byte) (int, error) {
 		}
 		return n, err
 	}
-	return rw.body.Write(data)
+
+	// For non-streaming responses, pass through directly without buffering
+	// Model name rewriting is already handled in ModifyResponse via translatingResponseBody
+	return rw.ResponseWriter.Write(data)
 }
 
-// Flush writes the buffered response with model names rewritten
-// 幂等设计：多次调用只会写入一次
+// Flush flushes the underlying ResponseWriter
+// For streaming: ensures SSE data is sent immediately
+// For non-streaming: data is already written directly, just flush the underlying writer
 func (rw *ResponseRewriter) Flush() {
-	if rw.isStreaming {
-		if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-			flusher.Flush()
-		}
-		return
-	}
-	// 非流式：确保只 flush 一次
-	if rw.flushed {
-		return
-	}
-	rw.flushed = true
-	if rw.body.Len() > 0 {
-		rewrittenBody := rw.rewriteModelInResponse(rw.body.Bytes())
-
-		// 关键修复：删除原始 Content-Length，因为重写后内容长度可能已改变
-		// 不设置新的 Content-Length，让 HTTP 框架自动处理（使用 chunked 或计算长度）
-		rw.Header().Del("Content-Length")
-
-		if _, err := rw.ResponseWriter.Write(rewrittenBody); err != nil {
-			log.Warnf("amp response rewriter: failed to write rewritten response: %v", err)
-		}
-		rw.body.Reset() // 清空 buffer 释放内存
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
 	}
 }
 
@@ -129,15 +114,21 @@ func suppressThinkingIfToolUse(data []byte) []byte {
 
 // rewriteModelInResponse replaces all occurrences of the mapped model with the original model in JSON
 func (rw *ResponseRewriter) rewriteModelInResponse(data []byte) []byte {
+	return RewriteModelInResponseData(data, rw.originalModel)
+}
+
+// RewriteModelInResponseData is a standalone function to rewrite model names in JSON response data
+// It can be used outside of ResponseRewriter for direct response manipulation
+func RewriteModelInResponseData(data []byte, originalModel string) []byte {
 	// Suppress thinking blocks first (if tool_use exists)
 	data = suppressThinkingIfToolUse(data)
 
-	if rw.originalModel == "" {
+	if originalModel == "" {
 		return data
 	}
 	for _, path := range modelFieldPaths {
 		if gjson.GetBytes(data, path).Exists() {
-			data, _ = sjson.SetBytes(data, path, rw.originalModel)
+			data, _ = sjson.SetBytes(data, path, originalModel)
 		}
 	}
 	return data

@@ -541,14 +541,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				transInfo := GetTranslationInfo(resp.Request.Context())
 				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 
-				// 关键修复：对于所有非流式响应，删除 Content-Length
-				// 因为 ResponseRewriter 会修改响应体（重写模型名），导致实际长度与原始 Content-Length 不匹配
-				// 这是导致 "Unexpected end of JSON input" 错误的根本原因
-				if !isStreaming {
-					resp.Header.Del("Content-Length")
-					resp.ContentLength = -1
-				}
-
 				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
@@ -559,39 +551,41 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return nil
 				}
 
-				// Extract token usage from response and wrap for logging
+				// For non-streaming responses, read the complete body upfront,
+				// apply all transformations, then reset body with correct Content-Length
+				if !isStreaming {
+					return handleNonStreamingResponse(resp, trace, transInfo, originalModel)
+				}
+
+				// Streaming response handling (existing logic)
 				if trace != nil {
 					info, _ := GetProviderInfo(resp.Request.Context())
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
-					// Capture response detail for logging (same as amp upstream proxy)
 					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
-					// Wrap again for logging on close
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 				}
 
-				// Apply response translation if needed
+				// Apply response translation if needed for streaming
 				if transInfo != nil && transInfo.NeedsConversion {
 					resp.Body = newTranslatingResponseBody(
 						resp.Request.Context(),
 						resp.Body,
-						transInfo.OutgoingFormat, // from (upstream format)
-						transInfo.IncomingFormat, // to (client format)
+						transInfo.OutgoingFormat,
+						transInfo.IncomingFormat,
 						transInfo.Model,
 						transInfo.OriginalRequestBody,
 						transInfo.ConvertedBody,
-						isStreaming,
+						true, // isStreaming
 						transInfo.ResponseParam,
 					)
 					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
 				}
 
 				// Wrap SSE responses with keep-alive for long-running streams
-				if isStreaming {
-					if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
-						if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
-							resp.Body = wrapper
-							log.Debugf("channel proxy: enabled SSE keep-alive for streaming response")
-						}
+				if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
+					if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
+						resp.Body = wrapper
+						log.Debugf("channel proxy: enabled SSE keep-alive for streaming response")
 					}
 				}
 
@@ -1001,4 +995,122 @@ func (t *translatingResponseBody) readNonStreaming(p []byte) (int, error) {
 
 func (t *translatingResponseBody) Close() error {
 	return t.reader.Close()
+}
+
+// MaxNonStreamingResponseSize is the maximum size for non-streaming response body (10MB)
+const MaxNonStreamingResponseSize = 10 * 1024 * 1024
+
+// handleNonStreamingResponse reads the complete upstream response, applies transformations,
+// and resets resp.Body with correct Content-Length to avoid JSON truncation issues
+func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transInfo *TranslationInfo, originalModel string) error {
+	// Read complete upstream body with size limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxNonStreamingResponseSize))
+	resp.Body.Close()
+	if err != nil {
+		log.Errorf("channel proxy: failed to read non-streaming response: %v", err)
+		resp.Body = io.NopCloser(bytes.NewReader([]byte(`{"error":"failed to read upstream response"}`)))
+		resp.ContentLength = -1
+		resp.Header.Del("Content-Length")
+		return nil
+	}
+
+	// Extract token usage for logging (before any transformation)
+	if trace != nil {
+		info, _ := GetProviderInfo(resp.Request.Context())
+		extractTokenUsageFromBody(body, trace, &info)
+	}
+
+	// Apply format translation if needed
+	if transInfo != nil && transInfo.NeedsConversion {
+		translated, translateErr := translator.TranslateNonStream(
+			resp.Request.Context(),
+			transInfo.OutgoingFormat,
+			transInfo.IncomingFormat,
+			transInfo.Model,
+			transInfo.OriginalRequestBody,
+			transInfo.ConvertedBody,
+			body,
+			transInfo.ResponseParam,
+		)
+		if translateErr != nil {
+			log.Warnf("channel proxy: response translation failed: %v, using original response", translateErr)
+		} else {
+			body = []byte(translated)
+			log.Debugf("channel proxy: translated non-streaming response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
+		}
+	}
+
+	// Apply model name rewriting
+	body = RewriteModelInResponseData(body, originalModel)
+
+	// Capture response for logging
+	if trace != nil {
+		captureResponseForLogging(trace.RequestID, resp.Header, body)
+	}
+
+	// Reset body with correct Content-Length
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+
+	// Log completion
+	if trace != nil {
+		trace.SetResponse(resp.StatusCode)
+		if writer := GetLogWriter(); writer != nil {
+			writer.UpdateFromTrace(trace)
+		}
+	}
+
+	return nil
+}
+
+// extractTokenUsageFromBody extracts token usage from response body for logging
+func extractTokenUsageFromBody(body []byte, trace *RequestTrace, info *ProviderInfo) {
+	if len(body) == 0 {
+		return
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return
+	}
+
+	// Extract usage using existing logic
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	var inputTokens, outputTokens int
+
+	if v, ok := usage["input_tokens"].(float64); ok {
+		inputTokens = int(v)
+	} else if v, ok := usage["prompt_tokens"].(float64); ok {
+		inputTokens = int(v)
+	}
+
+	if v, ok := usage["output_tokens"].(float64); ok {
+		outputTokens = int(v)
+	} else if v, ok := usage["completion_tokens"].(float64); ok {
+		outputTokens = int(v)
+	}
+
+	if inputTokens > 0 || outputTokens > 0 {
+		trace.SetUsage(&inputTokens, &outputTokens, nil, nil)
+		log.Debugf("channel proxy: extracted tokens from non-streaming response: input=%d, output=%d", inputTokens, outputTokens)
+	}
+}
+
+// captureResponseForLogging captures the first part of response for debug logging
+func captureResponseForLogging(requestID string, header http.Header, body []byte) {
+	if log.GetLevel() < log.DebugLevel {
+		return
+	}
+
+	maxCapture := 2048
+	if len(body) > maxCapture {
+		log.Debugf("[%s] response (first %d bytes): %s...", requestID, maxCapture, string(body[:maxCapture]))
+	} else {
+		log.Debugf("[%s] response: %s", requestID, string(body))
+	}
 }
