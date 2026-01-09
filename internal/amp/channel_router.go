@@ -575,6 +575,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						isStreaming,
 						transInfo.ResponseParam,
 					)
+					// 关键修复：删除 Content-Length，因为翻译后内容长度可能已改变
+					// 对于非流式响应，让 HTTP 框架自动计算正确的长度或使用 chunked 编码
+					if !isStreaming {
+						resp.Header.Del("Content-Length")
+						resp.ContentLength = -1 // 告诉 Go HTTP 框架自动处理
+					}
 					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
 				}
 

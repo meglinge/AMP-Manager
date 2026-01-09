@@ -97,9 +97,8 @@ func NewStreamingTransport() *http.Transport {
 		// 禁用压缩以支持流式响应（gzip 缓冲会导致 SSE 流看起来无数据，触发 idle timeout）
 		DisableCompression: true,
 
-		// 临时禁用连接复用以调试 Gemini 非流式请求问题
-		// TODO: 确认问题后改回 false
-		DisableKeepAlives: true,
+		// 保持连接复用
+		DisableKeepAlives: false,
 
 		// 强制尝试 HTTP/2
 		ForceAttemptHTTP2: true,

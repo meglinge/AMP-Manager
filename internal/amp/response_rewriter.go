@@ -68,7 +68,13 @@ func (rw *ResponseRewriter) Flush() {
 	}
 	rw.flushed = true
 	if rw.body.Len() > 0 {
-		if _, err := rw.ResponseWriter.Write(rw.rewriteModelInResponse(rw.body.Bytes())); err != nil {
+		rewrittenBody := rw.rewriteModelInResponse(rw.body.Bytes())
+
+		// 关键修复：删除原始 Content-Length，因为重写后内容长度可能已改变
+		// 不设置新的 Content-Length，让 HTTP 框架自动处理（使用 chunked 或计算长度）
+		rw.Header().Del("Content-Length")
+
+		if _, err := rw.ResponseWriter.Write(rewrittenBody); err != nil {
 			log.Warnf("amp response rewriter: failed to write rewritten response: %v", err)
 		}
 		rw.body.Reset() // 清空 buffer 释放内存
