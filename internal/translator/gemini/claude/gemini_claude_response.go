@@ -251,43 +251,34 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		}
 	}
 
-	// Check for finishReason - this indicates end of stream, finalize regardless of usageMetadata
-	finishReason := gjson.GetBytes(rawJSON, "candidates.0.finishReason")
-	if finishReason.Exists() && params.HasFirstResponse && !params.Finalized {
-		// Close any open content block
-		if params.ResponseType != 0 && params.HasContent {
-			output = output + "event: content_block_stop\n"
-			output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
-			output = output + "\n\n"
-		}
+	// Check for finishReason with usageMetadata - send content_block_stop and message_delta
+	// but NOT message_stop (that should only be sent when we receive [DONE])
+	usageResult := gjson.GetBytes(rawJSON, "usageMetadata")
+	if usageResult.Exists() && bytes.Contains(rawJSON, []byte(`"finishReason"`)) {
+		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
+			// Only send final events if we have actually output content
+			if params.HasContent {
+				output = output + "event: content_block_stop\n"
+				output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
+				output = output + "\n\n"
 
-		// Build message_delta with stop_reason and usage (only if we have content)
-		if params.HasContent {
-			output = output + "event: message_delta\n"
-			output = output + `data: `
+				output = output + "event: message_delta\n"
+				output = output + `data: `
 
-			template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-			if usedTool || params.UsedTool {
-				template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-			}
+				template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+				if usedTool || params.UsedTool {
+					template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+				}
 
-			// Try to get usage from usageMetadata if available
-			usageResult := gjson.GetBytes(rawJSON, "usageMetadata")
-			if usageResult.Exists() {
 				thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
-				candidatesTokenCount := usageResult.Get("candidatesTokenCount").Int()
-				promptTokenCount := usageResult.Get("promptTokenCount").Int()
-				template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCount+thoughtsTokenCount)
-				template, _ = sjson.Set(template, "usage.input_tokens", promptTokenCount)
+				template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
+				template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
+
+				output = output + template + "\n\n"
 			}
-
-			output = output + template + "\n\n"
 		}
-
-		// Always send message_stop to properly close the stream (this is what Finalized should mean)
-		output = output + "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+		// Reset response type but do NOT set Finalized - wait for [DONE]
 		params.ResponseType = 0
-		params.Finalized = true
 	}
 
 	// Return empty slice instead of empty string to avoid "no chunks" issue
