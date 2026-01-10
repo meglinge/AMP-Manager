@@ -570,12 +570,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 
 				// Apply response translation if needed for streaming
+				// Note: Registry keys are [IncomingFormat][OutgoingFormat] based on request direction
+				// For response translation: IncomingFormat is client format, OutgoingFormat is upstream format
 				if transInfo != nil && transInfo.NeedsConversion {
 					resp.Body = newTranslatingResponseBody(
 						resp.Request.Context(),
 						resp.Body,
-						transInfo.OutgoingFormat,
-						transInfo.IncomingFormat,
+						transInfo.IncomingFormat, // from = client format (registry key)
+						transInfo.OutgoingFormat, // to = upstream format (registry key)
 						transInfo.Model,
 						transInfo.OriginalRequestBody,
 						transInfo.ConvertedBody,
@@ -1025,11 +1027,12 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	}
 
 	// Apply format translation if needed
+	// Note: Registry keys are [IncomingFormat][OutgoingFormat] based on request direction
 	if transInfo != nil && transInfo.NeedsConversion {
 		translated, translateErr := translator.TranslateNonStream(
 			resp.Request.Context(),
-			transInfo.OutgoingFormat,
-			transInfo.IncomingFormat,
+			transInfo.IncomingFormat, // from = client format (registry key)
+			transInfo.OutgoingFormat, // to = upstream format (registry key)
 			transInfo.Model,
 			transInfo.OriginalRequestBody,
 			transInfo.ConvertedBody,
