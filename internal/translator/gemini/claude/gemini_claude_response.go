@@ -107,9 +107,17 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 			// Extract the different types of content from each part
 			partTextResult := partResult.Get("text")
 			functionCallResult := partResult.Get("functionCall")
+			thoughtSignatureResult := partResult.Get("thoughtSignature")
+
+			// Skip parts that only have thoughtSignature (Gemini's thinking signature)
+			// These are metadata parts that don't contain actual content
+			if thoughtSignatureResult.Exists() && (!partTextResult.Exists() || partTextResult.String() == "") {
+				continue
+			}
 
 			// Handle text content (both regular content and thinking)
-			if partTextResult.Exists() {
+			// Skip empty text to avoid generating empty deltas
+			if partTextResult.Exists() && partTextResult.String() != "" {
 				// Process thinking content (internal reasoning)
 				if partResult.Get("thought").Bool() {
 					// Continue existing thinking block
