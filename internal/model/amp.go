@@ -175,10 +175,11 @@ type UsageSummaryResponse struct {
 
 // RequestLogDetail 请求日志详情（包含请求/响应头和体）
 type RequestLogDetail struct {
-	RequestID       string            `json:"requestId"`
-	RequestHeaders  map[string]string `json:"requestHeaders"`
-	RequestBody     string            `json:"requestBody"`
-	ResponseHeaders map[string]string `json:"responseHeaders"`
-	ResponseBody    string            `json:"responseBody"`
-	CreatedAt       time.Time         `json:"createdAt"`
+	RequestID              string            `json:"requestId"`
+	RequestHeaders         map[string]string `json:"requestHeaders"`
+	RequestBody            string            `json:"requestBody"`
+	ResponseHeaders        map[string]string `json:"responseHeaders"`
+	ResponseBody           string            `json:"responseBody"`
+	TranslatedResponseBody string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
+	CreatedAt              time.Time         `json:"createdAt"`
 }

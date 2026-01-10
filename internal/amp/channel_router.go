@@ -899,6 +899,12 @@ func (t *translatingResponseBody) readStreaming(p []byte) (int, error) {
 
 			for _, chunk := range translated {
 				t.translatedBuffer.WriteString(chunk)
+				// 记录翻译后的响应用于调试
+				if store := GetRequestDetailStore(); store != nil {
+					if trace := GetRequestTrace(t.ctx); trace != nil {
+						store.AppendTranslatedResponse(trace.RequestID, []byte(chunk))
+					}
+				}
 			}
 		}
 

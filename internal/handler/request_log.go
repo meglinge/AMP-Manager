@@ -292,12 +292,13 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 	}
 
 	result := &model.RequestLogDetail{
-		RequestID:       detail.RequestID,
-		RequestHeaders:  requestHeaders,
-		RequestBody:     string(detail.RequestBody),
-		ResponseHeaders: responseHeaders,
-		ResponseBody:    string(detail.ResponseBody),
-		CreatedAt:       detail.CreatedAt,
+		RequestID:              detail.RequestID,
+		RequestHeaders:         requestHeaders,
+		RequestBody:            string(detail.RequestBody),
+		ResponseHeaders:        responseHeaders,
+		ResponseBody:           string(detail.ResponseBody),
+		TranslatedResponseBody: string(detail.TranslatedResponseBody),
+		CreatedAt:              detail.CreatedAt,
 	}
 
 	c.JSON(http.StatusOK, result)

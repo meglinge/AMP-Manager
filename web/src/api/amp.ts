@@ -304,6 +304,7 @@ export interface RequestLogDetail {
   requestBody: string
   responseHeaders: Record<string, string>
   responseBody: string
+  translatedResponseBody?: string
   createdAt: string
 }
 

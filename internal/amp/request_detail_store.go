@@ -19,14 +19,15 @@ const (
 
 // RequestDetail stores request/response headers and bodies
 type RequestDetail struct {
-	RequestID       string
-	CreatedAt       time.Time
-	LastUpdatedAt   time.Time
-	RequestHeaders  http.Header
-	RequestBody     []byte
-	ResponseHeaders http.Header
-	ResponseBody    []byte
-	Persisted       bool
+	RequestID              string
+	CreatedAt              time.Time
+	LastUpdatedAt          time.Time
+	RequestHeaders         http.Header
+	RequestBody            []byte
+	ResponseHeaders        http.Header
+	ResponseBody           []byte
+	TranslatedResponseBody []byte // 翻译后发送给客户端的响应体
+	Persisted              bool
 }
 
 // RequestDetailStore stores request details in memory with TTL
@@ -168,20 +169,51 @@ func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.H
 	}
 }
 
+// AppendTranslatedResponse appends translated response data for debugging
+func (s *RequestDetailStore) AppendTranslatedResponse(requestID string, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	detail, exists := s.details[requestID]
+	if !exists {
+		return
+	}
+
+	// 限制翻译响应大小
+	currentLen := len(detail.TranslatedResponseBody)
+	if currentLen >= MaxBodySize {
+		return
+	}
+
+	remaining := MaxBodySize - currentLen
+	if len(data) > remaining {
+		data = data[:remaining]
+	}
+
+	detail.TranslatedResponseBody = append(detail.TranslatedResponseBody, data...)
+	detail.LastUpdatedAt = time.Now()
+}
+
 // copyDetail creates a deep copy of a RequestDetail
 func copyDetail(detail *RequestDetail) *RequestDetail {
 	copied := &RequestDetail{
-		RequestID:       detail.RequestID,
-		CreatedAt:       detail.CreatedAt,
-		LastUpdatedAt:   detail.LastUpdatedAt,
-		RequestHeaders:  nil,
-		RequestBody:     make([]byte, len(detail.RequestBody)),
-		ResponseHeaders: nil,
-		ResponseBody:    make([]byte, len(detail.ResponseBody)),
-		Persisted:       detail.Persisted,
+		RequestID:              detail.RequestID,
+		CreatedAt:              detail.CreatedAt,
+		LastUpdatedAt:          detail.LastUpdatedAt,
+		RequestHeaders:         nil,
+		RequestBody:            make([]byte, len(detail.RequestBody)),
+		ResponseHeaders:        nil,
+		ResponseBody:           make([]byte, len(detail.ResponseBody)),
+		TranslatedResponseBody: make([]byte, len(detail.TranslatedResponseBody)),
+		Persisted:              detail.Persisted,
 	}
 	copy(copied.RequestBody, detail.RequestBody)
 	copy(copied.ResponseBody, detail.ResponseBody)
+	copy(copied.TranslatedResponseBody, detail.TranslatedResponseBody)
 	if detail.RequestHeaders != nil {
 		copied.RequestHeaders = detail.RequestHeaders.Clone()
 	}

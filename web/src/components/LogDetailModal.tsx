@@ -112,7 +112,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
 
           {!loading && !error && detail && (
             <Tabs defaultValue="request-headers" className="h-full flex flex-col">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="request-headers">
                   请求头
                   {detail.requestHeaders && Object.keys(detail.requestHeaders).length > 0 && (
@@ -145,6 +145,14 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="translated-response">
+                  翻译后
+                  {detail.translatedResponseBody && (
+                    <Badge variant="secondary" className="ml-1 text-xs">
+                      {(detail.translatedResponseBody.length / 1024).toFixed(1)}KB
+                    </Badge>
+                  )}
+                </TabsTrigger>
               </TabsList>
               
               <div className="flex-1 overflow-auto mt-4">
@@ -159,6 +167,15 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                 </TabsContent>
                 <TabsContent value="response-body" className="m-0">
                   {formatBody(detail.responseBody)}
+                </TabsContent>
+                <TabsContent value="translated-response" className="m-0">
+                  {detail.translatedResponseBody ? (
+                    <pre className="text-xs font-mono bg-muted p-4 rounded overflow-auto max-h-96 whitespace-pre-wrap">
+                      {detail.translatedResponseBody}
+                    </pre>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">无翻译数据（非翻译请求或流式响应未记录）</p>
+                  )}
                 </TabsContent>
               </div>
             </Tabs>
