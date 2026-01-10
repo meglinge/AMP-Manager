@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -62,17 +63,27 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 
 	params := (*param).(*Params)
 
+	// Log input for debugging
+	inputPreview := string(rawJSON)
+	if len(inputPreview) > 200 {
+		inputPreview = inputPreview[:200] + "..."
+	}
+	log.Debugf("gemini->claude translator: input preview: %s", inputPreview)
+
 	// Already finalized, return empty
 	if params.Finalized {
+		log.Debugf("gemini->claude translator: already finalized, skipping")
 		return []string{}, nil
 	}
 
 	// Strip SSE "data:" prefix if present (SSE events come as "data: {...}\n\n")
 	if bytes.HasPrefix(rawJSON, []byte("data:")) {
 		rawJSON = bytes.TrimSpace(rawJSON[5:])
+		log.Debugf("gemini->claude translator: stripped data: prefix")
 	}
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
+		log.Debugf("gemini->claude translator: received [DONE], finalizing")
 		return finalizeClaude(params), nil
 	}
 
@@ -279,9 +290,11 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 
 	// Return empty slice instead of empty string to avoid "no chunks" issue
 	if output == "" {
+		log.Debugf("gemini->claude translator: no output generated for chunk")
 		return []string{}, nil
 	}
 
+	log.Debugf("gemini->claude translator: generated output length=%d, hasContent=%v, finalized=%v", len(output), params.HasContent, params.Finalized)
 	return []string{output}, nil
 }
 
