@@ -316,7 +316,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		// Detect incoming and outgoing formats for potential translation
-		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
+		// First check if XMLTagRoutingMiddleware detected a format from body structure
+		incomingFormat := GetXMLTagDetectedFormat(c)
+		if incomingFormat == "" {
+			incomingFormat = detectIncomingFormat(c.Request.URL.Path)
+		}
 		outgoingFormat := channelTypeToFormat(channel)
 		needsTranslation := needsFormatConversion(incomingFormat, outgoingFormat)
 
