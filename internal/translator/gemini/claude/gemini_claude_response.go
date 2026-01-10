@@ -28,10 +28,47 @@ type Params struct {
 	HasContent       bool // Tracks whether any content (text, thinking, or tool use) has been output
 	Finalized        bool // Tracks whether message_stop has been sent
 	UsedTool         bool // Tracks whether tool was used in this response
+	SentMessageDelta bool // Tracks whether message_delta has been sent (to avoid duplicates)
 }
 
 // toolUseIDCounter provides a process-wide unique counter for tool use identifiers.
 var toolUseIDCounter uint64
+
+// extractSSEData extracts the data payload from an SSE event
+// SSE format can be: "event: xxx\ndata: {...}\n\n" or "data: {...}\n\n"
+// This function handles multi-line data and ignores event/id/retry fields
+func extractSSEData(event []byte) []byte {
+	event = bytes.TrimSpace(event)
+	if len(event) == 0 {
+		return nil
+	}
+
+	// Split by lines and collect all data: lines
+	var dataLines [][]byte
+	lines := bytes.Split(event, []byte("\n"))
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if bytes.HasPrefix(line, []byte("data:")) {
+			data := bytes.TrimSpace(line[5:])
+			if len(data) > 0 {
+				dataLines = append(dataLines, data)
+			}
+		}
+		// Ignore event:, id:, retry: lines
+	}
+
+	if len(dataLines) == 0 {
+		// No data: prefix found, maybe raw JSON?
+		// Check if it looks like JSON
+		if bytes.HasPrefix(event, []byte("{")) || bytes.Equal(event, []byte("[DONE]")) {
+			return event
+		}
+		return nil
+	}
+
+	// SSE spec: multiple data: lines are joined with \n
+	return bytes.Join(dataLines, []byte("\n"))
+}
 
 // ConvertGeminiResponseToClaude performs sophisticated streaming response format conversion.
 // This function implements a complex state machine that translates backend client responses
@@ -58,6 +95,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 			ResponseIndex:    0,
 			Finalized:        false,
 			UsedTool:         false,
+			SentMessageDelta: false,
 		}
 	}
 
@@ -76,12 +114,12 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		return []string{}, nil
 	}
 
-	// Strip leading whitespace and SSE "data:" prefix if present
-	// SSE events come as "data: {...}\n\n", and buffer splitting may leave leading \n
-	rawJSON = bytes.TrimLeft(rawJSON, " \t\r\n")
-	if bytes.HasPrefix(rawJSON, []byte("data:")) {
-		rawJSON = bytes.TrimSpace(rawJSON[5:])
-		log.Debugf("gemini->claude translator: stripped data: prefix")
+	// Parse SSE event properly - extract data from potentially multi-line SSE format
+	// SSE format: "event: xxx\ndata: {...}\n\n" or just "data: {...}\n\n"
+	rawJSON = extractSSEData(rawJSON)
+	if len(rawJSON) == 0 {
+		log.Debugf("gemini->claude translator: no data extracted from SSE event")
+		return []string{}, nil
 	}
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
@@ -258,27 +296,33 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
 			// Only send final events if we have actually output content
 			if params.HasContent {
-				output = output + "event: content_block_stop\n"
-				output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
-				output = output + "\n\n"
-
-				output = output + "event: message_delta\n"
-				output = output + `data: `
-
-				template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-				if usedTool || params.UsedTool {
-					template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+				// Close content block only if one is open
+				if params.ResponseType != 0 {
+					output = output + "event: content_block_stop\n"
+					output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
+					output = output + "\n\n"
+					params.ResponseType = 0
 				}
 
-				thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
-				template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
-				template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
+				// Send message_delta only once
+				if !params.SentMessageDelta {
+					output = output + "event: message_delta\n"
+					output = output + `data: `
 
-				output = output + template + "\n\n"
+					template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+					if usedTool || params.UsedTool {
+						template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+					}
+
+					thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
+					template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
+					template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
+
+					output = output + template + "\n\n"
+					params.SentMessageDelta = true
+				}
 			}
 		}
-		// Reset response type but do NOT set Finalized - wait for [DONE]
-		params.ResponseType = 0
 	}
 
 	// Return empty slice instead of empty string to avoid "no chunks" issue
@@ -292,6 +336,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 }
 
 // finalizeClaude generates the final Claude SSE events to properly close the stream
+// This is called when [DONE] is received
 func finalizeClaude(params *Params) []string {
 	// Already finalized, return empty
 	if params.Finalized {
@@ -312,8 +357,8 @@ func finalizeClaude(params *Params) []string {
 		output = output + "\n\n"
 	}
 
-	// Send message_delta with stop_reason if we have content
-	if params.HasContent {
+	// Send message_delta only if not already sent (avoid duplicates)
+	if params.HasContent && !params.SentMessageDelta {
 		output = output + "event: message_delta\n"
 		template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
 		if params.UsedTool {
