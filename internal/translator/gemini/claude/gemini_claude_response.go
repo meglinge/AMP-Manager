@@ -289,40 +289,46 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		}
 	}
 
-	// Check for finishReason with usageMetadata - send content_block_stop and message_delta
-	// but NOT message_stop (that should only be sent when we receive [DONE])
+	// Check for finishReason - this indicates end of stream
+	// Send message_delta (with usage) and message_stop to properly terminate
+	finishReason := gjson.GetBytes(rawJSON, "candidates.0.finishReason")
 	usageResult := gjson.GetBytes(rawJSON, "usageMetadata")
-	if usageResult.Exists() && bytes.Contains(rawJSON, []byte(`"finishReason"`)) {
-		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
-			// Only send final events if we have actually output content
-			if params.HasContent {
-				// Close content block only if one is open
-				if params.ResponseType != 0 {
-					output = output + "event: content_block_stop\n"
-					output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
-					output = output + "\n\n"
-					params.ResponseType = 0
-				}
-
-				// Send message_delta only once
-				if !params.SentMessageDelta {
-					output = output + "event: message_delta\n"
-					output = output + `data: `
-
-					template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-					if usedTool || params.UsedTool {
-						template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-					}
-
-					thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
-					template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
-					template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
-
-					output = output + template + "\n\n"
-					params.SentMessageDelta = true
-				}
-			}
+	if finishReason.Exists() && params.HasFirstResponse && !params.Finalized {
+		// Close any open content block
+		if params.ResponseType != 0 {
+			output = output + "event: content_block_stop\n"
+			output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
+			output = output + "\n\n"
+			params.ResponseType = 0
 		}
+
+		// Send message_delta only once (with usage info if available)
+		if !params.SentMessageDelta {
+			output = output + "event: message_delta\n"
+			output = output + `data: `
+
+			template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+			if usedTool || params.UsedTool {
+				template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+			}
+
+			// Try to get usage from usageMetadata if available
+			if usageResult.Exists() {
+				thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
+				candidatesTokenCount := usageResult.Get("candidatesTokenCount").Int()
+				promptTokenCount := usageResult.Get("promptTokenCount").Int()
+				template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCount+thoughtsTokenCount)
+				template, _ = sjson.Set(template, "usage.input_tokens", promptTokenCount)
+			}
+
+			output = output + template + "\n\n"
+			params.SentMessageDelta = true
+		}
+
+		// Send message_stop to properly close the stream
+		// This is critical - Claude clients expect message_stop after message_start
+		output = output + "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+		params.Finalized = true
 	}
 
 	// Return empty slice instead of empty string to avoid "no chunks" issue
