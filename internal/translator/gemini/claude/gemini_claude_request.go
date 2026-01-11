@@ -15,7 +15,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-const geminiClaudeThoughtSignature = "skip_thought_signature_validator"
+// Gemini 3 requires a valid thoughtSignature when injecting functionCall from non-Gemini sources.
+// Official Gemini documentation recommends using this specific string for compatibility.
+const geminiClaudeThoughtSignature = "context_engineering_is_the_way_to_go"
 
 // ConvertClaudeRequestToGemini parses a Claude API request and returns a complete
 // Gemini CLI request body (as JSON bytes) ready to be sent via SendRawMessageStream.
@@ -131,8 +133,16 @@ func ConvertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			inputSchemaResult := toolResult.Get("input_schema")
 			if inputSchemaResult.Exists() && inputSchemaResult.IsObject() {
 				inputSchema := inputSchemaResult.Raw
+
+				// Ensure schema has top-level type:"object" for Gemini compatibility
+				if !gjson.Get(inputSchema, "type").Exists() {
+					inputSchema, _ = sjson.Set(inputSchema, "type", "object")
+				}
+
 				tool, _ := sjson.Delete(toolResult.Raw, "input_schema")
-				tool, _ = sjson.SetRaw(tool, "parametersJsonSchema", inputSchema)
+				// Use "parameters" for Gemini Developer API (generativelanguage.googleapis.com)
+				// Note: Vertex AI supports "parametersJsonSchema", but Developer API requires "parameters"
+				tool, _ = sjson.SetRaw(tool, "parameters", inputSchema)
 				tool, _ = sjson.Delete(tool, "strict")
 				tool, _ = sjson.Delete(tool, "input_examples")
 				tool, _ = sjson.Delete(tool, "type")
