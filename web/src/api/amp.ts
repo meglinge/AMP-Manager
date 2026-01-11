@@ -302,6 +302,7 @@ export interface RequestLogDetail {
   requestId: string
   requestHeaders: Record<string, string>
   requestBody: string
+  translatedRequestBody?: string
   responseHeaders: Record<string, string>
   responseBody: string
   translatedResponseBody?: string

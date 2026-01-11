@@ -482,6 +482,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					StoreRequestDetail(trace.RequestID, captureData.RequestHeaders, captureData.RequestBody)
 				}
 
+				// Store translated request body if different from original
+				if transInfo := GetTranslationInfo(c.Request.Context()); transInfo != nil && transInfo.NeedsConversion && len(transInfo.ConvertedBody) > 0 {
+					StoreTranslatedRequestBody(trace.RequestID, transInfo.ConvertedBody)
+				}
+
 				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, sanitizeURL(targetURL), originalModel)
 			}
 		} else {

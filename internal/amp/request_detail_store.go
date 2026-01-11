@@ -24,6 +24,7 @@ type RequestDetail struct {
 	LastUpdatedAt          time.Time
 	RequestHeaders         http.Header
 	RequestBody            []byte
+	TranslatedRequestBody  []byte // 翻译后发送给上游的请求体
 	ResponseHeaders        http.Header
 	ResponseBody           []byte
 	TranslatedResponseBody []byte // 翻译后发送给客户端的响应体
@@ -143,6 +144,35 @@ func (s *RequestDetailStore) UpdateRequestData(requestID string, headers http.He
 	}
 }
 
+// UpdateTranslatedRequestBody stores the translated request body
+func (s *RequestDetailStore) UpdateTranslatedRequestBody(requestID string, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	detail, exists := s.details[requestID]
+	if !exists {
+		now := time.Now()
+		detail = &RequestDetail{
+			RequestID:     requestID,
+			CreatedAt:     now,
+			LastUpdatedAt: now,
+		}
+		s.details[requestID] = detail
+	}
+	detail.LastUpdatedAt = time.Now()
+	if len(body) <= MaxBodySize {
+		detail.TranslatedRequestBody = make([]byte, len(body))
+		copy(detail.TranslatedRequestBody, body)
+	} else {
+		detail.TranslatedRequestBody = make([]byte, MaxBodySize)
+		copy(detail.TranslatedRequestBody, body[:MaxBodySize])
+	}
+}
+
 // UpdateResponseData updates the response headers and body
 func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.Header, body []byte) {
 	s.mu.Lock()
@@ -206,12 +236,14 @@ func copyDetail(detail *RequestDetail) *RequestDetail {
 		LastUpdatedAt:          detail.LastUpdatedAt,
 		RequestHeaders:         nil,
 		RequestBody:            make([]byte, len(detail.RequestBody)),
+		TranslatedRequestBody:  make([]byte, len(detail.TranslatedRequestBody)),
 		ResponseHeaders:        nil,
 		ResponseBody:           make([]byte, len(detail.ResponseBody)),
 		TranslatedResponseBody: make([]byte, len(detail.TranslatedResponseBody)),
 		Persisted:              detail.Persisted,
 	}
 	copy(copied.RequestBody, detail.RequestBody)
+	copy(copied.TranslatedRequestBody, detail.TranslatedRequestBody)
 	copy(copied.ResponseBody, detail.ResponseBody)
 	copy(copied.TranslatedResponseBody, detail.TranslatedResponseBody)
 	if detail.RequestHeaders != nil {

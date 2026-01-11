@@ -112,7 +112,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
 
           {!loading && !error && detail && (
             <Tabs defaultValue="request-headers" className="h-full flex flex-col">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="request-headers">
                   请求头
                   {detail.requestHeaders && Object.keys(detail.requestHeaders).length > 0 && (
@@ -126,6 +126,14 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                   {detail.requestBody && (
                     <Badge variant="secondary" className="ml-1 text-xs">
                       {(detail.requestBody.length / 1024).toFixed(1)}KB
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="translated-request">
+                  转换请求
+                  {detail.translatedRequestBody && (
+                    <Badge variant="secondary" className="ml-1 text-xs">
+                      {(detail.translatedRequestBody.length / 1024).toFixed(1)}KB
                     </Badge>
                   )}
                 </TabsTrigger>
@@ -146,7 +154,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                   )}
                 </TabsTrigger>
                 <TabsTrigger value="translated-response">
-                  翻译后
+                  转换响应
                   {detail.translatedResponseBody && (
                     <Badge variant="secondary" className="ml-1 text-xs">
                       {(detail.translatedResponseBody.length / 1024).toFixed(1)}KB
@@ -161,6 +169,13 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                 </TabsContent>
                 <TabsContent value="request-body" className="m-0">
                   {formatBody(detail.requestBody)}
+                </TabsContent>
+                <TabsContent value="translated-request" className="m-0">
+                  {detail.translatedRequestBody ? (
+                    formatBody(detail.translatedRequestBody)
+                  ) : (
+                    <p className="text-muted-foreground text-sm">无转换数据（请求未经过格式转换）</p>
+                  )}
                 </TabsContent>
                 <TabsContent value="response-headers" className="m-0">
                   {formatHeaders(detail.responseHeaders)}

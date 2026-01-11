@@ -295,6 +295,7 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 		RequestID:              detail.RequestID,
 		RequestHeaders:         requestHeaders,
 		RequestBody:            string(detail.RequestBody),
+		TranslatedRequestBody:  string(detail.TranslatedRequestBody),
 		ResponseHeaders:        responseHeaders,
 		ResponseBody:           string(detail.ResponseBody),
 		TranslatedResponseBody: string(detail.TranslatedResponseBody),
