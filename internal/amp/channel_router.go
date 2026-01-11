@@ -469,6 +469,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					}
 				}
 				trace.SetModels(originalModel, mappedModel)
+				// Set thinking level if applied
+				if thinkingLevel := GetThinkingLevel(c); thinkingLevel != "" {
+					trace.SetThinkingLevel(thinkingLevel)
+				}
 				// Store trace in context
 				c.Request = c.Request.WithContext(WithRequestTrace(c.Request.Context(), trace))
 

@@ -258,6 +258,10 @@ func runMigrations() error {
 			name: "add_request_logs_pricing_model",
 			sql:  `ALTER TABLE request_logs ADD COLUMN pricing_model TEXT`,
 		},
+		{
+			name: "add_request_logs_thinking_level",
+			sql:  `ALTER TABLE request_logs ADD COLUMN thinking_level TEXT`,
+		},
 	}
 
 	for _, m := range migrations {

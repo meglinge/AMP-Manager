@@ -177,6 +177,7 @@ export interface RequestLog {
   costMicros?: number
   costUsd?: string
   pricingModel?: string
+  thinkingLevel?: string
 }
 
 export interface RequestLogListResponse {

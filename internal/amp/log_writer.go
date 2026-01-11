@@ -44,6 +44,7 @@ type LogEntry struct {
 	CacheCreationInputTokens *int
 	ErrorType                *string
 	RequestID                *string
+	ThinkingLevel            *string
 	// 成本相关
 	CostMicros   *int64
 	CostUsd      *string
@@ -201,6 +202,11 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		costUsd = snapshot.CostUsd
 	}
 
+	var thinkingLevel *string
+	if snapshot.ThinkingLevel != "" {
+		thinkingLevel = &snapshot.ThinkingLevel
+	}
+
 	// 同步更新数据库
 	result, err := w.db.Exec(`
 		UPDATE request_logs SET
@@ -221,7 +227,8 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			error_type = ?,
 			cost_micros = ?,
 			cost_usd = ?,
-			pricing_model = ?
+			pricing_model = ?,
+			thinking_level = COALESCE(?, thinking_level)
 		WHERE id = ?
 	`,
 		now.Format(time.RFC3339),
@@ -242,6 +249,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		thinkingLevel,
 		snapshot.RequestID,
 	)
 
@@ -301,14 +309,18 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	if snapshot.CostUsd != nil {
 		costUsd = snapshot.CostUsd
 	}
+	var thinkingLevel *string
+	if snapshot.ThinkingLevel != "" {
+		thinkingLevel = &snapshot.ThinkingLevel
+	}
 
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, thinking_level
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.Format(time.RFC3339),
@@ -334,6 +346,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		thinkingLevel,
 	)
 
 	if err != nil {

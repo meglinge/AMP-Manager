@@ -17,9 +17,10 @@ import (
 
 // Context keys for model mapping (gin.Context)
 const (
-	OriginalModelContextKey = "original_model"
-	MappedModelContextKey   = "mapped_model"
-	ModelMappingAppliedKey  = "model_mapping_applied"
+	OriginalModelContextKey  = "original_model"
+	MappedModelContextKey    = "mapped_model"
+	ModelMappingAppliedKey   = "model_mapping_applied"
+	ThinkingLevelContextKey  = "thinking_level"
 )
 
 // modelInfoKey 用于在 req.Context() 中存储模型信息
@@ -173,6 +174,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 
 				if thinkingLevel != "" {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)
+					c.Set(ThinkingLevelContextKey, thinkingLevel)
 					log.Infof("model mapping: applied thinking level '%s'", thinkingLevel)
 				}
 
@@ -445,4 +447,14 @@ func IsModelMappingApplied(c *gin.Context) bool {
 		}
 	}
 	return false
+}
+
+// GetThinkingLevel returns the thinking level from context
+func GetThinkingLevel(c *gin.Context) string {
+	if val, exists := c.Get(ThinkingLevelContextKey); exists {
+		if level, ok := val.(string); ok {
+			return level
+		}
+	}
+	return ""
 }

@@ -26,6 +26,7 @@ type RequestTrace struct {
 	ChannelID     string
 	Endpoint      string
 	IsStreaming   bool
+	ThinkingLevel string
 
 	// 响应信息
 	StatusCode int
@@ -139,6 +140,13 @@ func (t *RequestTrace) SetError(errorType string) {
 	t.ErrorType = errorType
 }
 
+// SetThinkingLevel 设置思维等级
+func (t *RequestTrace) SetThinkingLevel(level string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ThinkingLevel = level
+}
+
 // copyIntPtr 深拷贝 *int 指针
 func copyIntPtr(p *int) *int {
 	if p == nil {
@@ -174,6 +182,7 @@ func (t *RequestTrace) Clone() RequestTrace {
 		ChannelID:                t.ChannelID,
 		Endpoint:                 t.Endpoint,
 		IsStreaming:              t.IsStreaming,
+		ThinkingLevel:            t.ThinkingLevel,
 		StatusCode:               t.StatusCode,
 		LatencyMs:                t.LatencyMs,
 		InputTokens:              copyIntPtr(t.InputTokens),

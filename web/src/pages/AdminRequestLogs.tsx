@@ -330,6 +330,7 @@ export default function AdminRequestLogs() {
                     <TableHead>时间</TableHead>
                     <TableHead>用户</TableHead>
                     <TableHead>模型</TableHead>
+                    <TableHead>思维等级</TableHead>
                     <TableHead>方法</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead className="text-right">延迟</TableHead>
@@ -361,6 +362,13 @@ export default function AdminRequestLogs() {
                             </span>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {log.thinkingLevel ? (
+                          <Badge variant="secondary" className="text-xs">{log.thinkingLevel}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{log.method}</Badge>
