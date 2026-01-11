@@ -107,8 +107,9 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc, 
 	publicRoutes := engine.Group("/")
 	publicRoutes.Use(PublicProxyMiddleware())
 
+	// Thread pages redirect to official ampcode.com for browser access
+	publicRoutes.GET("/threads/:threadID", ThreadRedirectHandler())
 	publicRoutes.GET("/threads", proxyHandler)
-	publicRoutes.GET("/threads/*path", proxyHandler)
 	publicRoutes.GET("/docs", proxyHandler)
 	publicRoutes.GET("/docs/*path", proxyHandler)
 	publicRoutes.GET("/settings", proxyHandler)
