@@ -7,6 +7,7 @@ import (
 const (
 	retryConfigKey          = "retry_config"
 	requestDetailEnabledKey = "request_detail_enabled"
+	timeoutConfigKey        = "timeout_config"
 )
 
 type SystemConfigService struct {
@@ -45,4 +46,9 @@ func (s *SystemConfigService) SetRequestDetailEnabled(enabled bool) error {
 		value = "false"
 	}
 	return s.repo.Set(requestDetailEnabledKey, value)
+}
+
+// GetTimeoutConfigJSON 获取超时配置的 JSON 字符串
+func (s *SystemConfigService) GetTimeoutConfigJSON() (string, error) {
+	return s.repo.Get(timeoutConfigKey)
 }

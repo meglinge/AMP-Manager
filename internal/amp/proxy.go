@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,13 +61,95 @@ func GetRetryTransport() *RetryTransport {
 	return globalRetryTransport
 }
 
+// TimeoutConfig 超时配置
+type TimeoutConfig struct {
+	IdleConnTimeout     time.Duration
+	ReadIdleTimeout     time.Duration
+	KeepAliveInterval   time.Duration
+	DialTimeout         time.Duration
+	TLSHandshakeTimeout time.Duration
+}
+
+var (
+	globalTimeoutConfig *TimeoutConfig
+	timeoutConfigMu     sync.RWMutex
+)
+
+// DefaultTimeoutConfig 默认超时配置
+func DefaultTimeoutConfig() *TimeoutConfig {
+	return &TimeoutConfig{
+		IdleConnTimeout:     300 * time.Second, // 5分钟，允许 AI 长时间思考
+		ReadIdleTimeout:     300 * time.Second,
+		KeepAliveInterval:   15 * time.Second,
+		DialTimeout:         30 * time.Second,
+		TLSHandshakeTimeout: 15 * time.Second,
+	}
+}
+
+// GetTimeoutConfig 获取当前超时配置
+func GetTimeoutConfig() *TimeoutConfig {
+	timeoutConfigMu.RLock()
+	defer timeoutConfigMu.RUnlock()
+	if globalTimeoutConfig == nil {
+		return DefaultTimeoutConfig()
+	}
+	return globalTimeoutConfig
+}
+
+// UpdateTimeoutConfig 更新超时配置
+func UpdateTimeoutConfig(idleConn, readIdle, keepAlive, dial, tlsHandshake time.Duration) {
+	timeoutConfigMu.Lock()
+	defer timeoutConfigMu.Unlock()
+	globalTimeoutConfig = &TimeoutConfig{
+		IdleConnTimeout:     idleConn,
+		ReadIdleTimeout:     readIdle,
+		KeepAliveInterval:   keepAlive,
+		DialTimeout:         dial,
+		TLSHandshakeTimeout: tlsHandshake,
+	}
+
+	// 同时更新连接健康检查配置
+	UpdateConnectionHealthConfig(readIdle)
+
+	// 更新 SSE 流配置
+	UpdateStreamConfig(keepAlive)
+}
+
+// InitTimeoutConfig 初始化超时配置（从数据库加载）
+func InitTimeoutConfig(configJSON string) {
+	if configJSON == "" {
+		return
+	}
+
+	var cfg struct {
+		IdleConnTimeoutSec     int `json:"idleConnTimeoutSec"`
+		ReadIdleTimeoutSec     int `json:"readIdleTimeoutSec"`
+		KeepAliveIntervalSec   int `json:"keepAliveIntervalSec"`
+		DialTimeoutSec         int `json:"dialTimeoutSec"`
+		TLSHandshakeTimeoutSec int `json:"tlsHandshakeTimeoutSec"`
+	}
+
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		return
+	}
+
+	UpdateTimeoutConfig(
+		time.Duration(cfg.IdleConnTimeoutSec)*time.Second,
+		time.Duration(cfg.ReadIdleTimeoutSec)*time.Second,
+		time.Duration(cfg.KeepAliveIntervalSec)*time.Second,
+		time.Duration(cfg.DialTimeoutSec)*time.Second,
+		time.Duration(cfg.TLSHandshakeTimeoutSec)*time.Second,
+	)
+}
+
 // NewStreamingTransport 创建针对 AI 流式请求优化的 HTTP Transport
 // 解决 60 秒左右连接中断的问题
 func NewStreamingTransport() *http.Transport {
+	cfg := GetTimeoutConfig()
 	return &http.Transport{
 		// 连接设置
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second, // 连接超时
+			Timeout:   cfg.DialTimeout,
 			KeepAlive: 30 * time.Second, // TCP Keep-Alive 间隔
 		}).DialContext,
 
@@ -74,7 +157,7 @@ func NewStreamingTransport() *http.Transport {
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
-		TLSHandshakeTimeout: 15 * time.Second,
+		TLSHandshakeTimeout: cfg.TLSHandshakeTimeout,
 
 		// 连接池设置
 		MaxIdleConns:        100,
@@ -82,7 +165,7 @@ func NewStreamingTransport() *http.Transport {
 		MaxConnsPerHost:     0, // 无限制
 
 		// 关键：延长空闲连接超时，避免连接过早关闭
-		IdleConnTimeout: 120 * time.Second,
+		IdleConnTimeout: cfg.IdleConnTimeout,
 
 		// 关键：不设置 ResponseHeaderTimeout，允许 AI 模型长时间思考
 		// ResponseHeaderTimeout: 0 表示无超时

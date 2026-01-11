@@ -173,3 +173,45 @@ export async function updateRequestDetailEnabled(enabled: boolean): Promise<{ me
 
   return res.json()
 }
+
+// 超时配置接口
+export interface TimeoutConfig {
+  idleConnTimeoutSec: number
+  readIdleTimeoutSec: number
+  keepAliveIntervalSec: number
+  dialTimeoutSec: number
+  tlsHandshakeTimeoutSec: number
+}
+
+// 获取超时配置
+export async function getTimeoutConfig(): Promise<TimeoutConfig> {
+  const res = await fetch(`${API_BASE}/admin/system/timeout-config`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+// 更新超时配置
+export async function updateTimeoutConfig(config: TimeoutConfig): Promise<{ message: string; config: TimeoutConfig }> {
+  const res = await fetch(`${API_BASE}/admin/system/timeout-config`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}

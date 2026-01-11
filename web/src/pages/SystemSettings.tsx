@@ -11,6 +11,9 @@ import {
   RetryConfig,
   getRequestDetailEnabled,
   updateRequestDetailEnabled,
+  getTimeoutConfig,
+  updateTimeoutConfig,
+  TimeoutConfig,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -37,11 +40,14 @@ export default function SystemSettings() {
   const [retryLoading, setRetryLoading] = useState(false)
   const [requestDetailEnabled, setRequestDetailEnabled] = useState(true)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
+  const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
+  const [timeoutLoading, setTimeoutLoading] = useState(false)
 
   useEffect(() => {
     fetchBackups()
     fetchRetryConfig()
     fetchRequestDetailEnabled()
+    fetchTimeoutConfig()
   }, [])
 
   const fetchBackups = async () => {
@@ -68,6 +74,35 @@ export default function SystemSettings() {
       setRequestDetailEnabled(data.enabled)
     } catch (err) {
       console.error('获取请求详情监控配置失败:', err)
+    }
+  }
+
+  const fetchTimeoutConfig = async () => {
+    try {
+      const data = await getTimeoutConfig()
+      setTimeoutConfig(data)
+    } catch (err) {
+      console.error('获取超时配置失败:', err)
+    }
+  }
+
+  const handleTimeoutConfigChange = (key: keyof TimeoutConfig, value: number) => {
+    if (timeoutConfig) {
+      setTimeoutConfig({ ...timeoutConfig, [key]: value })
+    }
+  }
+
+  const handleSaveTimeoutConfig = async () => {
+    if (!timeoutConfig) return
+    
+    setTimeoutLoading(true)
+    try {
+      await updateTimeoutConfig(timeoutConfig)
+      showMessage('success', '超时配置已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setTimeoutLoading(false)
     }
   }
 
@@ -419,6 +454,82 @@ export default function SystemSettings() {
               disabled={requestDetailLoading}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>超时配置</CardTitle>
+          <CardDescription>配置代理连接和流式响应的超时时间（单位：秒）</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {timeoutConfig ? (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>空闲连接超时</Label>
+                  <Input
+                    type="number"
+                    min={30}
+                    max={600}
+                    value={timeoutConfig.idleConnTimeoutSec}
+                    onChange={(e) => handleTimeoutConfigChange('idleConnTimeoutSec', parseInt(e.target.value) || 300)}
+                  />
+                  <p className="text-xs text-muted-foreground">连接池中空闲连接的最大存活时间（30-600秒）</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>读取空闲超时</Label>
+                  <Input
+                    type="number"
+                    min={60}
+                    max={600}
+                    value={timeoutConfig.readIdleTimeoutSec}
+                    onChange={(e) => handleTimeoutConfigChange('readIdleTimeoutSec', parseInt(e.target.value) || 300)}
+                  />
+                  <p className="text-xs text-muted-foreground">AI 思考时无数据的最大等待时间（60-600秒）</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>心跳间隔</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={60}
+                    value={timeoutConfig.keepAliveIntervalSec}
+                    onChange={(e) => handleTimeoutConfigChange('keepAliveIntervalSec', parseInt(e.target.value) || 15)}
+                  />
+                  <p className="text-xs text-muted-foreground">SSE 流心跳发送间隔（5-60秒）</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>连接超时</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={timeoutConfig.dialTimeoutSec}
+                    onChange={(e) => handleTimeoutConfigChange('dialTimeoutSec', parseInt(e.target.value) || 30)}
+                  />
+                  <p className="text-xs text-muted-foreground">建立 TCP 连接的超时时间（5-120秒）</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>TLS 握手超时</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={60}
+                    value={timeoutConfig.tlsHandshakeTimeoutSec}
+                    onChange={(e) => handleTimeoutConfigChange('tlsHandshakeTimeoutSec', parseInt(e.target.value) || 15)}
+                  />
+                  <p className="text-xs text-muted-foreground">TLS 握手的超时时间（5-60秒）</p>
+                </div>
+              </div>
+
+              <Button onClick={handleSaveTimeoutConfig} disabled={timeoutLoading}>
+                {timeoutLoading ? '保存中...' : '保存配置'}
+              </Button>
+            </>
+          ) : (
+            <div className="text-center text-muted-foreground py-4">加载中...</div>
+          )}
         </CardContent>
       </Card>
     </div>

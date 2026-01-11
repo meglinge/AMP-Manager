@@ -24,6 +24,31 @@ func DefaultStreamConfig() *StreamConfig {
 	}
 }
 
+var (
+	globalStreamConfig *StreamConfig
+	streamConfigMu     sync.RWMutex
+)
+
+// GetStreamConfig 获取当前流配置
+func GetStreamConfig() *StreamConfig {
+	streamConfigMu.RLock()
+	defer streamConfigMu.RUnlock()
+	if globalStreamConfig == nil {
+		return DefaultStreamConfig()
+	}
+	return globalStreamConfig
+}
+
+// UpdateStreamConfig 更新流配置
+func UpdateStreamConfig(keepAliveInterval time.Duration) {
+	streamConfigMu.Lock()
+	defer streamConfigMu.Unlock()
+	globalStreamConfig = &StreamConfig{
+		KeepAliveInterval: keepAliveInterval,
+		EnableKeepAlive:   true,
+	}
+}
+
 // SSEStreamHandler 处理 SSE 流式响应，支持心跳和终端错误
 type SSEStreamHandler struct {
 	writer          http.ResponseWriter
@@ -41,7 +66,7 @@ type SSEStreamHandler struct {
 // NewSSEStreamHandler 创建 SSE 流处理器
 func NewSSEStreamHandler(w http.ResponseWriter, ctx context.Context, cfg *StreamConfig) *SSEStreamHandler {
 	if cfg == nil {
-		cfg = DefaultStreamConfig()
+		cfg = GetStreamConfig()
 	}
 
 	flusher, ok := w.(http.Flusher)
@@ -223,7 +248,7 @@ type SSEKeepAliveWrapper struct {
 // NewSSEKeepAliveWrapper 创建 SSE Keep-Alive 包装器
 func NewSSEKeepAliveWrapper(reader io.ReadCloser, w http.ResponseWriter, ctx context.Context, cfg *StreamConfig) *SSEKeepAliveWrapper {
 	if cfg == nil {
-		cfg = DefaultStreamConfig()
+		cfg = GetStreamConfig()
 	}
 
 	flusher, ok := w.(http.Flusher)

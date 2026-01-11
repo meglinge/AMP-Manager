@@ -22,6 +22,7 @@ import (
 var backupFilenamePattern = regexp.MustCompile(`^data\.db\.backup\.\d{14}$`)
 
 const retryConfigKey = "retry_config"
+const timeoutConfigKey = "timeout_config"
 
 type SystemHandler struct {
 	configRepo *repository.SystemConfigRepository
@@ -367,4 +368,95 @@ func (h *SystemHandler) UpdateRequestDetailEnabled(c *gin.Context) {
 	amp.SetRequestDetailEnabled(req.Enabled)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "enabled": req.Enabled})
+}
+
+// GetTimeoutConfig 获取超时配置
+func (h *SystemHandler) GetTimeoutConfig(c *gin.Context) {
+	value, err := h.configRepo.Get(timeoutConfigKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+
+	// 如果没有配置，返回默认值
+	if value == "" {
+		c.JSON(http.StatusOK, model.TimeoutConfigResponse{
+			IdleConnTimeoutSec:     300,
+			ReadIdleTimeoutSec:     300,
+			KeepAliveIntervalSec:   15,
+			DialTimeoutSec:         30,
+			TLSHandshakeTimeoutSec: 15,
+		})
+		return
+	}
+
+	var resp model.TimeoutConfigResponse
+	if err := json.Unmarshal([]byte(value), &resp); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// UpdateTimeoutConfig 更新超时配置
+func (h *SystemHandler) UpdateTimeoutConfig(c *gin.Context) {
+	var req model.TimeoutConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	// 验证参数范围（单位：秒）
+	if req.IdleConnTimeoutSec < 30 || req.IdleConnTimeoutSec > 600 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "idleConnTimeoutSec 必须在 30-600 之间"})
+		return
+	}
+	if req.ReadIdleTimeoutSec < 60 || req.ReadIdleTimeoutSec > 600 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "readIdleTimeoutSec 必须在 60-600 之间"})
+		return
+	}
+	if req.KeepAliveIntervalSec < 5 || req.KeepAliveIntervalSec > 60 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keepAliveIntervalSec 必须在 5-60 之间"})
+		return
+	}
+	if req.DialTimeoutSec < 5 || req.DialTimeoutSec > 120 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dialTimeoutSec 必须在 5-120 之间"})
+		return
+	}
+	if req.TLSHandshakeTimeoutSec < 5 || req.TLSHandshakeTimeoutSec > 60 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tlsHandshakeTimeoutSec 必须在 5-60 之间"})
+		return
+	}
+
+	// 保存到数据库
+	resp := model.TimeoutConfigResponse{
+		IdleConnTimeoutSec:     req.IdleConnTimeoutSec,
+		ReadIdleTimeoutSec:     req.ReadIdleTimeoutSec,
+		KeepAliveIntervalSec:   req.KeepAliveIntervalSec,
+		DialTimeoutSec:         req.DialTimeoutSec,
+		TLSHandshakeTimeoutSec: req.TLSHandshakeTimeoutSec,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化配置失败"})
+		return
+	}
+
+	if err := h.configRepo.Set(timeoutConfigKey, string(data)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+
+	// 更新运行时配置
+	amp.UpdateTimeoutConfig(
+		time.Duration(req.IdleConnTimeoutSec)*time.Second,
+		time.Duration(req.ReadIdleTimeoutSec)*time.Second,
+		time.Duration(req.KeepAliveIntervalSec)*time.Second,
+		time.Duration(req.DialTimeoutSec)*time.Second,
+		time.Duration(req.TLSHandshakeTimeoutSec)*time.Second,
+	)
+
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }

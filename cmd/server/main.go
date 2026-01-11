@@ -67,6 +67,11 @@ func main() {
 		amp.InitRetryTransportConfig(configJSON)
 	}
 
+	// 加载超时配置
+	if configJSON, err := sysConfigService.GetTimeoutConfigJSON(); err == nil && configJSON != "" {
+		amp.InitTimeoutConfig(configJSON)
+	}
+
 	// 加载请求详情监控配置
 	if enabled, err := sysConfigService.GetRequestDetailEnabled(); err == nil {
 		amp.SetRequestDetailEnabled(enabled)

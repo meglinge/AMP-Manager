@@ -30,6 +30,32 @@ func DefaultConnectionHealthConfig() *ConnectionHealthConfig {
 	}
 }
 
+var (
+	globalConnectionHealthConfig *ConnectionHealthConfig
+	connectionHealthConfigMu     sync.RWMutex
+)
+
+// GetConnectionHealthConfig 获取当前连接健康检查配置
+func GetConnectionHealthConfig() *ConnectionHealthConfig {
+	connectionHealthConfigMu.RLock()
+	defer connectionHealthConfigMu.RUnlock()
+	if globalConnectionHealthConfig == nil {
+		return DefaultConnectionHealthConfig()
+	}
+	return globalConnectionHealthConfig
+}
+
+// UpdateConnectionHealthConfig 更新连接健康检查配置
+func UpdateConnectionHealthConfig(readIdleTimeout time.Duration) {
+	connectionHealthConfigMu.Lock()
+	defer connectionHealthConfigMu.Unlock()
+	globalConnectionHealthConfig = &ConnectionHealthConfig{
+		WriteTimeout:    30 * time.Second,
+		ReadIdleTimeout: readIdleTimeout,
+		VerboseLogging:  false,
+	}
+}
+
 // HealthyStreamWrapper 健康流包装器
 // 解决 "terminated" 问题的关键组件
 type HealthyStreamWrapper struct {
@@ -47,7 +73,7 @@ type HealthyStreamWrapper struct {
 // NewHealthyStreamWrapper 创建健康流包装器
 func NewHealthyStreamWrapper(ctx context.Context, reader io.ReadCloser, trace *RequestTrace, cfg *ConnectionHealthConfig) *HealthyStreamWrapper {
 	if cfg == nil {
-		cfg = DefaultConnectionHealthConfig()
+		cfg = GetConnectionHealthConfig()
 	}
 	wrapCtx, cancel := context.WithCancel(ctx)
 	return &HealthyStreamWrapper{

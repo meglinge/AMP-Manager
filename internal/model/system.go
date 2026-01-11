@@ -36,3 +36,21 @@ type SystemConfig struct {
 	Value     string    `json:"value"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// TimeoutConfigResponse 超时配置响应
+type TimeoutConfigResponse struct {
+	IdleConnTimeoutSec     int `json:"idleConnTimeoutSec"`
+	ReadIdleTimeoutSec     int `json:"readIdleTimeoutSec"`
+	KeepAliveIntervalSec   int `json:"keepAliveIntervalSec"`
+	DialTimeoutSec         int `json:"dialTimeoutSec"`
+	TLSHandshakeTimeoutSec int `json:"tlsHandshakeTimeoutSec"`
+}
+
+// TimeoutConfigRequest 超时配置请求
+type TimeoutConfigRequest struct {
+	IdleConnTimeoutSec     int `json:"idleConnTimeoutSec"`
+	ReadIdleTimeoutSec     int `json:"readIdleTimeoutSec"`
+	KeepAliveIntervalSec   int `json:"keepAliveIntervalSec"`
+	DialTimeoutSec         int `json:"dialTimeoutSec"`
+	TLSHandshakeTimeoutSec int `json:"tlsHandshakeTimeoutSec"`
+}

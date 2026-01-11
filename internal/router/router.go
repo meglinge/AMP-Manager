@@ -156,7 +156,11 @@ func Setup() *gin.Engine {
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)
 				system.PUT("/request-detail-enabled", systemHandler.UpdateRequestDetailEnabled)
-			}
+
+				// 超时配置
+				system.GET("/timeout-config", systemHandler.GetTimeoutConfig)
+				system.PUT("/timeout-config", systemHandler.UpdateTimeoutConfig)
+				}
 
 			users := admin.Group("/users")
 			{
