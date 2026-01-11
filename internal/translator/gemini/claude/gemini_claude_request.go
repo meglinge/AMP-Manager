@@ -7,6 +7,7 @@ package claude
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 
 	"ampmanager/internal/translator/gemini/common"
@@ -14,6 +15,84 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+// geminiSchemaAllowedFields is the whitelist of JSON Schema fields supported by Gemini Developer API.
+// Gemini's parameters field is a proto-defined Schema message (subset of OpenAPI/JSON Schema),
+// not arbitrary JSON Schema. Unknown fields trigger "Cannot find field" errors.
+var geminiSchemaAllowedFields = map[string]bool{
+	"type":        true,
+	"properties":  true,
+	"required":    true,
+	"description": true,
+	"enum":        true,
+	"items":       true,
+	"format":      true,
+	"nullable":    true,
+}
+
+// cleanSchemaForGemini recursively filters a JSON Schema object to only include
+// fields supported by Gemini Developer API. This prevents "Unknown name" errors
+// for fields like "$schema", "additionalProperties", "$defs", etc.
+func cleanSchemaForGemini(schema any) any {
+	switch v := schema.(type) {
+	case map[string]any:
+		cleaned := make(map[string]any)
+		for key, value := range v {
+			if !geminiSchemaAllowedFields[key] {
+				continue
+			}
+			switch key {
+			case "properties":
+				if props, ok := value.(map[string]any); ok {
+					cleanedProps := make(map[string]any)
+					for propName, propSchema := range props {
+						cleanedProps[propName] = cleanSchemaForGemini(propSchema)
+					}
+					cleaned[key] = cleanedProps
+				}
+			case "items":
+				cleaned[key] = cleanSchemaForGemini(value)
+			case "required":
+				cleaned[key] = value
+			default:
+				cleaned[key] = value
+			}
+		}
+		// Ensure type:"object" if properties exist but type is missing
+		if _, hasProps := cleaned["properties"]; hasProps {
+			if _, hasType := cleaned["type"]; !hasType {
+				cleaned["type"] = "object"
+			}
+		}
+		// Sync required with existing properties
+		if req, ok := cleaned["required"].([]any); ok {
+			if props, ok := cleaned["properties"].(map[string]any); ok {
+				var validRequired []any
+				for _, r := range req {
+					if rStr, ok := r.(string); ok {
+						if _, exists := props[rStr]; exists {
+							validRequired = append(validRequired, rStr)
+						}
+					}
+				}
+				if len(validRequired) > 0 {
+					cleaned["required"] = validRequired
+				} else {
+					delete(cleaned, "required")
+				}
+			}
+		}
+		return cleaned
+	case []any:
+		var cleanedArr []any
+		for _, item := range v {
+			cleanedArr = append(cleanedArr, cleanSchemaForGemini(item))
+		}
+		return cleanedArr
+	default:
+		return v
+	}
+}
 
 // Gemini 3 requires a valid thoughtSignature when injecting functionCall from non-Gemini sources.
 // Official Gemini documentation recommends using this specific string for compatibility.
@@ -132,27 +211,27 @@ func ConvertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 		toolsResult.ForEach(func(_, toolResult gjson.Result) bool {
 			inputSchemaResult := toolResult.Get("input_schema")
 			if inputSchemaResult.Exists() && inputSchemaResult.IsObject() {
-				inputSchema := inputSchemaResult.Raw
-
-				// Ensure schema has top-level type:"object" for Gemini compatibility
-				if !gjson.Get(inputSchema, "type").Exists() {
-					inputSchema, _ = sjson.Set(inputSchema, "type", "object")
-				}
-
-				tool, _ := sjson.Delete(toolResult.Raw, "input_schema")
-				// Use "parameters" for Gemini Developer API (generativelanguage.googleapis.com)
-				// Note: Vertex AI supports "parametersJsonSchema", but Developer API requires "parameters"
-				tool, _ = sjson.SetRaw(tool, "parameters", inputSchema)
-				tool, _ = sjson.Delete(tool, "strict")
-				tool, _ = sjson.Delete(tool, "input_examples")
-				tool, _ = sjson.Delete(tool, "type")
-				tool, _ = sjson.Delete(tool, "cache_control")
-				if gjson.Valid(tool) && gjson.Parse(tool).IsObject() {
-					if !hasTools {
-						out, _ = sjson.SetRaw(out, "tools", `[{"functionDeclarations":[]}]`)
-						hasTools = true
+				// Parse schema, clean it recursively, then marshal back
+				var schemaObj any
+				if err := json.Unmarshal([]byte(inputSchemaResult.Raw), &schemaObj); err == nil {
+					cleanedSchema := cleanSchemaForGemini(schemaObj)
+					if cleanedBytes, err := json.Marshal(cleanedSchema); err == nil {
+						tool, _ := sjson.Delete(toolResult.Raw, "input_schema")
+						// Use "parameters" for Gemini Developer API (generativelanguage.googleapis.com)
+						// Note: Vertex AI supports "parametersJsonSchema", but Developer API requires "parameters"
+						tool, _ = sjson.SetRaw(tool, "parameters", string(cleanedBytes))
+						tool, _ = sjson.Delete(tool, "strict")
+						tool, _ = sjson.Delete(tool, "input_examples")
+						tool, _ = sjson.Delete(tool, "type")
+						tool, _ = sjson.Delete(tool, "cache_control")
+						if gjson.Valid(tool) && gjson.Parse(tool).IsObject() {
+							if !hasTools {
+								out, _ = sjson.SetRaw(out, "tools", `[{"functionDeclarations":[]}]`)
+								hasTools = true
+							}
+							out, _ = sjson.SetRaw(out, "tools.0.functionDeclarations.-1", tool)
+						}
 					}
-					out, _ = sjson.SetRaw(out, "tools.0.functionDeclarations.-1", tool)
 				}
 			}
 			return true
