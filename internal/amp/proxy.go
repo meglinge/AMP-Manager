@@ -346,7 +346,18 @@ func modifyResponse(resp *http.Response) error {
 	// 根据响应类型选择处理管道
 	if isStreamingResponse(resp) {
 		pipeline := NewStreamingPipelineWithContext(resp.Request.Context())
-		return pipeline.ProcessStreamingResponse(resp, rctx)
+		if err := pipeline.ProcessStreamingResponse(resp, rctx); err != nil {
+			return err
+		}
+
+		// Wrap SSE responses with keep-alive for long-running streams
+		if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
+			if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
+				resp.Body = wrapper
+				log.Debugf("amp proxy: enabled SSE keep-alive for streaming response")
+			}
+		}
+		return nil
 	}
 
 	// 处理非 2xx 响应
@@ -393,6 +404,9 @@ func ProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: missing proxy configuration"})
 			return
 		}
+		// Inject ResponseWriter into context for SSE keep-alive support
+		ctx := WithResponseWriter(c.Request.Context(), c.Writer)
+		c.Request = c.Request.WithContext(ctx)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
