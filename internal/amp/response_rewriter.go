@@ -42,14 +42,18 @@ func (rw *ResponseRewriter) Write(data []byte) (int, error) {
 	}
 
 	if rw.isStreaming {
-		// For streaming responses, rewrite model names in real-time
-		n, err := rw.ResponseWriter.Write(rw.rewriteStreamChunk(data))
+		// For streaming responses, rewrite model names in real-time.
+		// NOTE: ReverseProxy streams via io.Copy and treats a short write (n != len(data)) as an error.
+		// Since rewriting can change the chunk length, we must report that we consumed all of `data` on success.
+		rewritten := rw.rewriteStreamChunk(data)
+		_, err := rw.ResponseWriter.Write(rewritten)
 		if err == nil {
 			if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
 				flusher.Flush()
 			}
+			return len(data), nil
 		}
-		return n, err
+		return 0, err
 	}
 
 	// For non-streaming responses, pass through directly without buffering
