@@ -51,7 +51,7 @@ func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte
 			sseBuffer.Reset()
 			sseBuffer.Write(data[idx+delimLen:])
 
-			eventName, payload, done := parseSSEEvent(event)
+			_, payload, done := parseSSEEvent(event)
 			if done {
 				// Stop consuming once [DONE] is received.
 				goto FINISH
@@ -60,24 +60,17 @@ func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte
 				continue
 			}
 
+			// Keep the latest full response snapshot if present.
+			// Common shape: {"type":"...","response":{...}} (including response.completed).
+			if resp := gjson.GetBytes(payload, "response"); resp.Exists() && resp.IsObject() {
+				finalResponseRaw = resp.Raw
+				continue
+			}
+
 			// Some providers may send the response object directly.
 			if gjson.GetBytes(payload, "object").String() == "response" {
 				finalResponseRaw = string(bytes.TrimSpace(payload))
 				continue
-			}
-
-			// response.completed usually includes a full response object.
-			typeName := eventName
-			if typeName == "" {
-				typeName = gjson.GetBytes(payload, "type").String()
-			}
-			switch typeName {
-			case "response.completed", "response.done":
-				// Most common shape: {"type":"response.completed","response":{...}}
-				if resp := gjson.GetBytes(payload, "response"); resp.Exists() && resp.IsObject() {
-					finalResponseRaw = resp.Raw
-					continue
-				}
 			}
 
 			// Keep a copy of raw events for debugging if we fail to find a final response.

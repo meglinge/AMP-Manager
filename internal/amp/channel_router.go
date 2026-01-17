@@ -344,6 +344,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Read and cache original request body for translation
 		var originalRequestBody []byte
 		var convertedBody []byte
+		clientWantsStream := false
 		isStreaming := false
 		if needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
 			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
@@ -360,6 +361,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				Stream bool `json:"stream"`
 			}
 			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				clientWantsStream = payload.Stream
 				isStreaming = payload.Stream
 			}
 
@@ -380,11 +382,13 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 			// /v1/responses: if client asked for non-stream, force upstream stream=true.
 			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
+			forcedUpstreamStream := false
 			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
 				forcedBody, forced := forceJSONStreamTrue(convertedBody)
 				if forced {
 					convertedBody = forcedBody
 					isStreaming = true
+					forcedUpstreamStream = true
 				}
 			}
 
@@ -392,6 +396,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 			c.Request.ContentLength = int64(len(convertedBody))
 			c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+
+			// Preserve client streaming preference even if we force upstream to stream.
+			c.Request = c.Request.WithContext(WithStreamMode(c.Request.Context(), StreamMode{
+				ClientWantsStream:    clientWantsStream,
+				ForcedUpstreamStream: forcedUpstreamStream,
+			}))
 		} else if !needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
 			// No translation needed, but still apply filters for the outgoing format
 			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
@@ -409,6 +419,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				Stream bool `json:"stream"`
 			}
 			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				clientWantsStream = payload.Stream
 				isStreaming = payload.Stream
 			}
 
@@ -428,16 +439,24 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 			// /v1/responses: if client asked for non-stream, force upstream stream=true.
 			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
+			forcedUpstreamStream := false
 			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
-				forcedBody, forced := forceJSONStreamTrue(bodyBytes)
+				forcedBody, forced := forceJSONStreamTrue(convertedBody)
 				if forced {
 					convertedBody = forcedBody
 					isStreaming = true
+					forcedUpstreamStream = true
 					c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 					c.Request.ContentLength = int64(len(convertedBody))
 					c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
 				}
 			}
+
+			// Preserve client streaming preference even if we force upstream to stream.
+			c.Request = c.Request.WithContext(WithStreamMode(c.Request.Context(), StreamMode{
+				ClientWantsStream:    clientWantsStream,
+				ForcedUpstreamStream: forcedUpstreamStream,
+			}))
 		}
 
 		// Store translation info in context for response processing
@@ -555,15 +574,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
-				// Track original client streaming preference for response conversion.
-				// For /v1/responses we may force upstream streaming and later aggregate SSE back to non-stream JSON.
-				mode := StreamMode{}
-				if transInfo := GetTranslationInfo(req.Context()); transInfo != nil {
-					mode.ClientWantsStream = transInfo.IsStreaming
-				}
-				*req = *req.WithContext(WithStreamMode(req.Context(), mode))
-
-				// Apply custom headers from channel config
+					// Apply custom headers from channel config
 				var headersMap map[string]string
 				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
 					for k, v := range headersMap {
