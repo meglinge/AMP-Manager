@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"strconv"
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
@@ -377,6 +378,16 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				convertedBody = filteredBody
 			}
 
+			// /v1/responses: if client asked for non-stream, force upstream stream=true.
+			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
+			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
+				forcedBody, forced := forceJSONStreamTrue(convertedBody)
+				if forced {
+					convertedBody = forcedBody
+					isStreaming = true
+				}
+			}
+
 			// Restore body with converted content
 			c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 			c.Request.ContentLength = int64(len(convertedBody))
@@ -413,6 +424,19 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			} else {
 				// No changes, restore original body
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+
+			// /v1/responses: if client asked for non-stream, force upstream stream=true.
+			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
+			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
+				forcedBody, forced := forceJSONStreamTrue(bodyBytes)
+				if forced {
+					convertedBody = forcedBody
+					isStreaming = true
+					c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
+					c.Request.ContentLength = int64(len(convertedBody))
+					c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+				}
 			}
 		}
 
@@ -531,6 +555,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
+				// Track original client streaming preference for response conversion.
+				// For /v1/responses we may force upstream streaming and later aggregate SSE back to non-stream JSON.
+				mode := StreamMode{}
+				if transInfo := GetTranslationInfo(req.Context()); transInfo != nil {
+					mode.ClientWantsStream = transInfo.IsStreaming
+				}
+				*req = *req.WithContext(WithStreamMode(req.Context(), mode))
+
 				// Apply custom headers from channel config
 				var headersMap map[string]string
 				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
@@ -553,6 +585,26 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				trace := GetRequestTrace(resp.Request.Context())
 				transInfo := GetTranslationInfo(resp.Request.Context())
 				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+
+				// /v1/responses: if client requested non-stream but upstream responded with SSE,
+				// aggregate the SSE into a single JSON response.
+				if isStreaming && strings.Contains(resp.Request.URL.Path, "/v1/responses") {
+					if mode, ok := GetStreamMode(resp.Request.Context()); ok && !mode.ClientWantsStream {
+						jsonBody, aggErr := aggregateOpenAIResponsesSSEToJSON(resp.Request.Context(), resp.Body)
+						_ = resp.Body.Close()
+						if aggErr != nil {
+							return aggErr
+						}
+						resp.Body = io.NopCloser(bytes.NewReader(jsonBody))
+						resp.Header.Set("Content-Type", "application/json")
+						resp.Header.Del("Content-Encoding")
+						resp.Header.Del("Transfer-Encoding")
+						resp.TransferEncoding = nil
+						resp.ContentLength = int64(len(jsonBody))
+						resp.Header.Set("Content-Length", strconv.Itoa(len(jsonBody)))
+						isStreaming = false
+					}
+				}
 
 				// Log non-2xx responses
 				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
