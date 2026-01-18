@@ -142,6 +142,7 @@ type RequestLog struct {
 	ErrorType                *string          `json:"errorType,omitempty"`
 	RequestID                *string          `json:"requestId,omitempty"`
 	ThinkingLevel            *string          `json:"thinkingLevel,omitempty"` // 思维等级
+	OutputPreview            *string          `json:"outputPreview,omitempty"` // 响应输出预览（前200字符）
 	// 成本相关字段
 	CostMicros   *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
 	CostUsd      *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）

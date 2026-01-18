@@ -163,7 +163,9 @@ func createTables() error {
 		request_id TEXT,
 		cost_micros INTEGER,
 		cost_usd TEXT,
-		pricing_model TEXT
+		pricing_model TEXT,
+		thinking_level TEXT,
+		response_text TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_user_time ON request_logs(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
@@ -237,6 +239,10 @@ func runMigrations() error {
 		{
 			name: "add_original_model_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_original_model_time ON request_logs(original_model, created_at DESC)`,
+		},
+		{
+			name: "add_request_logs_response_text",
+			sql:  `ALTER TABLE request_logs ADD COLUMN response_text TEXT`,
 		},
 		{
 			name: "add_channels_enabled_priority_index",

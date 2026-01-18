@@ -601,10 +601,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// aggregate the SSE into a single JSON response.
 				if isStreaming && strings.Contains(resp.Request.URL.Path, "/v1/responses") {
 					if mode, ok := GetStreamMode(resp.Request.Context()); ok && !mode.ClientWantsStream {
-						jsonBody, aggErr := aggregateOpenAIResponsesSSEToJSON(resp.Request.Context(), resp.Body)
+						jsonBody, assistantText, aggErr := aggregateOpenAIResponsesSSEToJSON(resp.Request.Context(), resp.Body)
 						_ = resp.Body.Close()
 						if aggErr != nil {
 							return aggErr
+						}
+						// Store the extracted assistant text in the trace for logging
+						if trace != nil && assistantText != "" {
+							trace.SetResponseText(assistantText)
 						}
 						resp.Body = io.NopCloser(bytes.NewReader(jsonBody))
 						resp.Header.Set("Content-Type", "application/json")
@@ -613,6 +617,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						resp.TransferEncoding = nil
 						resp.ContentLength = int64(len(jsonBody))
 						resp.Header.Set("Content-Length", strconv.Itoa(len(jsonBody)))
+
 						isStreaming = false
 					}
 				}

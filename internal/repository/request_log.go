@@ -96,9 +96,11 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200)) as output_preview
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
+		LEFT JOIN request_log_details d ON r.id = d.request_id
 		WHERE %s
 		ORDER BY r.created_at DESC
 		LIMIT ? OFFSET ?
@@ -119,7 +121,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username sql.NullString
-		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
+		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 		err := rows.Scan(
@@ -128,6 +130,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+			&outputPreview,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -197,6 +200,9 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		}
 		if thinkingLevel.Valid {
 			log.ThinkingLevel = &thinkingLevel.String
+		}
+		if outputPreview.Valid {
+			log.OutputPreview = &outputPreview.String
 		}
 
 		logs = append(logs, log)

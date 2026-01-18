@@ -19,7 +19,7 @@ func TestAggregateOpenAIResponsesSSEToJSON(t *testing.T) {
 		"data: [DONE]\n\n",
 	}, "")
 
-	out, err := aggregateOpenAIResponsesSSEToJSON(context.Background(), strings.NewReader(input))
+	out, _, err := aggregateOpenAIResponsesSSEToJSON(context.Background(), strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestAggregateOpenAIResponsesSSEToJSON_DirectResponseObject(t *testing.T) {
 	input := "data: {\"object\":\"response\",\"id\":\"resp_2\"}\n\n" +
 		"data: [DONE]\n\n"
 
-	out, err := aggregateOpenAIResponsesSSEToJSON(context.Background(), strings.NewReader(input))
+	out, _, err := aggregateOpenAIResponsesSSEToJSON(context.Background(), strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

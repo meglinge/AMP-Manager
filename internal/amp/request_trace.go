@@ -45,6 +45,9 @@ type RequestTrace struct {
 
 	// 错误信息
 	ErrorType string
+
+	// 响应文本（/v1/responses 聚合的助手文本）
+	ResponseText string
 }
 
 // NewRequestTrace 创建新的请求追踪
@@ -147,6 +150,13 @@ func (t *RequestTrace) SetThinkingLevel(level string) {
 	t.ThinkingLevel = level
 }
 
+// SetResponseText 设置响应文本
+func (t *RequestTrace) SetResponseText(text string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ResponseText = text
+}
+
 // copyIntPtr 深拷贝 *int 指针
 func copyIntPtr(p *int) *int {
 	if p == nil {
@@ -193,6 +203,7 @@ func (t *RequestTrace) Clone() RequestTrace {
 		CostUsd:                  copyStringPtr(t.CostUsd),
 		PricingModel:             copyStringPtr(t.PricingModel),
 		ErrorType:                t.ErrorType,
+		ResponseText:             t.ResponseText,
 	}
 }
 

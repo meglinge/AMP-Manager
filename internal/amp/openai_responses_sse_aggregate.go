@@ -13,10 +13,10 @@ import (
 const maxResponsesSSEAggregateBytes = 50 * 1024 * 1024 // 50MB
 
 // aggregateOpenAIResponsesSSEToJSON consumes an OpenAI Responses SSE stream and returns a single non-stream
-// Responses JSON body (object: "response").
+// Responses JSON body (object: "response") and extracts the assistant text for logging.
 //
 // It prefers the embedded "response" object from response.completed/response.done events.
-func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte, error) {
+func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte, string, error) {
 	var buf bytes.Buffer
 	var sseBuffer bytes.Buffer
 	var totalRead int64
@@ -25,7 +25,7 @@ func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, "", ctx.Err()
 		default:
 		}
 
@@ -34,7 +34,7 @@ func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte
 		if n > 0 {
 			totalRead += int64(n)
 			if totalRead > maxResponsesSSEAggregateBytes {
-				return nil, fmt.Errorf("responses sse aggregate: exceeded max bytes (%d)", maxResponsesSSEAggregateBytes)
+				return nil, "", fmt.Errorf("responses sse aggregate: exceeded max bytes (%d)", maxResponsesSSEAggregateBytes)
 			}
 			sseBuffer.Write(tmp[:n])
 		}
@@ -82,15 +82,57 @@ func aggregateOpenAIResponsesSSEToJSON(ctx context.Context, r io.Reader) ([]byte
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
 FINISH:
 	if strings.TrimSpace(finalResponseRaw) == "" {
-		return nil, fmt.Errorf("responses sse aggregate: missing final response.completed event")
+		return nil, "", fmt.Errorf("responses sse aggregate: missing final response.completed event")
 	}
-	return []byte(finalResponseRaw), nil
+
+	// Extract assistant text from the response for logging
+	assistantText := extractAssistantText(finalResponseRaw)
+
+	return []byte(finalResponseRaw), assistantText, nil
+}
+
+// extractAssistantText extracts the assistant's text from a response object
+func extractAssistantText(responseJSON string) string {
+	// Try to extract from output array: response.output[?].content.text
+	outputs := gjson.Get(responseJSON, "output")
+	if outputs.Exists() && outputs.IsArray() {
+		var texts []string
+		outputs.ForEach(func(_, value gjson.Result) bool {
+			if value.Get("type").String() == "message" {
+				content := value.Get("content")
+				if content.IsArray() {
+					content.ForEach(func(_, item gjson.Result) bool {
+						if item.Get("type").String() == "text" {
+							if text := item.Get("text").String(); text != "" {
+								texts = append(texts, text)
+							}
+						}
+						return true
+					})
+				}
+			}
+			return true
+		})
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n")
+		}
+	}
+
+	// Fallback: try other common paths
+	if text := gjson.Get(responseJSON, "text").String(); text != "" {
+		return text
+	}
+	if text := gjson.Get(responseJSON, "content.text").String(); text != "" {
+		return text
+	}
+
+	return ""
 }
 
 func parseSSEEvent(event []byte) (eventName string, payload []byte, done bool) {

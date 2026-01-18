@@ -228,7 +228,8 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			cost_micros = ?,
 			cost_usd = ?,
 			pricing_model = ?,
-			thinking_level = COALESCE(?, thinking_level)
+			thinking_level = COALESCE(?, thinking_level),
+			response_text = COALESCE(?, response_text)
 		WHERE id = ?
 	`,
 		now.Format(time.RFC3339),
@@ -250,6 +251,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		costUsd,
 		pricingModel,
 		thinkingLevel,
+		stringPtrIfNonEmpty(snapshot.ResponseText),
 		snapshot.RequestID,
 	)
 
@@ -544,4 +546,11 @@ func (w *LoggingBodyWrapper) Close() error {
 		}
 	})
 	return err
+}
+
+func stringPtrIfNonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
