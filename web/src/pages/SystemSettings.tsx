@@ -355,7 +355,6 @@ export default function SystemSettings() {
                   <Input
                     type="number"
                     min={1}
-                    max={10}
                     value={retryConfig.maxAttempts}
                     onChange={(e) => handleRetryConfigChange('maxAttempts', parseInt(e.target.value) || 1)}
                   />
@@ -365,7 +364,6 @@ export default function SystemSettings() {
                   <Input
                     type="number"
                     min={1000}
-                    max={60000}
                     value={retryConfig.gateTimeoutMs}
                     onChange={(e) => handleRetryConfigChange('gateTimeoutMs', parseInt(e.target.value) || 10000)}
                   />
@@ -375,7 +373,6 @@ export default function SystemSettings() {
                   <Input
                     type="number"
                     min={50}
-                    max={5000}
                     value={retryConfig.backoffBaseMs}
                     onChange={(e) => handleRetryConfigChange('backoffBaseMs', parseInt(e.target.value) || 100)}
                   />
@@ -385,7 +382,6 @@ export default function SystemSettings() {
                   <Input
                     type="number"
                     min={500}
-                    max={30000}
                     value={retryConfig.backoffMaxMs}
                     onChange={(e) => handleRetryConfigChange('backoffMaxMs', parseInt(e.target.value) || 2000)}
                   />
@@ -471,55 +467,50 @@ export default function SystemSettings() {
                   <Input
                     type="number"
                     min={30}
-                    max={600}
                     value={timeoutConfig.idleConnTimeoutSec}
                     onChange={(e) => handleTimeoutConfigChange('idleConnTimeoutSec', parseInt(e.target.value) || 300)}
                   />
-                  <p className="text-xs text-muted-foreground">连接池中空闲连接的最大存活时间（30-600秒）</p>
+                  <p className="text-xs text-muted-foreground">连接池中空闲连接的最大存活时间（&gt;=30秒）</p>
                 </div>
                 <div className="space-y-2">
                   <Label>读取空闲超时</Label>
                   <Input
                     type="number"
                     min={60}
-                    max={600}
                     value={timeoutConfig.readIdleTimeoutSec}
                     onChange={(e) => handleTimeoutConfigChange('readIdleTimeoutSec', parseInt(e.target.value) || 300)}
                   />
-                  <p className="text-xs text-muted-foreground">AI 思考时无数据的最大等待时间（60-600秒）</p>
+                  <p className="text-xs text-muted-foreground">AI 思考时无数据的最大等待时间（&gt;=60秒）</p>
                 </div>
                 <div className="space-y-2">
                   <Label>心跳间隔</Label>
                   <Input
                     type="number"
                     min={5}
-                    max={60}
                     value={timeoutConfig.keepAliveIntervalSec}
                     onChange={(e) => handleTimeoutConfigChange('keepAliveIntervalSec', parseInt(e.target.value) || 15)}
                   />
-                  <p className="text-xs text-muted-foreground">SSE 流心跳发送间隔（5-60秒）</p>
+                  <p className="text-xs text-muted-foreground">SSE 流心跳发送间隔（&gt;=5秒）</p>
                 </div>
                 <div className="space-y-2">
                   <Label>连接超时</Label>
                   <Input
                     type="number"
                     min={5}
-                    max={120}
                     value={timeoutConfig.dialTimeoutSec}
                     onChange={(e) => handleTimeoutConfigChange('dialTimeoutSec', parseInt(e.target.value) || 30)}
                   />
-                  <p className="text-xs text-muted-foreground">建立 TCP 连接的超时时间（5-120秒）</p>
+                  <p className="text-xs text-muted-foreground">建立 TCP 连接的超时时间（&gt;=5秒）</p>
                 </div>
                 <div className="space-y-2">
                   <Label>TLS 握手超时</Label>
                   <Input
                     type="number"
                     min={5}
-                    max={60}
                     value={timeoutConfig.tlsHandshakeTimeoutSec}
                     onChange={(e) => handleTimeoutConfigChange('tlsHandshakeTimeoutSec', parseInt(e.target.value) || 15)}
                   />
-                  <p className="text-xs text-muted-foreground">TLS 握手的超时时间（5-60秒）</p>
+                  <p className="text-xs text-muted-foreground">TLS 握手的超时时间（&gt;=5秒）</p>
                 </div>
               </div>
 

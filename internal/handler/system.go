@@ -77,13 +77,20 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 		return
 	}
 
-	// 验证参数
-	if req.MaxAttempts < 1 || req.MaxAttempts > 10 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "maxAttempts 必须在 1-10 之间"})
+	// 验证参数（移除上限，仅保留必要的下限和溢出保护）
+	if req.MaxAttempts < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maxAttempts 必须 >= 1"})
 		return
 	}
-	if req.GateTimeoutMs < 1000 || req.GateTimeoutMs > 60000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "gateTimeoutMs 必须在 1000-60000 之间"})
+	if req.GateTimeoutMs < 1000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "gateTimeoutMs 必须 >= 1000"})
+		return
+	}
+
+	const maxDuration = time.Duration(1<<63 - 1)
+	maxMs := int64(maxDuration / time.Millisecond)
+	if req.GateTimeoutMs > maxMs || req.BackoffBaseMs > maxMs || req.BackoffMaxMs > maxMs {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "重试时间参数过大，超出可表示范围"})
 		return
 	}
 
@@ -407,25 +414,34 @@ func (h *SystemHandler) UpdateTimeoutConfig(c *gin.Context) {
 		return
 	}
 
-	// 验证参数范围（单位：秒）
-	if req.IdleConnTimeoutSec < 30 || req.IdleConnTimeoutSec > 600 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "idleConnTimeoutSec 必须在 30-600 之间"})
+	// 验证参数下限（单位：秒），移除上限（仅保留溢出保护）
+	if req.IdleConnTimeoutSec < 30 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "idleConnTimeoutSec 必须 >= 30"})
 		return
 	}
-	if req.ReadIdleTimeoutSec < 60 || req.ReadIdleTimeoutSec > 600 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "readIdleTimeoutSec 必须在 60-600 之间"})
+	if req.ReadIdleTimeoutSec < 60 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "readIdleTimeoutSec 必须 >= 60"})
 		return
 	}
-	if req.KeepAliveIntervalSec < 5 || req.KeepAliveIntervalSec > 60 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "keepAliveIntervalSec 必须在 5-60 之间"})
+	if req.KeepAliveIntervalSec < 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keepAliveIntervalSec 必须 >= 5"})
 		return
 	}
-	if req.DialTimeoutSec < 5 || req.DialTimeoutSec > 120 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dialTimeoutSec 必须在 5-120 之间"})
+	if req.DialTimeoutSec < 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dialTimeoutSec 必须 >= 5"})
 		return
 	}
-	if req.TLSHandshakeTimeoutSec < 5 || req.TLSHandshakeTimeoutSec > 60 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tlsHandshakeTimeoutSec 必须在 5-60 之间"})
+	if req.TLSHandshakeTimeoutSec < 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tlsHandshakeTimeoutSec 必须 >= 5"})
+		return
+	}
+
+	const maxDuration = time.Duration(1<<63 - 1)
+	maxSec := int64(maxDuration / time.Second)
+	if int64(req.IdleConnTimeoutSec) > maxSec || int64(req.ReadIdleTimeoutSec) > maxSec ||
+		int64(req.KeepAliveIntervalSec) > maxSec || int64(req.DialTimeoutSec) > maxSec ||
+		int64(req.TLSHandshakeTimeoutSec) > maxSec {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "超时参数过大，超出可表示范围"})
 		return
 	}
 
