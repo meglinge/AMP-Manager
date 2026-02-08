@@ -77,6 +77,11 @@ func main() {
 		amp.SetRequestDetailEnabled(enabled)
 	}
 
+	// 加载缓存 TTL 配置
+	if cacheTTL, err := sysConfigService.GetCacheTTLOverride(); err == nil && cacheTTL != "" {
+		filters.SetCacheTTLOverride(cacheTTL)
+	}
+
 	port := cfg.ServerPort
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort

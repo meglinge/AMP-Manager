@@ -269,10 +269,10 @@ type rewritingResponseWriter struct {
 	rewriter *ResponseRewriter
 }
 
-func newRewritingResponseWriter(w gin.ResponseWriter, originalModel string) *rewritingResponseWriter {
+func newRewritingResponseWriter(w gin.ResponseWriter, originalModel, mappedModel string) *rewritingResponseWriter {
 	return &rewritingResponseWriter{
 		ResponseWriter: w,
-		rewriter:       NewResponseRewriter(w, originalModel),
+		rewriter:       NewResponseRewriter(w, originalModel, mappedModel),
 	}
 }
 
@@ -309,10 +309,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Use original model from context if mapping was applied, otherwise use channelCfg.Model
 		// This ensures response rewriting uses the original requested model name
 		originalModel := channelCfg.Model
+		mappedModel := channelCfg.Model
 		if IsModelMappingApplied(c) {
 			if origModel := GetOriginalModel(c); origModel != "" {
 				originalModel = origModel
-				log.Debugf("channel proxy: using original model '%s' for response rewriting (mapped to '%s')", origModel, GetMappedModel(c))
+				if m := GetMappedModel(c); m != "" {
+					mappedModel = m
+				}
+				log.Debugf("channel proxy: using original model '%s' for response rewriting (mapped to '%s')", origModel, mappedModel)
 			}
 		}
 
@@ -453,13 +457,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				)
 				// Set channel info
 				trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
-				// Set model info
-				mappedModel := channelCfg.Model
-				if IsModelMappingApplied(c) {
-					if m := GetMappedModel(c); m != "" {
-						mappedModel = m
-					}
-				}
 				trace.SetModels(originalModel, mappedModel)
 				// Set thinking level if applied
 				if thinkingLevel := GetThinkingLevel(c); thinkingLevel != "" {
@@ -517,6 +514,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Apply channel-specific authentication
 				applyChannelAuth(channel, req)
+
+				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
+				if channel.Type == model.ChannelTypeOpenAI {
+					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
+				}
 
 				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
 				if channel.Type == model.ChannelTypeOpenAI && channel.Endpoint != model.ChannelEndpointResponses {
@@ -585,7 +587,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// For non-streaming responses, read the complete body upfront,
 				// apply all transformations, then reset body with correct Content-Length
 				if !isStreaming {
-					return handleNonStreamingResponse(resp, trace, transInfo, originalModel)
+					return handleNonStreamingResponse(resp, trace, transInfo, originalModel, mappedModel)
 				}
 
 				// Claude: unprefix only names we prefixed on the way out
@@ -607,7 +609,33 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Wrap SSE responses with keep-alive for long-running streams
 				if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
-					if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
+					// Check if pseudo-non-stream is enabled
+					if GetPseudoNonStream(resp.Request.Context()) {
+						var opts []PseudoNonStreamOption
+						if kw := GetAuditKeywords(resp.Request.Context()); len(kw) > 0 {
+							opts = append(opts, WithAuditKeywordsOption(kw))
+						}
+						// Build retry function using the request info available in ModifyResponse
+						if transInfo := GetTranslationInfo(resp.Request.Context()); transInfo != nil && len(transInfo.ConvertedBody) > 0 {
+							retryReq := resp.Request.Clone(resp.Request.Context())
+							opts = append(opts, WithRetryFunc(func() (io.ReadCloser, error) {
+								clone := retryReq.Clone(retryReq.Context())
+								clone.Body = io.NopCloser(bytes.NewReader(transInfo.ConvertedBody))
+								clone.ContentLength = int64(len(transInfo.ConvertedBody))
+								retryResp, err := sharedChannelTransport.RoundTrip(clone)
+								if err != nil {
+									return nil, err
+								}
+								if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
+									retryResp.Body.Close()
+									return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
+								}
+								return retryResp.Body, nil
+							}))
+						}
+						resp.Body = NewPseudoNonStreamBodyWrapper(resp.Body, rw, mappedModel, opts...)
+						log.Infof("channel proxy: enabled pseudo-non-stream buffering for streaming response (model: %s)", mappedModel)
+					} else if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
 						resp.Body = wrapper
 						log.Debugf("channel proxy: enabled SSE keep-alive for streaming response")
 					}
@@ -632,7 +660,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		// Wrap ResponseWriter to rewrite model names in responses
-		wrappedWriter := newRewritingResponseWriter(c.Writer, originalModel)
+		wrappedWriter := newRewritingResponseWriter(c.Writer, originalModel, mappedModel)
 		proxy.ServeHTTP(wrappedWriter, c.Request)
 		wrappedWriter.Flush() // 确保非流式响应被发送给客户端
 	}
@@ -818,7 +846,7 @@ const MaxNonStreamingResponseSize = 10 * 1024 * 1024
 
 // handleNonStreamingResponse reads the complete upstream response, applies transformations,
 // and resets resp.Body with correct Content-Length to avoid JSON truncation issues
-func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transInfo *TranslationInfo, originalModel string) error {
+func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transInfo *TranslationInfo, originalModel, mappedModel string) error {
 	// Read complete upstream body with size limit
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxNonStreamingResponseSize))
 	resp.Body.Close()
@@ -841,7 +869,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	}
 
 	// Apply model name rewriting
-	body = RewriteModelInResponseData(body, originalModel)
+	body = RewriteModelInResponseData(body, originalModel, mappedModel)
 
 	// Claude: unprefix only names we prefixed on the way out
 	if info, ok := GetProviderInfo(resp.Request.Context()); ok && info.Provider == ProviderAnthropic {

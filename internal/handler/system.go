@@ -14,6 +14,7 @@ import (
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,7 @@ var backupFilenamePattern = regexp.MustCompile(`^data\.db\.backup\.\d{14}$`)
 
 const retryConfigKey = "retry_config"
 const timeoutConfigKey = "timeout_config"
+const cacheTTLConfigKey = "cache_ttl_override"
 
 type SystemHandler struct {
 	configRepo *repository.SystemConfigRepository
@@ -475,4 +477,41 @@ func (h *SystemHandler) UpdateTimeoutConfig(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
+// GetCacheTTLConfig 获取缓存 TTL 配置
+func (h *SystemHandler) GetCacheTTLConfig(c *gin.Context) {
+	value, _ := h.configRepo.Get(cacheTTLConfigKey)
+	if value == "" {
+		value = "1h"
+	}
+	c.JSON(http.StatusOK, gin.H{"cacheTTL": value})
+}
+
+// UpdateCacheTTLConfig 更新缓存 TTL 配置
+func (h *SystemHandler) UpdateCacheTTLConfig(c *gin.Context) {
+	var req struct {
+		CacheTTL string `json:"cacheTTL"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	switch req.CacheTTL {
+	case "1h", "5m", "":
+		// valid
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cacheTTL 只支持 \"1h\"、\"5m\" 或 \"\"（不覆盖）"})
+		return
+	}
+
+	if err := h.configRepo.Set(cacheTTLConfigKey, req.CacheTTL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+
+	filters.SetCacheTTLOverride(req.CacheTTL)
+
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "cacheTTL": req.CacheTTL})
 }

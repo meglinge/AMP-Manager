@@ -14,6 +14,8 @@ import {
   getTimeoutConfig,
   updateTimeoutConfig,
   TimeoutConfig,
+  getCacheTTLConfig,
+  updateCacheTTLConfig,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -42,12 +44,15 @@ export default function SystemSettings() {
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
   const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
   const [timeoutLoading, setTimeoutLoading] = useState(false)
+  const [cacheTTL, setCacheTTL] = useState<string>('1h')
+  const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
 
   useEffect(() => {
     fetchBackups()
     fetchRetryConfig()
     fetchRequestDetailEnabled()
     fetchTimeoutConfig()
+    fetchCacheTTLConfig()
   }, [])
 
   const fetchBackups = async () => {
@@ -83,6 +88,28 @@ export default function SystemSettings() {
       setTimeoutConfig(data)
     } catch (err) {
       console.error('获取超时配置失败:', err)
+    }
+  }
+
+  const fetchCacheTTLConfig = async () => {
+    try {
+      const data = await getCacheTTLConfig()
+      setCacheTTL(data.cacheTTL)
+    } catch (err) {
+      console.error('获取缓存TTL配置失败:', err)
+    }
+  }
+
+  const handleCacheTTLChange = async (value: string) => {
+    setCacheTTLLoading(true)
+    try {
+      await updateCacheTTLConfig(value)
+      setCacheTTL(value)
+      showMessage('success', '缓存 TTL 配置已更新')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setCacheTTLLoading(false)
     }
   }
 
@@ -449,6 +476,47 @@ export default function SystemSettings() {
               onCheckedChange={handleRequestDetailToggle}
               disabled={requestDetailLoading}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>缓存 TTL 覆盖</CardTitle>
+          <CardDescription>控制发送给 Claude API 的 cache_control TTL 值</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <Label>TTL 策略</Label>
+            <div className="flex gap-2">
+              <Button
+                variant={cacheTTL === '1h' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCacheTTLChange('1h')}
+                disabled={cacheTTLLoading}
+              >
+                1 小时
+              </Button>
+              <Button
+                variant={cacheTTL === '5m' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCacheTTLChange('5m')}
+                disabled={cacheTTLLoading}
+              >
+                5 分钟
+              </Button>
+              <Button
+                variant={cacheTTL === '' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCacheTTLChange('')}
+                disabled={cacheTTLLoading}
+              >
+                不覆盖
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              选择"1小时"将强制所有 cache_control TTL 为 1h（省钱），"5分钟"为原始值，"不覆盖"保留请求原始 TTL 不做修改。
+            </p>
           </div>
         </CardContent>
       </Card>

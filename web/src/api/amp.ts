@@ -24,6 +24,8 @@ export interface ModelMapping {
   to: string
   regex: boolean
   thinkingLevel?: 'low' | 'medium' | 'high' | 'xhigh' | ''
+  pseudoNonStream?: boolean
+  auditKeywords?: string[]
 }
 
 export interface AmpSettings {

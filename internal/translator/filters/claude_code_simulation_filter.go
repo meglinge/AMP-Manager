@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync/atomic"
 )
 
 const (
@@ -13,6 +14,23 @@ const (
 )
 
 var claudeBrandSanitizeRe = regexp.MustCompile(`(?i)\b(?:opencode|amp(?:-?code)?)\b`)
+
+var cacheTTLOverride atomic.Value // stores string: "1h", "5m", ""
+
+func init() {
+	cacheTTLOverride.Store("1h")
+}
+
+func SetCacheTTLOverride(ttl string) {
+	cacheTTLOverride.Store(ttl)
+}
+
+func GetCacheTTLOverride() string {
+	if v, ok := cacheTTLOverride.Load().(string); ok {
+		return v
+	}
+	return "1h"
+}
 
 type ClaudeCodeSimulationFilter struct{}
 
@@ -32,9 +50,13 @@ func normalizeClaudeCacheControl(obj map[string]any) bool {
 	if _, ok := obj["cache_control"]; !ok {
 		return false
 	}
+	ttl := GetCacheTTLOverride()
+	if ttl == "" {
+		return false
+	}
 	obj["cache_control"] = map[string]any{
 		"type": "ephemeral",
-		"ttl":  "1h",
+		"ttl":  ttl,
 	}
 	return true
 }

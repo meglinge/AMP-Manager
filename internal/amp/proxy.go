@@ -362,7 +362,49 @@ func modifyResponse(resp *http.Response) error {
 
 		// Wrap SSE responses with keep-alive for long-running streams
 		if rw := GetResponseWriter(resp.Request.Context()); rw != nil {
-			if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
+			// Check if pseudo-non-stream is enabled
+			if GetPseudoNonStream(resp.Request.Context()) {
+				auditModelName := ""
+				if mi := GetModelInfo(resp.Request.Context()); mi != nil {
+					auditModelName = mi.MappedModel
+				}
+				var opts []PseudoNonStreamOption
+				if kw := GetAuditKeywords(resp.Request.Context()); len(kw) > 0 {
+					opts = append(opts, WithAuditKeywordsOption(kw))
+				}
+				// Build retry function for amp upstream proxy
+				cfg := GetProxyConfig(resp.Request.Context())
+				if cfg != nil {
+					retryReq := resp.Request.Clone(resp.Request.Context())
+					opts = append(opts, WithRetryFunc(func() (io.ReadCloser, error) {
+						clone := retryReq.Clone(retryReq.Context())
+						if clone.GetBody != nil {
+							body, err := clone.GetBody()
+							if err == nil {
+								clone.Body = body
+							}
+						}
+						rt := GetRetryTransport()
+						var transport http.RoundTripper
+						if rt != nil {
+							transport = rt.Base
+						} else {
+							transport = http.DefaultTransport
+						}
+						retryResp, err := transport.RoundTrip(clone)
+						if err != nil {
+							return nil, err
+						}
+						if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
+							retryResp.Body.Close()
+							return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
+						}
+						return retryResp.Body, nil
+					}))
+				}
+				resp.Body = NewPseudoNonStreamBodyWrapper(resp.Body, rw, auditModelName, opts...)
+				log.Infof("amp proxy: enabled pseudo-non-stream buffering for streaming response (model: %s)", auditModelName)
+			} else if wrapper := NewSSEKeepAliveWrapper(resp.Body, rw, resp.Request.Context(), nil); wrapper != nil {
 				resp.Body = wrapper
 				log.Debugf("amp proxy: enabled SSE keep-alive for streaming response")
 			}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { ModelMapping } from '../api/amp'
 import { listAvailableModels, AvailableModel } from '../api/models'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -92,14 +93,14 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
   }
 
   const handleAdd = () => {
-    onChange([...mappings, { from: '', to: '', regex: false, thinkingLevel: '' }])
+    onChange([...mappings, { from: '', to: '', regex: false, thinkingLevel: '', pseudoNonStream: false, auditKeywords: [] }])
   }
 
   const handleRemove = (index: number) => {
     onChange(mappings.filter((_, i) => i !== index))
   }
 
-  const handleChange = (index: number, field: keyof ModelMapping, value: string | boolean) => {
+  const handleChange = (index: number, field: keyof ModelMapping, value: string | boolean | string[]) => {
     const newMappings = [...mappings]
     newMappings[index] = { ...newMappings[index], [field]: value }
     onChange(newMappings)
@@ -146,13 +147,15 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
                 <TableHead className="text-center">思维强度</TableHead>
+                <TableHead className="text-center">伪非流</TableHead>
                 <TableHead className="text-center">Regex</TableHead>
                 <TableHead className="text-center">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {mappings.map((mapping, index) => (
-                <TableRow key={index}>
+                <React.Fragment key={index}>
+                <TableRow>
                   <TableCell>
                     <Input
                       value={mapping.from}
@@ -246,6 +249,12 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                   </TableCell>
                   <TableCell className="text-center">
                     <Checkbox
+                      checked={mapping.pseudoNonStream || false}
+                      onCheckedChange={(checked) => handleChange(index, 'pseudoNonStream', !!checked)}
+                    />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Checkbox
                       checked={mapping.regex}
                       onCheckedChange={(checked) => handleChange(index, 'regex', !!checked)}
                     />
@@ -262,6 +271,28 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                     </Button>
                   </TableCell>
                 </TableRow>
+                {mapping.pseudoNonStream && (
+                  <TableRow key={`${index}-audit`}>
+                    <TableCell colSpan={6} className="pt-0">
+                      <div className="flex items-start gap-2 pb-2">
+                        <Label className="text-xs text-muted-foreground whitespace-nowrap pt-2">审计关键词:</Label>
+                        <Textarea
+                          value={(mapping.auditKeywords || []).join('\n')}
+                          onChange={(e) => {
+                            const keywords = e.target.value
+                              .split('\n')
+                              .map(k => k.trim())
+                              .filter(k => k !== '')
+                            handleChange(index, 'auditKeywords', keywords)
+                          }}
+                          placeholder="每行一个关键词，留空使用默认列表（中文垃圾/赌博词汇）"
+                          className="h-20 text-xs font-mono"
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
@@ -275,6 +306,8 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
             <li><strong>From:</strong> 请求中的模型名称（支持正则表达式）</li>
             <li><strong>To:</strong> 映射到的目标模型（可从列表选择或手动输入）</li>
             <li><strong>思维强度:</strong> 设置模型的推理/思考强度 (low/medium/high/xhigh)</li>
+            <li><strong>伪非流:</strong> 以流式请求上游，但完整接收后才返回给客户端（用于响应审查）</li>
+            <li><strong>审计关键词:</strong> 伪非流启用时，额外检测的自定义关键词（每行一个，留空使用默认列表）</li>
             <li><strong>Regex:</strong> 是否将 From 字段作为正则表达式匹配</li>
           </ul>
         </CardContent>

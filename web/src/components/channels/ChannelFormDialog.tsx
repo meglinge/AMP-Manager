@@ -61,6 +61,35 @@ export function ChannelFormDialog({
     }
   }
 
+  const handleAddHeader = () => {
+    setFormData(prev => ({
+      ...prev,
+      headers: { ...(prev.headers || {}), '': '' },
+    }))
+  }
+
+  const handleRemoveHeader = (key: string) => {
+    setFormData(prev => {
+      const newHeaders = { ...(prev.headers || {}) }
+      delete newHeaders[key]
+      return { ...prev, headers: newHeaders }
+    })
+  }
+
+  const handleHeaderChange = (oldKey: string, newKey: string, value: string) => {
+    setFormData(prev => {
+      const newHeaders: Record<string, string> = {}
+      for (const [k, v] of Object.entries(prev.headers || {})) {
+        if (k === oldKey) {
+          newHeaders[newKey] = value
+        } else {
+          newHeaders[k] = v
+        }
+      }
+      return { ...prev, headers: newHeaders }
+    })
+  }
+
   const handleAddModel = () => {
     setFormData(prev => ({
       ...prev,
@@ -201,6 +230,49 @@ export function ChannelFormDialog({
             onRemove={handleRemoveModel}
             onChange={handleModelChange}
           />
+
+          {/* 自定义请求头 */}
+          <div className="col-span-2 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>自定义请求头</Label>
+              <Button type="button" variant="outline" size="sm" onClick={handleAddHeader}>
+                添加
+              </Button>
+            </div>
+            {Object.entries(formData.headers || {}).length > 0 ? (
+              <div className="space-y-2">
+                {Object.entries(formData.headers || {}).map(([key, value], index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={key}
+                      onChange={(e) => handleHeaderChange(key, e.target.value, value)}
+                      placeholder="Header 名称，如 User-Agent"
+                      className="flex-1"
+                    />
+                    <Input
+                      value={value}
+                      onChange={(e) => handleHeaderChange(key, key, e.target.value)}
+                      placeholder="Header 值"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveHeader(key)}
+                      className="text-destructive hover:text-destructive shrink-0"
+                    >
+                      删除
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                未配置自定义请求头。可添加如 User-Agent 等自定义头部。
+              </p>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

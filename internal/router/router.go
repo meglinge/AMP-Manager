@@ -160,6 +160,10 @@ func Setup() *gin.Engine {
 				// 超时配置
 				system.GET("/timeout-config", systemHandler.GetTimeoutConfig)
 				system.PUT("/timeout-config", systemHandler.UpdateTimeoutConfig)
+
+				// 缓存 TTL 配置
+				system.GET("/cache-ttl", systemHandler.GetCacheTTLConfig)
+				system.PUT("/cache-ttl", systemHandler.UpdateCacheTTLConfig)
 				}
 
 			users := admin.Group("/users")

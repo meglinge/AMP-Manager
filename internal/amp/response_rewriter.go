@@ -17,15 +17,17 @@ import (
 type ResponseRewriter struct {
 	gin.ResponseWriter
 	originalModel     string
+	mappedModel       string
 	isStreaming       bool
 	streamingDetected bool
 }
 
 // NewResponseRewriter creates a new response rewriter for model name substitution
-func NewResponseRewriter(w gin.ResponseWriter, originalModel string) *ResponseRewriter {
+func NewResponseRewriter(w gin.ResponseWriter, originalModel, mappedModel string) *ResponseRewriter {
 	return &ResponseRewriter{
 		ResponseWriter: w,
 		originalModel:  originalModel,
+		mappedModel:    mappedModel,
 	}
 }
 
@@ -70,9 +72,6 @@ func (rw *ResponseRewriter) Flush() {
 	}
 }
 
-// modelFieldPaths lists all JSON paths where model name may appear
-var modelFieldPaths = []string{"model", "modelVersion", "response.modelVersion", "message.model"}
-
 // suppressThinkingIfToolUse suppresses thinking blocks when tool_use is detected
 // Amp client has rendering issues when it sees both thinking and tool_use blocks
 func suppressThinkingIfToolUse(data []byte) []byte {
@@ -116,44 +115,26 @@ func suppressThinkingIfToolUse(data []byte) []byte {
 	return data
 }
 
-// rewriteModelInResponse replaces all occurrences of the mapped model with the original model in JSON
-func (rw *ResponseRewriter) rewriteModelInResponse(data []byte) []byte {
-	return RewriteModelInResponseData(data, rw.originalModel)
-}
-
-// RewriteModelInResponseData is a standalone function to rewrite model names in JSON response data
-// It can be used outside of ResponseRewriter for direct response manipulation
-func RewriteModelInResponseData(data []byte, originalModel string) []byte {
-	// Suppress thinking blocks first (if tool_use exists)
+// RewriteModelInResponseData rewrites model names in JSON response data using simple string replacement.
+// mappedModel is the upstream model name to find, originalModel is what to replace it with.
+// If mappedModel is empty, no replacement is done (no mapping was applied).
+func RewriteModelInResponseData(data []byte, originalModel, mappedModel string) []byte {
 	data = suppressThinkingIfToolUse(data)
 
-	if originalModel == "" {
+	if originalModel == "" || mappedModel == "" || originalModel == mappedModel {
 		return data
 	}
-	for _, path := range modelFieldPaths {
-		if gjson.GetBytes(data, path).Exists() {
-			data, _ = sjson.SetBytes(data, path, originalModel)
-		}
-	}
-	return data
+
+	return bytes.ReplaceAll(data, []byte(mappedModel), []byte(originalModel))
 }
 
 // rewriteStreamChunk rewrites model names in SSE stream chunks
 func (rw *ResponseRewriter) rewriteStreamChunk(chunk []byte) []byte {
-	// SSE format: "data: {json}\n\n"
-	lines := bytes.Split(chunk, []byte("\n"))
-	for i, line := range lines {
-		if bytes.HasPrefix(line, []byte("data: ")) {
-			jsonData := bytes.TrimPrefix(line, []byte("data: "))
-			if len(jsonData) > 0 && jsonData[0] == '{' {
-				// Suppress thinking blocks first
-				jsonData = suppressThinkingIfToolUse(jsonData)
-				// Then rewrite model
-				rewritten := rw.rewriteModelInResponse(jsonData)
-				lines[i] = append([]byte("data: "), rewritten...)
-			}
-		}
+	chunk = suppressThinkingIfToolUse(chunk)
+
+	if rw.originalModel == "" || rw.mappedModel == "" || rw.originalModel == rw.mappedModel {
+		return chunk
 	}
 
-	return bytes.Join(lines, []byte("\n"))
+	return bytes.ReplaceAll(chunk, []byte(rw.mappedModel), []byte(rw.originalModel))
 }

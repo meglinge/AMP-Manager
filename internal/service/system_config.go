@@ -8,6 +8,7 @@ const (
 	retryConfigKey          = "retry_config"
 	requestDetailEnabledKey = "request_detail_enabled"
 	timeoutConfigKey        = "timeout_config"
+	cacheTTLOverrideKey     = "cache_ttl_override"
 )
 
 type SystemConfigService struct {
@@ -51,4 +52,9 @@ func (s *SystemConfigService) SetRequestDetailEnabled(enabled bool) error {
 // GetTimeoutConfigJSON 获取超时配置的 JSON 字符串
 func (s *SystemConfigService) GetTimeoutConfigJSON() (string, error) {
 	return s.repo.Get(timeoutConfigKey)
+}
+
+// GetCacheTTLOverride 获取缓存 TTL 覆盖配置
+func (s *SystemConfigService) GetCacheTTLOverride() (string, error) {
+	return s.repo.Get(cacheTTLOverrideKey)
 }

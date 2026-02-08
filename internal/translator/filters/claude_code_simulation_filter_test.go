@@ -62,3 +62,63 @@ func TestClaudeCodeSimulationFilterSkipsHaiku(t *testing.T) {
 		t.Fatalf("expected body unchanged")
 	}
 }
+
+func TestClaudeCodeSimulationFilterCacheTTL5m(t *testing.T) {
+	old := GetCacheTTLOverride()
+	defer SetCacheTTLOverride(old)
+
+	SetCacheTTLOverride("5m")
+
+	f := &ClaudeCodeSimulationFilter{}
+	body := []byte(`{
+		"model":"claude-3-7-sonnet",
+		"system":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"1m"}}],
+		"tools":[{"name":"t1","cache_control":{"type":"ephemeral","ttl":"1m"}}],
+		"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1m"}}]}]
+	}`)
+
+	out, changed, err := f.Apply(body)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected changed=true")
+	}
+
+	if got := gjson.GetBytes(out, "system.1.cache_control.ttl").String(); got != "5m" {
+		t.Fatalf("expected system cache_control ttl=5m, got %q", got)
+	}
+	if got := gjson.GetBytes(out, "tools.0.cache_control.ttl").String(); got != "5m" {
+		t.Fatalf("expected tools cache_control ttl=5m, got %q", got)
+	}
+	if got := gjson.GetBytes(out, "messages.0.content.0.cache_control.ttl").String(); got != "5m" {
+		t.Fatalf("expected messages cache_control ttl=5m, got %q", got)
+	}
+}
+
+func TestClaudeCodeSimulationFilterCacheTTLEmpty(t *testing.T) {
+	old := GetCacheTTLOverride()
+	defer SetCacheTTLOverride(old)
+
+	SetCacheTTLOverride("")
+
+	f := &ClaudeCodeSimulationFilter{}
+	body := []byte(`{
+		"model":"claude-3-7-sonnet",
+		"system":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"1m"}}],
+		"tools":[{"name":"t1","cache_control":{"type":"ephemeral","ttl":"1m"}}]
+	}`)
+
+	out, changed, err := f.Apply(body)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if got := gjson.GetBytes(out, "system.1.cache_control.ttl").String(); got != "1m" {
+		t.Fatalf("expected original ttl=1m preserved, got %q", got)
+	}
+	if got := gjson.GetBytes(out, "tools.0.cache_control.ttl").String(); got != "1m" {
+		t.Fatalf("expected original tools ttl=1m preserved, got %q", got)
+	}
+	_ = changed
+}

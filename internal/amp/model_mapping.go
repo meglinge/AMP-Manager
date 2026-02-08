@@ -17,10 +17,11 @@ import (
 
 // Context keys for model mapping (gin.Context)
 const (
-	OriginalModelContextKey  = "original_model"
-	MappedModelContextKey    = "mapped_model"
-	ModelMappingAppliedKey   = "model_mapping_applied"
-	ThinkingLevelContextKey  = "thinking_level"
+	OriginalModelContextKey    = "original_model"
+	MappedModelContextKey      = "mapped_model"
+	ModelMappingAppliedKey     = "model_mapping_applied"
+	ThinkingLevelContextKey    = "thinking_level"
+	PseudoNonStreamContextKey  = "pseudo_non_stream"
 )
 
 // modelInfoKey 用于在 req.Context() 中存储模型信息
@@ -50,11 +51,46 @@ func GetModelInfo(ctx context.Context) *ModelInfo {
 	return nil
 }
 
+// pseudoNonStreamKey 用于在 req.Context() 中传递 PseudoNonStream 标志
+type pseudoNonStreamKey struct{}
+
+// WithPseudoNonStream 将 PseudoNonStream 标志存入 context
+func WithPseudoNonStream(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, pseudoNonStreamKey{}, enabled)
+}
+
+// GetPseudoNonStream 从 context 获取 PseudoNonStream 标志
+func GetPseudoNonStream(ctx context.Context) bool {
+	if val := ctx.Value(pseudoNonStreamKey{}); val != nil {
+		if b, ok := val.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+type auditKeywordsKey struct{}
+
+func WithAuditKeywords(ctx context.Context, keywords []string) context.Context {
+	return context.WithValue(ctx, auditKeywordsKey{}, keywords)
+}
+
+func GetAuditKeywords(ctx context.Context) []string {
+	if val := ctx.Value(auditKeywordsKey{}); val != nil {
+		if kw, ok := val.([]string); ok {
+			return kw
+		}
+	}
+	return nil
+}
+
 type MappingResult struct {
-	OriginalModel string
-	MappedModel   string
-	ThinkingLevel string
-	Applied       bool
+	OriginalModel   string
+	MappedModel     string
+	ThinkingLevel   string
+	PseudoNonStream bool
+	AuditKeywords   []string
+	Applied         bool
 }
 
 // channelService for checking model availability
@@ -142,7 +178,20 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 		c.Set(MappedModelContextKey, result.MappedModel)
 		c.Set(ModelMappingAppliedKey, true)
 		// Also store in req.Context for upstream layers
-		c.Request = c.Request.WithContext(WithModelInfo(c.Request.Context(), result.OriginalModel, result.MappedModel))
+		ctx := WithModelInfo(c.Request.Context(), result.OriginalModel, result.MappedModel)
+
+		// Store PseudoNonStream flag if enabled
+		if result.PseudoNonStream {
+			c.Set(PseudoNonStreamContextKey, true)
+			ctx = WithPseudoNonStream(ctx, true)
+		}
+
+		// Store AuditKeywords if configured
+		if len(result.AuditKeywords) > 0 {
+			ctx = WithAuditKeywords(ctx, result.AuditKeywords)
+		}
+
+		c.Request = c.Request.WithContext(ctx)
 
 		log.Infof("model mapping: %s -> %s (source: %s)", result.OriginalModel, result.MappedModel, modelSource)
 
@@ -310,10 +359,12 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 			}
 
 			return MappingResult{
-				OriginalModel: modelName,
-				MappedModel:   targetModel,
-				ThinkingLevel: m.ThinkingLevel,
-				Applied:       true,
+				OriginalModel:   modelName,
+				MappedModel:     targetModel,
+				ThinkingLevel:   m.ThinkingLevel,
+				PseudoNonStream: m.PseudoNonStream,
+				AuditKeywords:   m.AuditKeywords,
+				Applied:         true,
 			}
 		}
 	}

@@ -23,10 +23,12 @@ type AmpSettings struct {
 }
 
 type ModelMapping struct {
-	From          string `json:"from"`
-	To            string `json:"to"`
-	Regex         bool   `json:"regex"`
-	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	From            string   `json:"from"`
+	To              string   `json:"to"`
+	Regex           bool     `json:"regex"`
+	ThinkingLevel   string   `json:"thinkingLevel,omitempty"`
+	PseudoNonStream bool     `json:"pseudoNonStream,omitempty"`
+	AuditKeywords   []string `json:"auditKeywords,omitempty"`
 }
 
 type UserAPIKey struct {

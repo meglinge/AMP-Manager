@@ -215,3 +215,35 @@ export async function updateTimeoutConfig(config: TimeoutConfig): Promise<{ mess
 
   return res.json()
 }
+
+// 缓存 TTL 配置
+export async function getCacheTTLConfig(): Promise<{ cacheTTL: string }> {
+  const res = await fetch(`${API_BASE}/admin/system/cache-ttl`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateCacheTTLConfig(cacheTTL: string): Promise<{ message: string; cacheTTL: string }> {
+  const res = await fetch(`${API_BASE}/admin/system/cache-ttl`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ cacheTTL }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}
