@@ -40,7 +40,28 @@ var (
 const (
 	webSearchQuery             = "webSearch2"
 	extractWebPageContentQuery = "extractWebPageContent"
+	mcpToolPrefix              = "mcp_"
 )
+
+func detectLocalToolQuery(rawQuery string) (string, bool) {
+	if rawQuery == "" {
+		return "", false
+	}
+	parts := strings.Split(rawQuery, "&")
+	for _, part := range parts {
+		key := part
+		if idx := strings.IndexByte(part, '='); idx >= 0 {
+			key = part[:idx]
+		}
+		switch key {
+		case webSearchQuery, mcpToolPrefix + webSearchQuery:
+			return webSearchQuery, true
+		case extractWebPageContentQuery, mcpToolPrefix + extractWebPageContentQuery:
+			return extractWebPageContentQuery, true
+		}
+	}
+	return "", false
+}
 
 // Pre-compiled regex for matching isFreeTierRequest field
 var isFreeTierRequestRegex = regexp.MustCompile(`"isFreeTierRequest"\s*:\s*false`)
@@ -162,14 +183,14 @@ func DebugInternalAPIMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		query := c.Request.URL.RawQuery
-		if query != webSearchQuery && query != extractWebPageContentQuery {
+		tool, ok := detectLocalToolQuery(c.Request.URL.RawQuery)
+		if !ok {
 			c.Next()
 			return
 		}
 
 		// Log request headers (with sensitive header masking)
-		log.Infof("=== DEBUG %s REQUEST ===", query)
+		log.Infof("=== DEBUG %s REQUEST ===", tool)
 		log.Infof("URL: %s", c.Request.URL.String())
 		log.Infof("Method: %s", c.Request.Method)
 		log.Infof("--- Request Headers ---")
@@ -237,7 +258,7 @@ func DebugInternalAPIMiddleware() gin.HandlerFunc {
 		} else {
 			log.Infof("%s", string(respBody))
 		}
-		log.Infof("=== END DEBUG %s ===", query)
+		log.Infof("=== END DEBUG %s ===", tool)
 	}
 }
 
@@ -255,8 +276,8 @@ func (w *responseLogWriter) Write(b []byte) (int, error) {
 // Deprecated: Use WebSearchStrategyMiddleware instead
 func ForceFreeTierMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := c.Request.URL.RawQuery
-		if query != webSearchQuery && query != extractWebPageContentQuery {
+		tool, ok := detectLocalToolQuery(c.Request.URL.RawQuery)
+		if !ok {
 			c.Next()
 			return
 		}
@@ -268,7 +289,7 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 
 		bodyBytes, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			log.Warnf("amp: could not read request body for %s, proxying as-is: %v", query, err)
+			log.Warnf("amp: could not read request body for %s, proxying as-is: %v", tool, err)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			c.Next()
 			return
@@ -279,7 +300,7 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 			c.Request.ContentLength = int64(len(modifiedBody))
 			c.Request.Header.Set("Content-Length", strconv.Itoa(len(modifiedBody)))
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(modifiedBody))
-			log.Debugf("amp: %s request modified to use free tier", query)
+			log.Debugf("amp: %s request modified to use free tier", tool)
 		} else {
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
@@ -292,8 +313,8 @@ func ForceFreeTierMiddleware() gin.HandlerFunc {
 // 统一处理 webSearch2 和 extractWebPageContent 请求
 func WebSearchStrategyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := c.Request.URL.RawQuery
-		if query != webSearchQuery && query != extractWebPageContentQuery {
+		tool, ok := detectLocalToolQuery(c.Request.URL.RawQuery)
+		if !ok {
 			c.Next()
 			return
 		}
@@ -306,9 +327,9 @@ func WebSearchStrategyMiddleware() gin.HandlerFunc {
 
 		switch cfg.WebSearchMode {
 		case "local_duckduckgo":
-			handleLocalWebSearch(c, query)
+			handleLocalWebSearch(c, tool)
 		case "builtin_free":
-			handleBuiltinFreeSearch(c, query)
+			handleBuiltinFreeSearch(c, tool)
 		default:
 			c.Next()
 		}

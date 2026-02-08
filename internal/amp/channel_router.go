@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"strconv"
+	"strings"
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
@@ -316,98 +316,32 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 		}
 
-		// Detect incoming and outgoing formats for potential translation
-		// First check if XMLTagRoutingMiddleware detected a format from body structure
+		// Detect incoming and outgoing formats - format conversion is NOT supported
 		incomingFormat := GetXMLTagDetectedFormat(c)
 		if incomingFormat == "" {
 			incomingFormat = detectIncomingFormat(c.Request.URL.Path)
 		}
 		outgoingFormat := channelTypeToFormat(channel)
-		needsTranslation := needsFormatConversion(incomingFormat, outgoingFormat)
 
-		// Check if translation is possible when needed
-		if needsTranslation {
-			// Check if we have a request transformer registered
-			testBody := []byte(`{"model":"test"}`)
-			convertedTest, _ := translator.TranslateRequest(incomingFormat, outgoingFormat, "test", testBody, false)
-			if bytes.Equal(testBody, convertedTest) {
-				// No transformer registered, return error
-				log.Warnf("channel proxy: format conversion from %s to %s not supported", incomingFormat, outgoingFormat)
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("format conversion from %s to %s is not supported", incomingFormat, outgoingFormat),
-				})
-				return
-			}
-			log.Infof("channel proxy: translating request from %s to %s", incomingFormat, outgoingFormat)
+		// Reject if formats don't match (no translation supported)
+		if needsFormatConversion(incomingFormat, outgoingFormat) {
+			log.Warnf("channel proxy: format mismatch - incoming %s, channel expects %s (format conversion not supported)", incomingFormat, outgoingFormat)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("format mismatch: request format is %s but channel expects %s. Format conversion is not supported, please use a channel with matching format.", incomingFormat, outgoingFormat),
+			})
+			return
 		}
 
-		// Read and cache original request body for translation
+		// Read and process request body
 		var originalRequestBody []byte
 		var convertedBody []byte
 		clientWantsStream := false
 		isStreaming := false
-		if needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
+		if c.Request.Body != nil && c.Request.ContentLength > 0 {
 			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
 			c.Request.Body.Close()
 			if err != nil {
-				log.Errorf("channel proxy: failed to read request body for translation: %v", err)
-				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
-				return
-			}
-			originalRequestBody = bodyBytes
-
-			// Check if streaming
-			var payload struct {
-				Stream bool `json:"stream"`
-			}
-			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
-				clientWantsStream = payload.Stream
-				isStreaming = payload.Stream
-			}
-
-			// Translate request
-			convertedBody, err = translator.TranslateRequest(incomingFormat, outgoingFormat, channelCfg.Model, bodyBytes, isStreaming)
-			if err != nil {
-				log.Warnf("channel proxy: request translation failed: %v, using original request", err)
-				convertedBody = bodyBytes
-			}
-
-			// Apply outgoing format filters (e.g., Claude system string to array)
-			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
-			if filterErr != nil {
-				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
-			} else {
-				convertedBody = filteredBody
-			}
-
-			// /v1/responses: if client asked for non-stream, force upstream stream=true.
-			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
-			forcedUpstreamStream := false
-			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
-				forcedBody, forced := forceJSONStreamTrue(convertedBody)
-				if forced {
-					convertedBody = forcedBody
-					isStreaming = true
-					forcedUpstreamStream = true
-				}
-			}
-
-			// Restore body with converted content
-			c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
-			c.Request.ContentLength = int64(len(convertedBody))
-			c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
-
-			// Preserve client streaming preference even if we force upstream to stream.
-			c.Request = c.Request.WithContext(WithStreamMode(c.Request.Context(), StreamMode{
-				ClientWantsStream:    clientWantsStream,
-				ForcedUpstreamStream: forcedUpstreamStream,
-			}))
-		} else if !needsTranslation && c.Request.Body != nil && c.Request.ContentLength > 0 {
-			// No translation needed, but still apply filters for the outgoing format
-			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
-			c.Request.Body.Close()
-			if err != nil {
-				log.Errorf("channel proxy: failed to read request body for filtering: %v", err)
+				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
 			}
@@ -423,22 +357,38 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				isStreaming = payload.Stream
 			}
 
-			// Apply outgoing format filters
+			// Apply outgoing format filters (e.g., Claude system string to array)
 			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, bodyBytes)
 			if filterErr != nil {
 				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
-			} else if !bytes.Equal(filteredBody, bodyBytes) {
-				convertedBody = filteredBody
+				filteredBody = bodyBytes
+			}
+			convertedBody = filteredBody
+
+			if outgoingFormat == translator.FormatClaude {
+				if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+					if newBody, injected := ensureClaudeMetadataUserID(convertedBody, c.Request.Header.Get("User-Agent"), channel.APIKey); injected {
+						convertedBody = newBody
+					}
+				}
+
+				if newBody, toolMap, changed := PrefixClaudeToolNamesWithMap(convertedBody); changed {
+					convertedBody = newBody
+					if len(toolMap) > 0 {
+						c.Request = c.Request.WithContext(WithClaudeToolNameMap(c.Request.Context(), toolMap))
+					}
+				}
+			}
+
+			if !bytes.Equal(convertedBody, bodyBytes) {
 				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 				c.Request.ContentLength = int64(len(convertedBody))
 				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
 			} else {
-				// No changes, restore original body
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
 
-			// /v1/responses: if client asked for non-stream, force upstream stream=true.
-			// We'll aggregate the upstream SSE back to a single non-stream JSON response.
+			// /v1/responses: if client asked for non-stream, force upstream stream=true
 			forcedUpstreamStream := false
 			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
 				forcedBody, forced := forceJSONStreamTrue(convertedBody)
@@ -452,24 +402,23 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 			}
 
-			// Preserve client streaming preference even if we force upstream to stream.
 			c.Request = c.Request.WithContext(WithStreamMode(c.Request.Context(), StreamMode{
 				ClientWantsStream:    clientWantsStream,
 				ForcedUpstreamStream: forcedUpstreamStream,
 			}))
 		}
 
-		// Store translation info in context for response processing
+		// Store request info in context for response processing
 		var responseParam any
 		translationInfo := &TranslationInfo{
-			NeedsConversion:     needsTranslation,
+			NeedsConversion:     false, // No conversion supported
 			IncomingFormat:      incomingFormat,
 			OutgoingFormat:      outgoingFormat,
 			OriginalRequestBody: originalRequestBody,
 			ConvertedBody:       convertedBody,
 			IsStreaming:         isStreaming,
-			Model:               originalModel,    // 用于响应重写
-			UpstreamModel:       channelCfg.Model, // 用于上游路径
+			Model:               originalModel,
+			UpstreamModel:       channelCfg.Model,
 			ResponseParam:       &responseParam,
 		}
 		c.Request = c.Request.WithContext(WithTranslationInfo(c.Request.Context(), translationInfo))
@@ -574,7 +523,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
-					// Apply custom headers from channel config
+				// Apply custom headers from channel config
 				var headersMap map[string]string
 				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
 					for k, v := range headersMap {
@@ -596,6 +545,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				trace := GetRequestTrace(resp.Request.Context())
 				transInfo := GetTranslationInfo(resp.Request.Context())
 				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+				providerInfo, _ := GetProviderInfo(resp.Request.Context())
 
 				// /v1/responses: if client requested non-stream but upstream responded with SSE,
 				// aggregate the SSE into a single JSON response.
@@ -638,30 +588,21 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return handleNonStreamingResponse(resp, trace, transInfo, originalModel)
 				}
 
-				// Streaming response handling (existing logic)
-				if trace != nil {
-					info, _ := GetProviderInfo(resp.Request.Context())
-					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, info)
-					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
-					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+				// Claude: unprefix only names we prefixed on the way out
+				if isStreaming && providerInfo.Provider == ProviderAnthropic {
+					if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
+						resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
+							out, _ := UnprefixClaudeToolNamesWithMap(b, toolMap)
+							return out
+						})
+					}
 				}
 
-				// Apply response translation if needed for streaming
-				// Note: Registry keys are [IncomingFormat][OutgoingFormat] based on request direction
-				// For response translation: IncomingFormat is client format, OutgoingFormat is upstream format
-				if transInfo != nil && transInfo.NeedsConversion {
-					resp.Body = newTranslatingResponseBody(
-						resp.Request.Context(),
-						resp.Body,
-						transInfo.IncomingFormat, // from = client format (registry key)
-						transInfo.OutgoingFormat, // to = upstream format (registry key)
-						transInfo.Model,
-						transInfo.OriginalRequestBody,
-						transInfo.ConvertedBody,
-						true, // isStreaming
-						transInfo.ResponseParam,
-					)
-					log.Debugf("channel proxy: translating response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
+				// Streaming response handling (existing logic)
+				if trace != nil {
+					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
+					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
+					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
 				}
 
 				// Wrap SSE responses with keep-alive for long-running streams
@@ -716,6 +657,14 @@ func buildUpstreamURL(channel *model.Channel, req *http.Request) (string, error)
 			q.Set("alt", "sse")
 		}
 		parsed.RawQuery = q.Encode()
+	}
+
+	if channel.Type == model.ChannelTypeClaude {
+		q := parsed.Query()
+		if q.Get("beta") != "true" {
+			q.Set("beta", "true")
+			parsed.RawQuery = q.Encode()
+		}
 	}
 
 	return parsed.String(), nil
@@ -781,6 +730,7 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	case model.ChannelTypeClaude:
 		req.Header.Set("x-api-key", channel.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
+		ensureRequiredAnthropicBetas(req)
 	case model.ChannelTypeGemini:
 	}
 }
@@ -843,26 +793,6 @@ func injectOpenAIStreamOptions(req *http.Request) {
 	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 }
 
-// translatingResponseBody wraps an io.ReadCloser to translate response data
-type translatingResponseBody struct {
-	ctx                 context.Context
-	reader              io.ReadCloser
-	from                translator.Format
-	to                  translator.Format
-	model               string
-	originalRequestBody []byte
-	convertedBody       []byte
-	isStreaming         bool
-	param               *any
-	buffer              bytes.Buffer
-	translatedBuffer    bytes.Buffer
-	sseBuffer           bytes.Buffer // Buffer for accumulating SSE events (split by \n\n or \r\n\r\n)
-	eofReached          bool         // Track if EOF has been reached
-}
-
-// maxSSEBufferSize is the maximum size limit for SSE buffer to prevent OOM (10MB)
-const maxSSEBufferSize = 10 * 1024 * 1024
-
 // findSSEDelimiter finds the earliest SSE delimiter (\n\n or \r\n\r\n) in data
 func findSSEDelimiter(data []byte) (idx int, delimLen int) {
 	lfIdx := bytes.Index(data, []byte("\n\n"))
@@ -883,209 +813,6 @@ func findSSEDelimiter(data []byte) (idx int, delimLen int) {
 	return crlfIdx, 4
 }
 
-func newTranslatingResponseBody(
-	ctx context.Context,
-	reader io.ReadCloser,
-	from, to translator.Format,
-	model string,
-	originalRequestBody, convertedBody []byte,
-	isStreaming bool,
-	param *any,
-) *translatingResponseBody {
-	return &translatingResponseBody{
-		ctx:                 ctx,
-		reader:              reader,
-		from:                from,
-		to:                  to,
-		model:               model,
-		originalRequestBody: originalRequestBody,
-		convertedBody:       convertedBody,
-		isStreaming:         isStreaming,
-		param:               param,
-	}
-}
-
-func (t *translatingResponseBody) Read(p []byte) (int, error) {
-	// If we have translated data buffered, return that first
-	if t.translatedBuffer.Len() > 0 {
-		return t.translatedBuffer.Read(p)
-	}
-
-	if t.isStreaming {
-		return t.readStreaming(p)
-	}
-	return t.readNonStreaming(p)
-}
-
-func (t *translatingResponseBody) readStreaming(p []byte) (int, error) {
-	// If we have translated data buffered, return that first
-	if t.translatedBuffer.Len() > 0 {
-		return t.translatedBuffer.Read(p)
-	}
-
-	// If EOF already reached, return EOF
-	if t.eofReached {
-		return 0, io.EOF
-	}
-
-	// Loop until we have data to return or encounter an error
-	for {
-		// Check SSE buffer size limit to prevent OOM
-		if t.sseBuffer.Len() > maxSSEBufferSize {
-			return 0, fmt.Errorf("SSE buffer overflow: exceeds %d bytes", maxSSEBufferSize)
-		}
-
-		// Read from upstream
-		buf := make([]byte, 4096)
-		n, err := t.reader.Read(buf)
-		if n > 0 {
-			t.sseBuffer.Write(buf[:n])
-		}
-
-		// Process complete SSE events (delimited by \n\n or \r\n\r\n)
-		for {
-			data := t.sseBuffer.Bytes()
-			idx, delimLen := findSSEDelimiter(data)
-			if idx == -1 {
-				break
-			}
-
-			// Extract complete event (including the delimiter)
-			event := make([]byte, idx+delimLen)
-			copy(event, data[:idx+delimLen])
-
-			// Remove processed data from buffer
-			t.sseBuffer.Reset()
-			t.sseBuffer.Write(data[idx+delimLen:])
-
-			// Translate this SSE event
-			translated, translateErr := translator.TranslateStream(
-				t.ctx,
-				t.from,
-				t.to,
-				t.model,
-				t.originalRequestBody,
-				t.convertedBody,
-				event,
-				t.param,
-			)
-			if translateErr != nil {
-				log.Warnf("channel proxy: stream translation failed: %v, using original data", translateErr)
-				translated = []string{string(event)}
-			}
-
-			for _, chunk := range translated {
-				t.translatedBuffer.WriteString(chunk)
-				// 记录翻译后的响应用于调试
-				if store := GetRequestDetailStore(); store != nil {
-					if trace := GetRequestTrace(t.ctx); trace != nil {
-						store.AppendTranslatedResponse(trace.RequestID, []byte(chunk))
-					}
-				}
-			}
-		}
-
-		// Return translated data if available
-		if t.translatedBuffer.Len() > 0 {
-			return t.translatedBuffer.Read(p)
-		}
-
-		// Handle EOF
-		if err == io.EOF {
-			t.eofReached = true
-			// Process any remaining data in buffer
-			if t.sseBuffer.Len() > 0 {
-				remaining := t.sseBuffer.Bytes()
-				t.sseBuffer.Reset()
-				translated, translateErr := translator.TranslateStream(
-					t.ctx,
-					t.from,
-					t.to,
-					t.model,
-					t.originalRequestBody,
-					t.convertedBody,
-					remaining,
-					t.param,
-				)
-				if translateErr != nil {
-					log.Warnf("channel proxy: stream translation failed: %v, using original data", translateErr)
-					translated = []string{string(remaining)}
-				}
-				for _, chunk := range translated {
-					t.translatedBuffer.WriteString(chunk)
-				}
-				if t.translatedBuffer.Len() > 0 {
-					return t.translatedBuffer.Read(p)
-				}
-			}
-			return 0, io.EOF
-		}
-
-		// Handle other errors
-		if err != nil {
-			return 0, err
-		}
-		// No error and no translated data yet, continue reading
-	}
-}
-
-// maxNonStreamingResponseSize is the maximum size limit for non-streaming responses (100MB)
-const maxNonStreamingResponseSize = 100 * 1024 * 1024
-
-func (t *translatingResponseBody) readNonStreaming(p []byte) (int, error) {
-	// If already processed, only read from translatedBuffer
-	if t.eofReached {
-		if t.translatedBuffer.Len() > 0 {
-			return t.translatedBuffer.Read(p)
-		}
-		return 0, io.EOF
-	}
-
-	// First call: read the complete upstream response
-	buf := make([]byte, 4096)
-	for {
-		// Check size limit before reading more data
-		if t.buffer.Len() >= maxNonStreamingResponseSize {
-			return 0, fmt.Errorf("response too large: exceeds %d bytes", maxNonStreamingResponseSize)
-		}
-
-		n, err := t.reader.Read(buf)
-		if n > 0 {
-			t.buffer.Write(buf[:n])
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	// Translate the complete response
-	translated, err := translator.TranslateNonStream(
-		t.ctx,
-		t.from,
-		t.to,
-		t.model,
-		t.originalRequestBody,
-		t.convertedBody,
-		t.buffer.Bytes(),
-		t.param,
-	)
-	if err != nil {
-		log.Warnf("channel proxy: response translation failed: %v, using original response", err)
-		translated = string(t.buffer.Bytes())
-	}
-
-	t.eofReached = true // Mark as processed
-	t.translatedBuffer.WriteString(translated)
-	return t.translatedBuffer.Read(p)
-}
-
-func (t *translatingResponseBody) Close() error {
-	return t.reader.Close()
-}
-
 // MaxNonStreamingResponseSize is the maximum size for non-streaming response body (10MB)
 const MaxNonStreamingResponseSize = 10 * 1024 * 1024
 
@@ -1103,35 +830,27 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		return nil
 	}
 
-	// Extract token usage for logging (before any transformation)
+	// Decompress gzip if needed (ReverseProxy does not auto-decompress)
+	contentEncoding := resp.Header.Get("Content-Encoding")
+	body = NewGzipDecompressor().Decompress(body, contentEncoding, resp.Header)
+
+	// Extract token usage for logging
 	if trace != nil {
 		info, _ := GetProviderInfo(resp.Request.Context())
 		extractTokenUsageFromBody(body, trace, &info)
 	}
 
-	// Apply format translation if needed
-	// Note: Registry keys are [IncomingFormat][OutgoingFormat] based on request direction
-	if transInfo != nil && transInfo.NeedsConversion {
-		translated, translateErr := translator.TranslateNonStream(
-			resp.Request.Context(),
-			transInfo.IncomingFormat, // from = client format (registry key)
-			transInfo.OutgoingFormat, // to = upstream format (registry key)
-			transInfo.Model,
-			transInfo.OriginalRequestBody,
-			transInfo.ConvertedBody,
-			body,
-			transInfo.ResponseParam,
-		)
-		if translateErr != nil {
-			log.Warnf("channel proxy: response translation failed: %v, using original response", translateErr)
-		} else {
-			body = []byte(translated)
-			log.Debugf("channel proxy: translated non-streaming response from %s to %s", transInfo.OutgoingFormat, transInfo.IncomingFormat)
-		}
-	}
-
 	// Apply model name rewriting
 	body = RewriteModelInResponseData(body, originalModel)
+
+	// Claude: unprefix only names we prefixed on the way out
+	if info, ok := GetProviderInfo(resp.Request.Context()); ok && info.Provider == ProviderAnthropic {
+		if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
+			if unprefixed, changed := UnprefixClaudeToolNamesWithMap(body, toolMap); changed {
+				body = unprefixed
+			}
+		}
+	}
 
 	// Capture response for logging
 	if trace != nil {
@@ -1141,6 +860,8 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	// Reset body with correct Content-Length
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
+	resp.Header.Del("Transfer-Encoding")
+	resp.TransferEncoding = nil
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
 
 	// Log completion

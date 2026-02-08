@@ -53,5 +53,6 @@ func (f *ClaudeSystemStringFilter) Apply(body []byte) ([]byte, bool, error) {
 
 // RegisterClaudeFilters registers all Claude-specific filters.
 func RegisterClaudeFilters() {
+	Register(translator.FormatClaude, &ClaudeCodeSimulationFilter{})
 	Register(translator.FormatClaude, &ClaudeSystemStringFilter{})
 }

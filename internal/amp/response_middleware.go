@@ -198,6 +198,24 @@ func (m *ResponseStorageMiddleware) ProcessBody(body []byte, ctx *ResponseContex
 	return body, nil
 }
 
+// ToolNamePrefixStripMiddleware strips mcp_ tool name prefix from Anthropic responses.
+// This mirrors amp_processor.rs strip_mcp_name_prefix_bytes behavior.
+type ToolNamePrefixStripMiddleware struct{}
+
+func (m *ToolNamePrefixStripMiddleware) ProcessBody(body []byte, ctx *ResponseContext) ([]byte, error) {
+	if ctx.Provider.Provider != ProviderAnthropic {
+		return body, nil
+	}
+	toolMap, ok := GetClaudeToolNameMap(ctx.Ctx)
+	if !ok || len(toolMap) == 0 {
+		return body, nil
+	}
+	if unprefixed, changed := UnprefixClaudeToolNamesWithMap(body, toolMap); changed {
+		return unprefixed, nil
+	}
+	return body, nil
+}
+
 // ========== Gzip 解压器 ==========
 
 // GzipDecompressor gzip 解压器
@@ -308,6 +326,7 @@ func NewDefaultNonStreamingPipeline() *NonStreamingPipeline {
 	return NewNonStreamingPipeline(
 		NewGzipDecompressor(),
 		&TokenUsageMiddleware{},
+		&ToolNamePrefixStripMiddleware{},
 		&ResponseStorageMiddleware{},
 	)
 }

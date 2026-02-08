@@ -73,16 +73,20 @@ type ExtractWebPageResponse struct {
 // LocalWebSearchMiddleware intercepts webSearch2 and extractWebPageContent requests
 func LocalWebSearchMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := c.Request.URL.RawQuery
+		tool, ok := detectLocalToolQuery(c.Request.URL.RawQuery)
+		if !ok {
+			c.Next()
+			return
+		}
 
 		// Handle extractWebPageContent
-		if query == extractWebPageContentQuery {
+		if tool == extractWebPageContentQuery {
 			handleExtractWebPage(c)
 			return
 		}
 
 		// Handle webSearch2
-		if query != webSearchQuery {
+		if tool != webSearchQuery {
 			c.Next()
 			return
 		}

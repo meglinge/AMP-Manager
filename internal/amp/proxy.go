@@ -345,6 +345,16 @@ func modifyResponse(resp *http.Response) error {
 
 	// 根据响应类型选择处理管道
 	if isStreamingResponse(resp) {
+		// Claude/Anthropic: unprefix only names we prefixed on the way out
+		if rctx.Provider.Provider == ProviderAnthropic {
+			if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
+				resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
+					out, _ := UnprefixClaudeToolNamesWithMap(b, toolMap)
+					return out
+				})
+			}
+		}
+
 		pipeline := NewStreamingPipelineWithContext(resp.Request.Context())
 		if err := pipeline.ProcessStreamingResponse(resp, rctx); err != nil {
 			return err
