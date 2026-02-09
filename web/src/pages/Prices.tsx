@@ -14,8 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { PageSizeSlider } from '@/components/PageSizeSlider'
 
-// 格式化价格为 USD / 1M tokens
 function formatPrice(costPerToken: number): string {
   if (!costPerToken || costPerToken === 0) return '-'
   const perMillion = costPerToken * 1_000_000
@@ -28,7 +28,6 @@ function formatPrice(costPerToken: number): string {
   return `$${perMillion.toFixed(4)}`
 }
 
-// Provider 颜色映射
 const providerVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   anthropic: 'default',
   openai: 'secondary',
@@ -38,7 +37,6 @@ const providerVariants: Record<string, 'default' | 'secondary' | 'destructive' |
   azure: 'secondary',
 }
 
-// 自动消失提示的延迟时间 (ms)
 const MESSAGE_AUTO_DISMISS_DELAY = 5000
 
 export default function PricesPage() {
@@ -50,23 +48,23 @@ export default function PricesPage() {
   const [success, setSuccess] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [providerFilter, setProviderFilter] = useState<string>('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
-  // 使用 useCallback 包装 loadData，添加 AbortController 支持
   const loadData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [pricesData, statsData] = await Promise.all([
         listPrices(),
         getPriceStats(),
       ])
-      // 检查是否已被取消
       if (signal?.aborted) return
       setPrices(pricesData.items || [])
       setStats(statsData)
-      setError('') // 成功时清除错误
+      setError('')
     } catch (err) {
       if (signal?.aborted) return
       setError(err instanceof Error ? err.message : '加载失败')
-      setSuccess('') // 失败时清除成功提示
+      setSuccess('')
     } finally {
       if (!signal?.aborted) {
         setLoading(false)
@@ -82,7 +80,6 @@ export default function PricesPage() {
     }
   }, [loadData])
 
-  // 自动消失提示
   useEffect(() => {
     if (!success) return
     const timer = setTimeout(() => setSuccess(''), MESSAGE_AUTO_DISMISS_DELAY)
@@ -110,7 +107,6 @@ export default function PricesPage() {
     }
   }
 
-  // 处理 Badge 键盘事件
   const handleBadgeKeyDown = (e: KeyboardEvent, callback: () => void) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -118,13 +114,11 @@ export default function PricesPage() {
     }
   }
 
-  // 获取所有唯一的 provider
   const providers = useMemo(() => {
     const set = new Set(prices.map(p => p.provider).filter(Boolean))
     return Array.from(set).sort()
   }, [prices])
 
-  // 过滤和搜索
   const filteredPrices = useMemo(() => {
     return prices.filter(p => {
       const matchesSearch = !searchTerm || 
@@ -135,7 +129,17 @@ export default function PricesPage() {
     })
   }, [prices, searchTerm, providerFilter])
 
-  // 按 provider 分组统计
+  // 当筛选条件变化时重置页码
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, providerFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredPrices.length / pageSize))
+  const paginatedPrices = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredPrices.slice(start, start + pageSize)
+  }, [filteredPrices, page, pageSize])
+
   const providerStats = useMemo(() => {
     const counts: Record<string, number> = {}
     prices.forEach(p => {
@@ -144,6 +148,11 @@ export default function PricesPage() {
     })
     return counts
   }, [prices])
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize)
+    setPage(1)
+  }
 
   if (loading) {
     return (
@@ -155,17 +164,19 @@ export default function PricesPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">模型价格表</h1>
-          <p className="text-muted-foreground">
-            LiteLLM 模型价格，用于计算请求成本
-          </p>
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">模型价格表</h1>
+            <p className="text-muted-foreground">
+              LiteLLM 模型价格，用于计算请求成本
+            </p>
+          </div>
+          <Button onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? '刷新中...' : '刷新价格'}
+          </Button>
         </div>
-        <Button onClick={handleRefresh} disabled={refreshing}>
-          {refreshing ? '刷新中...' : '刷新价格'}
-        </Button>
-      </div>
+      </motion.div>
 
       {error && (
         <Alert variant="destructive">
@@ -275,82 +286,107 @@ export default function PricesPage() {
       </div>
 
       {/* 价格表 */}
-      <Card>
-        <CardContent className="p-0">
-          {filteredPrices.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">
-              <p className="text-lg">未找到匹配的模型</p>
-              <p className="text-sm mt-1">
-                {searchTerm && `搜索: "${searchTerm}"`}
-                {searchTerm && providerFilter && ' · '}
-                {providerFilter && `Provider: ${providerFilter}`}
-              </p>
-              <Button
-                variant="link"
-                className="mt-2"
-                onClick={() => {
-                  setSearchTerm('')
-                  setProviderFilter('')
-                }}
-              >
-                清除筛选条件
-              </Button>
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>价格列表</CardTitle>
+                <CardDescription>共 {filteredPrices.length} 条记录</CardDescription>
+              </div>
+              <Button variant="outline" onClick={() => loadData()}>刷新</Button>
             </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>模型</TableHead>
-                    <TableHead>Provider</TableHead>
-                    <TableHead className="text-right">输入 ($/1M)</TableHead>
-                    <TableHead className="text-right">输出 ($/1M)</TableHead>
-                    <TableHead className="text-right">缓存读取</TableHead>
-                    <TableHead className="text-right">缓存创建</TableHead>
-                    <TableHead>来源</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPrices.slice(0, 100).map((price) => (
-                    <TableRow key={`${price.provider ?? 'unknown'}:${price.model}`}>
-                      <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
-                        {price.model}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={providerVariants[price.provider ?? ''] || 'outline'}>
-                          {price.provider || '-'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatPrice(price.inputCostPerToken)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatPrice(price.outputCostPerToken)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
-                        {formatPrice(price.cacheReadInputPerToken)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
-                        {formatPrice(price.cacheCreationPerToken)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {price.source}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {filteredPrices.length > 100 && (
-                <div className="p-4 text-center text-muted-foreground">
-                  显示前 100 条，共 {filteredPrices.length} 条
+          </CardHeader>
+          <CardContent>
+            {filteredPrices.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">
+                <p className="text-lg">未找到匹配的模型</p>
+                <p className="text-sm mt-1">
+                  {searchTerm && `搜索: "${searchTerm}"`}
+                  {searchTerm && providerFilter && ' · '}
+                  {providerFilter && `Provider: ${providerFilter}`}
+                </p>
+                <Button
+                  variant="link"
+                  className="mt-2"
+                  onClick={() => {
+                    setSearchTerm('')
+                    setProviderFilter('')
+                  }}
+                >
+                  清除筛选条件
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="relative overflow-auto max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-background">
+                      <TableRow>
+                        <TableHead>模型</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead className="text-right">输入 ($/1M)</TableHead>
+                        <TableHead className="text-right">输出 ($/1M)</TableHead>
+                        <TableHead className="text-right">缓存读取</TableHead>
+                        <TableHead className="text-right">缓存创建</TableHead>
+                        <TableHead>来源</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedPrices.map((price) => (
+                        <TableRow key={`${price.provider ?? 'unknown'}:${price.model}`}>
+                          <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
+                            {price.model}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={providerVariants[price.provider ?? ''] || 'outline'}>
+                              {price.provider || '-'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatPrice(price.inputCostPerToken)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatPrice(price.outputCostPerToken)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground">
+                            {formatPrice(price.cacheReadInputPerToken)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground">
+                            {formatPrice(price.cacheCreationPerToken)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {price.source}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+
+                <div className="flex items-center justify-between mt-4">
+                  <div className="flex items-center gap-4">
+                    <p className="text-sm text-muted-foreground">
+                      第 {page} 页，共 {totalPages} 页
+                    </p>
+                    <PageSizeSlider value={pageSize} onChange={handlePageSizeChange} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                      上一页
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                      下一页
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
     </motion.div>
   )
 }

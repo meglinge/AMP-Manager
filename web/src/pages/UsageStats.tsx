@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatNumber } from '@/lib/formatters'
+import { Num } from '@/components/Num'
 import { UsageSummaryCards } from '@/components/UsageSummaryCards'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
 import { motion } from '@/lib/motion'
@@ -221,11 +221,11 @@ export default function UsageStats({ isAdmin }: Props) {
                   {summary.slice((page - 1) * pageSize, page * pageSize).map((s, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-medium">{getSummaryDisplayName(s.groupKey)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(s.requestCount)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(s.inputTokensSum)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(s.outputTokensSum)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(s.cacheReadInputTokensSum)}</TableCell>
-                      <TableCell className="text-right">{formatNumber(s.cacheCreationInputTokensSum)}</TableCell>
+                      <TableCell className="text-right"><Num value={s.requestCount} /></TableCell>
+                      <TableCell className="text-right"><Num value={s.inputTokensSum} /></TableCell>
+                      <TableCell className="text-right"><Num value={s.outputTokensSum} /></TableCell>
+                      <TableCell className="text-right"><Num value={s.cacheReadInputTokensSum} /></TableCell>
+                      <TableCell className="text-right"><Num value={s.cacheCreationInputTokensSum} /></TableCell>
                       <TableCell className="text-right text-green-600 dark:text-green-400">
                         {s.costUsdSum ? `$${s.costUsdSum}` : '-'}
                       </TableCell>

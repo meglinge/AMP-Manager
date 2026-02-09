@@ -1,12 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
-import { changePassword, changeUsername } from '../api/users'
+import { changePassword, changeUsername, getMyBalance, BalanceInfo } from '../api/users'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { CheckCircle2, XCircle, Wallet, RefreshCw } from 'lucide-react'
+
+type AccountTab = 'security' | 'balance'
+
+const tabs: { key: AccountTab; label: string }[] = [
+  { key: 'balance', label: '余额' },
+  { key: 'security', label: '账户安全' },
+]
 
 interface Props {
   username: string
@@ -14,6 +21,7 @@ interface Props {
 }
 
 export default function AccountSettings({ username, onUsernameChange }: Props) {
+  const [activeTab, setActiveTab] = useState<AccountTab>('balance')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [oldPassword, setOldPassword] = useState('')
@@ -23,6 +31,25 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
 
   const [newUsername, setNewUsername] = useState('')
   const [changingUsername, setChangingUsername] = useState(false)
+
+  const [balance, setBalance] = useState<BalanceInfo | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  useEffect(() => {
+    fetchBalance()
+  }, [])
+
+  const fetchBalance = async () => {
+    setBalanceLoading(true)
+    try {
+      const data = await getMyBalance()
+      setBalance(data)
+    } catch (err) {
+      console.error('获取余额失败:', err)
+    } finally {
+      setBalanceLoading(false)
+    }
+  }
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -78,8 +105,50 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
     }
   }
 
+  const formatBalance = (micros: number) => {
+    const usd = micros / 1e6
+    return `$${usd.toFixed(6)}`
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+      >
+        <h2 className="text-2xl font-bold tracking-tight">账户设置</h2>
+        <p className="text-muted-foreground">管理您的账户安全和余额信息</p>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
+        className="flex items-center gap-1 border-b pb-0"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`relative px-4 py-2 text-sm font-medium transition-colors rounded-t-md ${
+              activeTab === tab.key
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground/80'
+            }`}
+          >
+            {tab.label}
+            {activeTab === tab.key && (
+              <motion.div
+                layoutId="account-tab-indicator"
+                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+              />
+            )}
+          </button>
+        ))}
+      </motion.div>
+
       <AnimatePresence>
         {message && (
           <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
@@ -95,80 +164,133 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
         )}
       </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.25, duration: 0.6, delay: 0.1 }}>
-      <Card>
-        <CardHeader>
-          <CardTitle>修改密码</CardTitle>
-          <CardDescription>更新您的账户密码</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="oldPassword">当前密码</Label>
-              <Input
-                id="oldPassword"
-                type="password"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">新密码</Label>
-              <Input
-                id="newPassword"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">确认新密码</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={changingPassword}>
-              {changingPassword ? '修改中...' : '修改密码'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-      </motion.div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+          className="space-y-6"
+        >
+          {activeTab === 'security' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>修改密码</CardTitle>
+                  <CardDescription>更新您的账户密码</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="oldPassword">当前密码</Label>
+                      <Input
+                        id="oldPassword"
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="newPassword">新密码</Label>
+                      <Input
+                        id="newPassword"
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirmPassword">确认新密码</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button type="submit" disabled={changingPassword}>
+                      {changingPassword ? '修改中...' : '修改密码'}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
 
-      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.25, duration: 0.6, delay: 0.2 }}>
-      <Card>
-        <CardHeader>
-          <CardTitle>修改用户名</CardTitle>
-          <CardDescription>当前用户名: {username}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleChangeUsername} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="newUsername">新用户名</Label>
-              <Input
-                id="newUsername"
-                type="text"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                required
-                minLength={3}
-                maxLength={32}
-              />
-            </div>
-            <Button type="submit" disabled={changingUsername}>
-              {changingUsername ? '修改中...' : '修改用户名'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-      </motion.div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>修改用户名</CardTitle>
+                  <CardDescription>当前用户名: {username}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleChangeUsername} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="newUsername">新用户名</Label>
+                      <Input
+                        id="newUsername"
+                        type="text"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        required
+                        minLength={3}
+                        maxLength={32}
+                      />
+                    </div>
+                    <Button type="submit" disabled={changingUsername}>
+                      {changingUsername ? '修改中...' : '修改用户名'}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeTab === 'balance' && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Wallet className="h-5 w-5" />
+                      账户余额
+                    </CardTitle>
+                    <CardDescription>查看当前账户余额信息</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={fetchBalance} disabled={balanceLoading}>
+                    <RefreshCw className={`h-4 w-4 mr-1 ${balanceLoading ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance ? (
+                  <div className="space-y-6">
+                    <div className="rounded-lg border bg-card p-6">
+                      <div className="text-sm text-muted-foreground mb-1">当前余额</div>
+                      <div className="text-3xl font-bold tracking-tight">
+                        {formatBalance(balance.balanceMicros)}
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        ≈ ¥{(balance.balanceMicros / 1e6 * 7.2).toFixed(2)}
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      余额由管理员充值，每次 API 请求将根据模型定价和分组倍率自动扣费。
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    {balanceLoading ? '加载中...' : '无法获取余额信息'}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </motion.div>
+      </AnimatePresence>
     </motion.div>
   )
 }

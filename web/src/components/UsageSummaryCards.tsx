@@ -1,5 +1,5 @@
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { formatNumber } from '@/lib/formatters'
+import { Num } from '@/components/Num'
 import { UsageSummary } from '@/api/amp'
 import { motion } from '@/lib/motion'
 
@@ -22,7 +22,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>总请求数</CardDescription>
-            <CardTitle className="text-2xl">{formatNumber(totalRequests)}</CardTitle>
+            <CardTitle className="text-2xl"><Num value={totalRequests} /></CardTitle>
           </CardHeader>
         </Card>
       </motion.div>
@@ -30,7 +30,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>输入 Tokens</CardDescription>
-            <CardTitle className="text-2xl">{formatNumber(totalInputTokens)}</CardTitle>
+            <CardTitle className="text-2xl"><Num value={totalInputTokens} /></CardTitle>
           </CardHeader>
         </Card>
       </motion.div>
@@ -38,7 +38,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>输出 Tokens</CardDescription>
-            <CardTitle className="text-2xl">{formatNumber(totalOutputTokens)}</CardTitle>
+            <CardTitle className="text-2xl"><Num value={totalOutputTokens} /></CardTitle>
           </CardHeader>
         </Card>
       </motion.div>
@@ -46,7 +46,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>缓存读取</CardDescription>
-            <CardTitle className="text-2xl">{formatNumber(totalCacheRead)}</CardTitle>
+            <CardTitle className="text-2xl"><Num value={totalCacheRead} /></CardTitle>
           </CardHeader>
         </Card>
       </motion.div>
@@ -54,7 +54,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>缓存写入</CardDescription>
-            <CardTitle className="text-2xl">{formatNumber(totalCacheWrite)}</CardTitle>
+            <CardTitle className="text-2xl"><Num value={totalCacheWrite} /></CardTitle>
           </CardHeader>
         </Card>
       </motion.div>

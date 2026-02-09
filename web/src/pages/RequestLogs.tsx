@@ -24,7 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatDate, formatNumber } from '@/lib/formatters'
+import { formatDate } from '@/lib/formatters'
+import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
 import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
@@ -273,10 +274,10 @@ export default function RequestLogs({ isAdmin }: Props) {
                         <TableCell className="text-right text-muted-foreground">
                           {log.latencyMs}ms
                         </TableCell>
-                        <TableCell className="text-right">{formatNumber(log.inputTokens)}</TableCell>
-                        <TableCell className="text-right">{formatNumber(log.outputTokens)}</TableCell>
-                        <TableCell className="text-right">{formatNumber(log.cacheReadInputTokens)}</TableCell>
-                        <TableCell className="text-right">{formatNumber(log.cacheCreationInputTokens)}</TableCell>
+                        <TableCell className="text-right"><Num value={log.inputTokens} /></TableCell>
+                        <TableCell className="text-right"><Num value={log.outputTokens} /></TableCell>
+                        <TableCell className="text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
+                        <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {log.costUsd ? `$${log.costUsd}` : '-'}
                         </TableCell>
