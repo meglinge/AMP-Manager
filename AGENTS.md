@@ -28,6 +28,16 @@ pnpm run dev
 - 显式处理错误，不要静默忽略
 - 保持函数小而专注
 
+## 环境注意事项
+- **操作系统**: Windows，使用 PowerShell，不要用 `tail`/`head`/`grep` 等 Linux 命令
+  - 用 `Select-Object -Last 30` 代替 `tail -30`
+  - 用 `Select-Object -First 30` 代替 `head -30`
+  - 用 `Select-String` 代替 `grep`
+- **cwd 参数**: 必须是绝对路径，不要与工作区根目录重复拼接
+  - 正确: `e:\MegAiTools\AMPManager\web`
+  - 错误: `e:\MegAiTools\AMPManager\e:\MegAiTools\AMPManager\web`
+- **前端目录**: `web/`，在此目录下运行 `pnpm run build` 等命令
+
 ## 备注
 - 这是一个新项目，请随着代码库的发展更新此文件
 
