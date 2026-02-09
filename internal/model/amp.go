@@ -18,6 +18,7 @@ type AmpSettings struct {
 	ForceModelMappings bool      `json:"force_model_mappings"`
 	Enabled            bool      `json:"enabled"`
 	WebSearchMode      string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
+	NativeMode         bool      `json:"native_mode"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -54,6 +55,7 @@ type AmpSettingsRequest struct {
 	ForceModelMappings bool           `json:"forceModelMappings"`
 	Enabled            bool           `json:"enabled"`
 	WebSearchMode      string         `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
+	NativeMode         bool           `json:"nativeMode"`
 }
 
 type AmpSettingsResponse struct {
@@ -63,6 +65,7 @@ type AmpSettingsResponse struct {
 	Enabled            bool           `json:"enabled"`
 	HasAPIKey          bool           `json:"apiKeySet"`
 	WebSearchMode      string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
+	NativeMode         bool           `json:"nativeMode"`
 	CreatedAt          time.Time      `json:"createdAt,omitempty"`
 	UpdatedAt          time.Time      `json:"updatedAt,omitempty"`
 }

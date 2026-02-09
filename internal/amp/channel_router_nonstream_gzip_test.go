@@ -37,7 +37,7 @@ func TestHandleNonStreamingResponseDecompressesAndStripsMCPPrefix(t *testing.T) 
 		Request:    req,
 	}
 
-	if err := handleNonStreamingResponse(resp, nil, nil, "claude-3-7-sonnet"); err != nil {
+	if err := handleNonStreamingResponse(resp, nil, nil, "claude-3-7-sonnet", "claude-3-7-sonnet"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	out, err := io.ReadAll(resp.Body)

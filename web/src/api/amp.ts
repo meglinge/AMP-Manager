@@ -34,6 +34,7 @@ export interface AmpSettings {
   forceModelMappings: boolean
   modelMappings: ModelMapping[]
   enabled: boolean
+  nativeMode: boolean
   webSearchMode?: WebSearchMode
 }
 
@@ -43,6 +44,7 @@ export interface UpdateAmpSettingsRequest {
   forceModelMappings?: boolean
   modelMappings?: ModelMapping[]
   enabled?: boolean
+  nativeMode?: boolean
   webSearchMode?: WebSearchMode
 }
 

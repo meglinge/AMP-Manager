@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
@@ -321,10 +322,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		// Detect incoming and outgoing formats - format conversion is NOT supported
-		incomingFormat := GetXMLTagDetectedFormat(c)
-		if incomingFormat == "" {
-			incomingFormat = detectIncomingFormat(c.Request.URL.Path)
-		}
+		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
 		outgoingFormat := channelTypeToFormat(channel)
 
 		// Reject if formats don't match (no translation supported)
@@ -892,9 +890,29 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	resp.TransferEncoding = nil
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
 
-	// Log completion
+	// Log completion with cost calculation
 	if trace != nil {
 		trace.SetResponse(resp.StatusCode)
+
+		if calc := billing.GetCostCalculator(); calc != nil {
+			pricingModel := trace.MappedModel
+			if pricingModel == "" {
+				pricingModel = trace.OriginalModel
+			}
+			if pricingModel != "" {
+				costResult := calc.CalculateFromPointers(
+					pricingModel,
+					trace.InputTokens,
+					trace.OutputTokens,
+					trace.CacheReadInputTokens,
+					trace.CacheCreationInputTokens,
+				)
+				if costResult.PriceFound {
+					trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+				}
+			}
+		}
+
 		if writer := GetLogWriter(); writer != nil {
 			writer.UpdateFromTrace(trace)
 		}
@@ -909,12 +927,22 @@ func extractTokenUsageFromBody(body []byte, trace *RequestTrace, info *ProviderI
 		return
 	}
 
+	if info != nil {
+		usage := ExtractTokenUsage(body, *info)
+		if usage != nil {
+			trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			log.Debugf("channel proxy: extracted tokens from non-streaming response: input=%v, output=%v, cache_read=%v, cache_creation=%v",
+				ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens),
+				ptrToInt(usage.CacheReadInputTokens), ptrToInt(usage.CacheCreationInputTokens))
+			return
+		}
+	}
+
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return
 	}
 
-	// Extract usage using existing logic
 	usage, ok := payload["usage"].(map[string]any)
 	if !ok {
 		return

@@ -29,6 +29,7 @@ type ProxyConfig struct {
 	ModelMappingsJSON  string
 	ForceModelMappings bool
 	WebSearchMode      string // upstream | builtin_free | local_duckduckgo
+	NativeMode         bool
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {
@@ -264,6 +265,19 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 
 			log.Debugf("amp proxy: %s %s -> %s%s", req.Method, req.URL.Path, req.URL.Host, req.URL.Path)
 
+			// In native mode, skip all request processing (tracing, model mapping, etc.)
+			if cfg.NativeMode {
+				req.Header.Del("Authorization")
+				req.Header.Del("X-Api-Key")
+				req.Header.Del("Transfer-Encoding")
+				req.TransferEncoding = nil
+				if cfg.UpstreamAPIKey != "" {
+					req.Header.Set("X-Api-Key", cfg.UpstreamAPIKey)
+					req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.UpstreamAPIKey))
+				}
+				return
+			}
+
 			// Only create trace for model invocation requests
 			if IsModelInvocation(req.Method, req.URL.Path) {
 				trace := NewRequestTrace(
@@ -323,6 +337,12 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 // modifyResponse handles gzip decompression and token extraction
 // Does NOT attempt to rewrite context_length as that's not where Amp gets the value
 func modifyResponse(resp *http.Response) error {
+	// In native mode, pass through response without any processing
+	cfg := GetProxyConfig(resp.Request.Context())
+	if cfg != nil && cfg.NativeMode {
+		return nil
+	}
+
 	trace := GetRequestTrace(resp.Request.Context())
 
 	// 获取 provider 信息（amp upstream 默认为 Anthropic）

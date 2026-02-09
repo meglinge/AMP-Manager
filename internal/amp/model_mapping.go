@@ -214,12 +214,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			if _, hasModel := payload["model"]; hasModel {
 				payload["model"] = result.MappedModel
 
-				// Determine thinking level: XML tag > mapping config
 				thinkingLevel := result.ThinkingLevel
-				if xmlTagLevel := GetXMLTagExtractedLevel(c); xmlTagLevel != "" {
-					thinkingLevel = xmlTagLevel
-					log.Infof("model mapping: using XML tag extracted level '%s' (overriding config level '%s')", xmlTagLevel, result.ThinkingLevel)
-				}
 
 				if thinkingLevel != "" {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)

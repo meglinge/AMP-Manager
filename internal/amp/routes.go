@@ -35,6 +35,10 @@ func ThreadRedirectHandler() gin.HandlerFunc {
 
 func createRoutingHandler(upstreamHandler, channelHandler gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if IsNativeMode(c) {
+			upstreamHandler(c)
+			return
+		}
 		channelCfg := GetChannelConfig(c)
 		if channelCfg != nil && channelCfg.Channel != nil {
 			channelHandler(c)
@@ -47,6 +51,11 @@ func createRoutingHandler(upstreamHandler, channelHandler gin.HandlerFunc) gin.H
 // createProviderHandler routes provider requests, with special handling for /models endpoints
 func createProviderHandler(upstreamHandler, channelHandler, modelsHandler gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if IsNativeMode(c) {
+			upstreamHandler(c)
+			return
+		}
+
 		path := c.Param("path")
 
 		// Check if this is a models request - return local metadata
@@ -128,13 +137,12 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
 	api.Use(rateLimiter.RateLimitByAPIKey())
-	api.Use(XMLTagRoutingMiddleware())
-	api.Use(ApplyModelMappingMiddleware())
-	api.Use(ChannelRouterMiddleware())
-	api.Use(RequestCaptureMiddleware())
+	api.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
+	api.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
-	api.Any("/internal", DebugInternalAPIMiddleware(), WebSearchStrategyMiddleware(), proxyHandler)
-	api.Any("/internal/*path", DebugInternalAPIMiddleware(), WebSearchStrategyMiddleware(), proxyHandler)
+	api.Any("/internal", NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
+	api.Any("/internal/*path", NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
 
 	api.Any("/provider/:provider/*path", createProviderHandler(proxyHandler, channelHandler, modelsHandler))
 
@@ -142,10 +150,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1 := engine.Group("/v1")
 	v1.Use(APIKeyAuthMiddleware())
 	v1.Use(rateLimiter.RateLimitByAPIKey())
-	v1.Use(XMLTagRoutingMiddleware())
-	v1.Use(ApplyModelMappingMiddleware())
-	v1.Use(ChannelRouterMiddleware())
-	v1.Use(RequestCaptureMiddleware())
+	v1.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
+	v1.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	v1.POST("/chat/completions", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/completions", createRoutingHandler(proxyHandler, channelHandler))
@@ -156,10 +163,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1beta := engine.Group("/v1beta")
 	v1beta.Use(APIKeyAuthMiddleware())
 	v1beta.Use(rateLimiter.RateLimitByAPIKey())
-	v1beta.Use(XMLTagRoutingMiddleware())
-	v1beta.Use(ApplyModelMappingMiddleware())
-	v1beta.Use(ChannelRouterMiddleware())
-	v1beta.Use(RequestCaptureMiddleware())
+	v1beta.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1beta.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
+	v1beta.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	v1beta.POST("/models/*action", createRoutingHandler(proxyHandler, channelHandler))
 	v1beta.GET("/models", proxyHandler)

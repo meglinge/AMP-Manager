@@ -51,6 +51,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 			Enabled:            false,
 			HasAPIKey:          false,
 			WebSearchMode:      model.WebSearchModeUpstream,
+			NativeMode:         false,
 		}, nil
 	}
 
@@ -69,6 +70,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 		Enabled:            settings.Enabled,
 		HasAPIKey:          settings.UpstreamAPIKey != "",
 		WebSearchMode:      settings.WebSearchMode,
+		NativeMode:         settings.NativeMode,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil
@@ -86,6 +88,7 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		ForceModelMappings: req.ForceModelMappings,
 		Enabled:            req.Enabled,
 		WebSearchMode:      req.WebSearchMode,
+		NativeMode:         req.NativeMode,
 	}
 
 	// 处理 WebSearchMode 默认值
@@ -139,6 +142,7 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		Enabled:            settings.Enabled,
 		HasAPIKey:          settings.UpstreamAPIKey != "",
 		WebSearchMode:      settings.WebSearchMode,
+		NativeMode:         settings.NativeMode,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil

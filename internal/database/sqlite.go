@@ -268,6 +268,10 @@ func runMigrations() error {
 			name: "add_request_logs_thinking_level",
 			sql:  `ALTER TABLE request_logs ADD COLUMN thinking_level TEXT`,
 		},
+		{
+			name: "add_native_mode",
+			sql:  `ALTER TABLE user_amp_settings ADD COLUMN native_mode INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

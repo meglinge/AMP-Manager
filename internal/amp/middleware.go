@@ -131,6 +131,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			ModelMappingsJSON:  settings.ModelMappingsJSON,
 			ForceModelMappings: settings.ForceModelMappings,
 			WebSearchMode:      settings.WebSearchMode,
+			NativeMode:         settings.NativeMode,
 		}
 		ctx := WithProxyConfig(c.Request.Context(), proxyCfg)
 		c.Request = c.Request.WithContext(ctx)
@@ -489,6 +490,23 @@ func RequestLoggingMiddleware() gin.HandlerFunc {
 		if writer := GetLogWriter(); writer != nil {
 			writer.WriteFromTrace(trace)
 		}
+	}
+}
+
+// IsNativeMode checks if native mode is enabled for the current request
+func IsNativeMode(c *gin.Context) bool {
+	cfg := GetProxyConfig(c.Request.Context())
+	return cfg != nil && cfg.NativeMode
+}
+
+// NativeModeSkipMiddleware wraps a middleware and skips it when native mode is enabled
+func NativeModeSkipMiddleware(inner gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if IsNativeMode(c) {
+			c.Next()
+			return
+		}
+		inner(c)
 	}
 }
 
