@@ -63,11 +63,11 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	}
 	if params.From != nil {
 		conditions = append(conditions, "r.created_at >= ?")
-		args = append(args, *params.From)
+		args = append(args, params.From.UTC().Format(time.RFC3339))
 	}
 	if params.To != nil {
 		conditions = append(conditions, "r.created_at <= ?")
-		args = append(args, *params.To)
+		args = append(args, params.To.UTC().Format(time.RFC3339))
 	}
 
 	whereClause := strings.Join(conditions, " AND ")
@@ -240,11 +240,11 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 
 	if from != nil {
 		conditions = append(conditions, "created_at >= ?")
-		args = append(args, *from)
+		args = append(args, from.UTC().Format(time.RFC3339))
 	}
 	if to != nil {
 		conditions = append(conditions, "created_at <= ?")
-		args = append(args, *to)
+		args = append(args, to.UTC().Format(time.RFC3339))
 	}
 
 	whereClause := strings.Join(conditions, " AND ")
@@ -376,7 +376,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 			       COALESCE(SUM(cost_micros), 0),
 			       SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END)
 			FROM request_logs WHERE user_id = ? AND created_at >= ?
-		`, userID, from).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
+		`, userID, from.UTC().Format(time.RFC3339)).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
 		return s, err
 	}
 
@@ -402,7 +402,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		GROUP BY model
 		ORDER BY cnt DESC
 		LIMIT 5
-	`, userID, monthStart)
+	`, userID, monthStart.Format(time.RFC3339))
 	if err != nil {
 		return
 	}
@@ -426,7 +426,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		WHERE user_id = ? AND created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, userID, todayStart.AddDate(0, 0, -13))
+	`, userID, todayStart.AddDate(0, 0, -13).Format(time.RFC3339))
 	if err != nil {
 		return
 	}
@@ -471,7 +471,7 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 		ORDER BY req_count DESC
 	`
 
-	rows, err := db.Query(query, userID, monthStart)
+	rows, err := db.Query(query, userID, monthStart.Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}

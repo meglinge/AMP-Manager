@@ -173,7 +173,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		status = LogEntryStatusError
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	isStreaming := 0
 	if snapshot.IsStreaming {
 		isStreaming = 1
@@ -292,7 +292,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		status = LogEntryStatusError
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	isStreaming := 0
 	if snapshot.IsStreaming {
 		isStreaming = 1

@@ -33,7 +33,7 @@ func NewGroupRepository() *GroupRepository {
 func (r *GroupRepository) Create(group *model.Group) error {
 	db := database.GetDB()
 	group.ID = uuid.New().String()
-	now := time.Now()
+	now := time.Now().UTC()
 	group.CreatedAt = now
 	group.UpdatedAt = now
 	if group.RateMultiplier == 0 {
@@ -94,7 +94,7 @@ func (r *GroupRepository) List() ([]*model.Group, error) {
 
 func (r *GroupRepository) Update(group *model.Group) error {
 	db := database.GetDB()
-	group.UpdatedAt = time.Now()
+	group.UpdatedAt = time.Now().UTC()
 	_, err := db.Exec(
 		`UPDATE groups SET name = ?, description = ?, rate_multiplier = ?, updated_at = ? WHERE id = ?`,
 		group.Name, group.Description, group.RateMultiplier, group.UpdatedAt, group.ID,

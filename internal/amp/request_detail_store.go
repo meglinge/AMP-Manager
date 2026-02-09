@@ -97,8 +97,8 @@ func (s *RequestDetailStore) Store(detail *RequestDetail) {
 	if detail == nil || detail.RequestID == "" {
 		return
 	}
-	detail.CreatedAt = time.Now()
-	detail.LastUpdatedAt = time.Now()
+	detail.CreatedAt = time.Now().UTC()
+	detail.LastUpdatedAt = time.Now().UTC()
 
 	s.mu.Lock()
 	if len(s.details) >= MaxDetailEntries {
@@ -137,7 +137,7 @@ func (s *RequestDetailStore) UpdateRequestData(requestID string, headers http.He
 
 	detail, exists := s.details[requestID]
 	if !exists {
-		now := time.Now()
+		now := time.Now().UTC()
 		detail = &RequestDetail{
 			RequestID:     requestID,
 			CreatedAt:     now,
@@ -145,7 +145,7 @@ func (s *RequestDetailStore) UpdateRequestData(requestID string, headers http.He
 		}
 		s.details[requestID] = detail
 	}
-	detail.LastUpdatedAt = time.Now()
+	detail.LastUpdatedAt = time.Now().UTC()
 	detail.RequestHeaders = headers.Clone()
 	if len(body) <= MaxBodySize {
 		detail.RequestBody = make([]byte, len(body))
@@ -167,7 +167,7 @@ func (s *RequestDetailStore) UpdateTranslatedRequestBody(requestID string, body 
 
 	detail, exists := s.details[requestID]
 	if !exists {
-		now := time.Now()
+		now := time.Now().UTC()
 		detail = &RequestDetail{
 			RequestID:     requestID,
 			CreatedAt:     now,
@@ -175,7 +175,7 @@ func (s *RequestDetailStore) UpdateTranslatedRequestBody(requestID string, body 
 		}
 		s.details[requestID] = detail
 	}
-	detail.LastUpdatedAt = time.Now()
+	detail.LastUpdatedAt = time.Now().UTC()
 	if len(body) <= MaxBodySize {
 		detail.TranslatedRequestBody = make([]byte, len(body))
 		copy(detail.TranslatedRequestBody, body)
@@ -192,7 +192,7 @@ func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.H
 
 	detail, exists := s.details[requestID]
 	if !exists {
-		now := time.Now()
+		now := time.Now().UTC()
 		detail = &RequestDetail{
 			RequestID:     requestID,
 			CreatedAt:     now,
@@ -200,7 +200,7 @@ func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.H
 		}
 		s.details[requestID] = detail
 	}
-	detail.LastUpdatedAt = time.Now()
+	detail.LastUpdatedAt = time.Now().UTC()
 	detail.ResponseHeaders = headers.Clone()
 	if len(body) <= MaxBodySize {
 		detail.ResponseBody = make([]byte, len(body))
@@ -237,7 +237,7 @@ func (s *RequestDetailStore) AppendTranslatedResponse(requestID string, data []b
 	}
 
 	detail.TranslatedResponseBody = append(detail.TranslatedResponseBody, data...)
-	detail.LastUpdatedAt = time.Now()
+	detail.LastUpdatedAt = time.Now().UTC()
 }
 
 // copyDetail creates a deep copy of a RequestDetail
@@ -379,7 +379,7 @@ func (s *RequestDetailStore) cleanupLoop() {
 
 // cleanup removes expired entries and persists them to database
 func (s *RequestDetailStore) cleanup() {
-	now := time.Now()
+	now := time.Now().UTC()
 	var expiredIDs []string
 	var snapshots []*RequestDetail
 

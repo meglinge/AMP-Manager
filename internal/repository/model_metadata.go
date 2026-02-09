@@ -20,7 +20,7 @@ func NewModelMetadataRepository() *ModelMetadataRepository {
 func (r *ModelMetadataRepository) Create(meta *model.ModelMetadata) error {
 	db := database.GetDB()
 	meta.ID = uuid.New().String()
-	now := time.Now()
+	now := time.Now().UTC()
 	meta.CreatedAt = now
 	meta.UpdatedAt = now
 
@@ -105,7 +105,7 @@ func (r *ModelMetadataRepository) List() ([]*model.ModelMetadata, error) {
 
 func (r *ModelMetadataRepository) Update(meta *model.ModelMetadata) error {
 	db := database.GetDB()
-	meta.UpdatedAt = time.Now()
+	meta.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
 		`UPDATE model_metadata SET model_pattern = ?, display_name = ?, context_length = ?, max_completion_tokens = ?, provider = ?, updated_at = ?

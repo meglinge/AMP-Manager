@@ -49,7 +49,7 @@ func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, 
 
 func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
 	db := database.GetDB()
-	now := time.Now()
+	now := time.Now().UTC()
 	settings.UpdatedAt = now
 
 	existing, err := r.GetByUserID(settings.UserID)
@@ -94,7 +94,7 @@ func NewAPIKeyRepository() *APIKeyRepository {
 func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 	db := database.GetDB()
 	apiKey.ID = uuid.New().String()
-	apiKey.CreatedAt = time.Now()
+	apiKey.CreatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
 		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, created_at) 
@@ -191,7 +191,7 @@ func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, erro
 
 func (r *APIKeyRepository) UpdateLastUsed(id string) error {
 	db := database.GetDB()
-	now := time.Now()
+	now := time.Now().UTC()
 	_, err := db.Exec(`UPDATE user_api_keys SET last_used_at = ? WHERE id = ?`, now, id)
 	return err
 }

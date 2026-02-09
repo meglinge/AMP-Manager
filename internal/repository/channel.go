@@ -33,7 +33,7 @@ func NewChannelRepository() *ChannelRepository {
 func (r *ChannelRepository) Create(channel *model.Channel) error {
 	db := database.GetDB()
 	channel.ID = uuid.New().String()
-	now := time.Now()
+	now := time.Now().UTC()
 	channel.CreatedAt = now
 	channel.UpdatedAt = now
 
@@ -126,7 +126,7 @@ func (r *ChannelRepository) ListEnabled() ([]*model.Channel, error) {
 
 func (r *ChannelRepository) Update(channel *model.Channel) error {
 	db := database.GetDB()
-	channel.UpdatedAt = time.Now()
+	channel.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
 		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, weight = ?, priority = ?, models_json = ?, headers_json = ?, updated_at = ?
@@ -145,7 +145,7 @@ func (r *ChannelRepository) Delete(id string) error {
 
 func (r *ChannelRepository) SetEnabled(id string, enabled bool) error {
 	db := database.GetDB()
-	_, err := db.Exec(`UPDATE channels SET enabled = ?, updated_at = ? WHERE id = ?`, enabled, time.Now(), id)
+	_, err := db.Exec(`UPDATE channels SET enabled = ?, updated_at = ? WHERE id = ?`, enabled, time.Now().UTC(), id)
 	return err
 }
 

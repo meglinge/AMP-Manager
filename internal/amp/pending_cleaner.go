@@ -57,14 +57,14 @@ func (c *PendingCleaner) run() {
 }
 
 func (c *PendingCleaner) cleanup() {
-	cutoff := time.Now().Add(-c.timeout)
+	cutoff := time.Now().UTC().Add(-c.timeout)
 	result, err := c.db.Exec(`
 		UPDATE request_logs 
 		SET status = 'error', 
 			error_type = 'timeout_cleanup',
 			updated_at = CURRENT_TIMESTAMP
 		WHERE status = 'pending' AND created_at < ?
-	`, cutoff)
+	`, cutoff.Format(time.RFC3339))
 
 	if err != nil {
 		log.Errorf("pending cleaner: cleanup failed: %v", err)

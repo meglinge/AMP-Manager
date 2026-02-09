@@ -57,7 +57,7 @@ type RequestTrace struct {
 func NewRequestTrace(requestID, userID, apiKeyID, method, path string) *RequestTrace {
 	return &RequestTrace{
 		RequestID: requestID,
-		StartTime: time.Now(),
+		StartTime: time.Now().UTC(),
 		UserID:    userID,
 		APIKeyID:  apiKeyID,
 		Method:    method,

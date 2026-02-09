@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from '@/lib/motion'
+import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   listUsers,
   setUserAdmin,
@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -173,9 +172,9 @@ export default function UserManagement() {
                 <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <motion.tbody key="user-table-body" variants={staggerContainer} initial="hidden" animate="visible">
               {users.map((user) => (
-                <TableRow key={user.id}>
+                <motion.tr key={user.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{user.username}</TableCell>
                   <TableCell>
                     <Badge variant={user.isAdmin ? 'default' : 'secondary'}>
@@ -188,9 +187,19 @@ export default function UserManagement() {
                         <Button variant="outline" size="sm" className="h-auto min-h-[32px] py-1 px-2">
                           {user.groupNames && user.groupNames.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
-                              {user.groupNames.map((name, idx) => (
-                                <Badge key={idx} variant="secondary" className="text-xs">{name}</Badge>
-                              ))}
+                              <AnimatePresence mode="popLayout">
+                                {user.groupNames.map((name) => (
+                                  <motion.span
+                                    key={name}
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8 }}
+                                    transition={{ type: 'spring', bounce: 0.3, duration: 0.3 }}
+                                  >
+                                    <Badge variant="secondary" className="text-xs">{name}</Badge>
+                                  </motion.span>
+                                ))}
+                              </AnimatePresence>
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-xs">未分组</span>
@@ -273,9 +282,9 @@ export default function UserManagement() {
                       </Button>
                     </div>
                   </TableCell>
-                </TableRow>
+                </motion.tr>
               ))}
-            </TableBody>
+            </motion.tbody>
           </Table>
         </CardContent>
       </Card>

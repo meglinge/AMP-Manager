@@ -392,7 +392,101 @@ func runMigrations() error {
 		}
 	}
 
+	if err := migrateTimestampsToUTC(db); err != nil {
+		return fmt.Errorf("migrate timestamps to UTC failed: %w", err)
+	}
+
 	return nil
+}
+
+// migrateTimestampsToUTC 将数据库中所有带时区偏移的 RFC3339 时间戳转换为 UTC
+func migrateTimestampsToUTC(db *sql.DB) error {
+	var done int
+	err := db.QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = 'migration_timestamps_utc'`).Scan(&done)
+	if err != nil {
+		return err
+	}
+	if done > 0 {
+		return nil
+	}
+
+	type tableCol struct {
+		table  string
+		column string
+	}
+	targets := []tableCol{
+		{"request_logs", "created_at"},
+		{"request_logs", "updated_at"},
+		{"request_log_details", "created_at"},
+		{"users", "created_at"},
+		{"users", "updated_at"},
+		{"channels", "created_at"},
+		{"channels", "updated_at"},
+		{"groups", "created_at"},
+		{"groups", "updated_at"},
+		{"user_api_keys", "created_at"},
+		{"user_api_keys", "last_used_at"},
+		{"user_amp_settings", "created_at"},
+		{"user_amp_settings", "updated_at"},
+		{"channel_models", "created_at"},
+		{"model_metadata", "created_at"},
+		{"model_metadata", "updated_at"},
+		{"model_prices", "created_at"},
+		{"model_prices", "updated_at"},
+		{"system_config", "updated_at"},
+	}
+
+	for _, tc := range targets {
+		rows, err := db.Query(fmt.Sprintf(
+			`SELECT rowid, %s FROM %s WHERE %s IS NOT NULL AND %s NOT LIKE '%%Z' AND %s LIKE '%%+%%'`,
+			tc.column, tc.table, tc.column, tc.column, tc.column,
+		))
+		if err != nil {
+			continue
+		}
+
+		type row struct {
+			rowid int64
+			ts    string
+		}
+		var toUpdate []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.rowid, &r.ts); err != nil {
+				continue
+			}
+			toUpdate = append(toUpdate, r)
+		}
+		rows.Close()
+
+		if len(toUpdate) == 0 {
+			continue
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		stmt, err := tx.Prepare(fmt.Sprintf(`UPDATE %s SET %s = ? WHERE rowid = ?`, tc.table, tc.column))
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		for _, r := range toUpdate {
+			t, err := time.Parse(time.RFC3339, r.ts)
+			if err != nil {
+				continue
+			}
+			_, _ = stmt.Exec(t.UTC().Format(time.RFC3339), r.rowid)
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	_, err = db.Exec(`INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('migration_timestamps_utc', '1', ?)`, time.Now().UTC())
+	return err
 }
 
 func Close() error {

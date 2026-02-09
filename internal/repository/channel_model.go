@@ -30,7 +30,7 @@ func (r *ChannelModelRepository) ReplaceModels(channelID string, models []model.
 
 	for _, m := range models {
 		m.ID = uuid.New().String()
-		m.CreatedAt = time.Now()
+		m.CreatedAt = time.Now().UTC()
 		_, err = tx.Exec(
 			`INSERT INTO channel_models (id, channel_id, model_id, display_name, created_at) VALUES (?, ?, ?, ?, ?)`,
 			m.ID, channelID, m.ModelID, m.DisplayName, m.CreatedAt,

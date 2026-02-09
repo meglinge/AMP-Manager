@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from '@/lib/motion'
+import { motion, AnimatePresence, staggerContainer, staggerItem, fadeInScale } from '@/lib/motion'
 import {
   listGroups,
   createGroup,
@@ -16,7 +16,6 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -150,67 +149,80 @@ export default function Groups() {
             </Button>
           </CardHeader>
           <CardContent>
-            {groups.length === 0 ? (
-              <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
-                暂无分组，点击上方按钮添加
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>名称</TableHead>
-                    <TableHead>描述</TableHead>
-                    <TableHead>倍率</TableHead>
-                    <TableHead>用户数</TableHead>
-                    <TableHead>渠道数</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {groups.map((group) => (
-                    <TableRow key={group.id}>
-                      <TableCell className="font-medium">{group.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{group.description || '-'}</TableCell>
-                      <TableCell>
-                        <Badge variant={group.rateMultiplier === 1 ? 'outline' : 'default'}>
-                          {group.rateMultiplier}x
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{group.userCount}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{group.channelCount}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(group.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEdit(group)}
-                          >
-                            <Pencil className="mr-1 h-4 w-4" />
-                            编辑
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => setDeleteConfirmModal(group)}
-                          >
-                            <Trash2 className="mr-1 h-4 w-4" />
-                            删除
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+            <AnimatePresence mode="wait">
+              {groups.length === 0 ? (
+                <AnimatePresence>
+                  <motion.div
+                    key="empty"
+                    variants={fadeInScale}
+                    initial="hidden"
+                    animate="visible"
+                    exit="hidden"
+                    className="rounded-md border border-dashed p-8 text-center text-muted-foreground"
+                  >
+                    暂无分组，点击上方按钮添加
+                  </motion.div>
+                </AnimatePresence>
+              ) : (
+                <motion.div key="table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>名称</TableHead>
+                        <TableHead>描述</TableHead>
+                        <TableHead>倍率</TableHead>
+                        <TableHead>用户数</TableHead>
+                        <TableHead>渠道数</TableHead>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead>操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={groups.length}>
+                      {groups.map((group) => (
+                        <motion.tr key={group.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{group.description || '-'}</TableCell>
+                          <TableCell>
+                            <Badge variant={group.rateMultiplier === 1 ? 'outline' : 'default'}>
+                              {group.rateMultiplier}x
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{group.userCount}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{group.channelCount}</Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDate(group.createdAt)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEdit(group)}
+                              >
+                                <Pencil className="mr-1 h-4 w-4" />
+                                编辑
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setDeleteConfirmModal(group)}
+                              >
+                                <Trash2 className="mr-1 h-4 w-4" />
+                                删除
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </motion.tr>
+                      ))}
+                    </motion.tbody>
+                  </Table>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </CardContent>
         </Card>
       </motion.div>

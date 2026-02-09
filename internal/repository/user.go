@@ -41,8 +41,8 @@ func NewUserRepository() *UserRepository {
 func (r *UserRepository) Create(user *model.User) error {
 	db := database.GetDB()
 	user.ID = uuid.New().String()
-	user.CreatedAt = time.Now()
-	user.UpdatedAt = time.Now()
+	user.CreatedAt = time.Now().UTC()
+	user.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
 		`INSERT INTO users (id, username, password_hash, is_admin, balance_micros, created_at, updated_at) 
@@ -110,7 +110,7 @@ func (r *UserRepository) UpdatePassword(id string, passwordHash string) error {
 	db := database.GetDB()
 	result, err := db.Exec(
 		`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
-		passwordHash, time.Now(), id,
+		passwordHash, time.Now().UTC(), id,
 	)
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func (r *UserRepository) UpdateUsername(id string, username string) error {
 	db := database.GetDB()
 	result, err := db.Exec(
 		`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
-		username, time.Now(), id,
+		username, time.Now().UTC(), id,
 	)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func (r *UserRepository) SetAdmin(id string, isAdmin bool) error {
 	db := database.GetDB()
 	_, err := db.Exec(
 		`UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?`,
-		isAdmin, time.Now(), id,
+		isAdmin, time.Now().UTC(), id,
 	)
 	return err
 }
@@ -218,7 +218,7 @@ func (r *UserRepository) DeductBalance(userID string, amountMicros int64) error 
 	db := database.GetDB()
 	result, err := db.Exec(
 		`UPDATE users SET balance_micros = balance_micros - ?, updated_at = ? WHERE id = ?`,
-		amountMicros, time.Now(), userID,
+		amountMicros, time.Now().UTC(), userID,
 	)
 	if err != nil {
 		return err
@@ -237,7 +237,7 @@ func (r *UserRepository) TopUpBalance(userID string, amountMicros int64) error {
 	db := database.GetDB()
 	result, err := db.Exec(
 		`UPDATE users SET balance_micros = balance_micros + ?, updated_at = ? WHERE id = ?`,
-		amountMicros, time.Now(), userID,
+		amountMicros, time.Now().UTC(), userID,
 	)
 	if err != nil {
 		return err

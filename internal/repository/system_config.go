@@ -29,7 +29,7 @@ func (r *SystemConfigRepository) Set(key, value string) error {
 		INSERT INTO system_config (key, value, updated_at) 
 		VALUES (?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-	`, key, value, time.Now())
+	`, key, value, time.Now().UTC())
 	return err
 }
 
