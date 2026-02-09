@@ -13,7 +13,7 @@ Amp CLI 反向代理管理系统 —— 一个功能完整的 Web 管理平台�
 - 🌐 **本地网页搜索** - 拦截 `webSearch2` 请求，通过 DuckDuckGo 本地执行
 - 📄 **网页内容提取** - 本地处理 `extractWebPageContent`，直接获取网页内容
 - 🚫 **广告拦截** - 自动拦截 Amp 内置广告请求
-- 🧬 **协议转换** - Claude ↔ OpenAI 格式自动转换（translator 模块）
+- 🧬 **请求过滤** - 可扩展的请求过滤器框架（如 Claude Code 模拟过滤）
 
 ### 管理平台
 - 🔐 **用户系统** - JWT 认证，支持管理员/普通用户角色
@@ -150,7 +150,7 @@ AMPManager/
 │   ├── response/            # 响应格式化
 │   ├── router/              # 路由注册
 │   ├── service/             # 业务逻辑层
-│   ├── translator/          # 协议转换 (Claude ↔ OpenAI)
+│   ├── translator/          # 请求过滤器框架
 │   ├── util/                # 工具函数
 │   └── web/                 # 嵌入的前端静态文件
 ├── web/                     # 前端源码 (React + TypeScript)
