@@ -44,6 +44,7 @@ type RequestDetailStore struct {
 var (
 	globalDetailStore *RequestDetailStore
 	detailStoreOnce   sync.Once
+	detailStoreMu     sync.Mutex
 )
 
 // InitRequestDetailStore initializes the global request detail store
@@ -52,6 +53,17 @@ func InitRequestDetailStore(db *sql.DB) {
 		globalDetailStore = NewRequestDetailStore(db, DefaultDetailTTL)
 		log.Info("request detail store: initialized")
 	})
+}
+
+// ReinitRequestDetailStore reinitializes the global request detail store (after db replacement)
+func ReinitRequestDetailStore(db *sql.DB) {
+	detailStoreMu.Lock()
+	defer detailStoreMu.Unlock()
+	if globalDetailStore != nil {
+		globalDetailStore.Stop()
+	}
+	globalDetailStore = NewRequestDetailStore(db, DefaultDetailTTL)
+	log.Info("request detail store: reinitialized")
 }
 
 // GetRequestDetailStore returns the global request detail store

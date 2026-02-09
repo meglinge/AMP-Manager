@@ -12,43 +12,71 @@ import (
 )
 
 var (
-	db   *sql.DB
-	once sync.Once
+	db     *sql.DB
+	dbPath string
+	mu     sync.RWMutex
+	inited bool
 )
 
-func Init(dbPath string) error {
-	var err error
-	once.Do(func() {
-		// 确保数据目录存在
-		dir := filepath.Dir(dbPath)
-		if dir != "" && dir != "." {
-			if err = os.MkdirAll(dir, 0755); err != nil {
-				return
-			}
-		}
+func Init(path string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	return initDB(path)
+}
 
-		// 添加连接参数：WAL模式、忙等待超时、外键约束
-		dsn := dbPath + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
-		db, err = sql.Open("sqlite", dsn)
-		if err != nil {
-			return
+func initDB(path string) error {
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
 		}
-		if err = db.Ping(); err != nil {
-			return
-		}
+	}
 
-		// 连接池配置：WAL 模式支持多读单写
-		db.SetMaxOpenConns(10)
-		db.SetMaxIdleConns(5)
-		db.SetConnMaxLifetime(time.Hour)
+	dsn := path + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	newDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return err
+	}
+	if err = newDB.Ping(); err != nil {
+		newDB.Close()
+		return err
+	}
 
-		err = createTables()
-		if err != nil {
-			return
-		}
-		err = runMigrations()
-	})
-	return err
+	newDB.SetMaxOpenConns(10)
+	newDB.SetMaxIdleConns(5)
+	newDB.SetConnMaxLifetime(time.Hour)
+
+	db = newDB
+	dbPath = path
+	inited = true
+
+	if err := createTables(); err != nil {
+		return err
+	}
+	return runMigrations()
+}
+
+// CloseAndRelease 关闭数据库连接并释放所有文件句柄，以便替换数据库文件
+func CloseAndRelease() error {
+	mu.Lock()
+	defer mu.Unlock()
+	if db != nil {
+		_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+		err := db.Close()
+		db = nil
+		return err
+	}
+	return nil
+}
+
+// Reopen 重新打开数据库（文件替换后调用）
+func Reopen() error {
+	mu.Lock()
+	defer mu.Unlock()
+	if dbPath == "" {
+		return fmt.Errorf("database path not set, call Init first")
+	}
+	return initDB(dbPath)
 }
 
 func GetDB() *sql.DB {
@@ -289,8 +317,12 @@ func runMigrations() error {
 }
 
 func Close() error {
+	mu.Lock()
+	defer mu.Unlock()
 	if db != nil {
-		return db.Close()
+		err := db.Close()
+		db = nil
+		return err
 	}
 	return nil
 }

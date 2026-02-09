@@ -472,6 +472,7 @@ func (w *LogWriter) flush(entries []LogEntry) {
 var (
 	globalLogWriter *LogWriter
 	logWriterOnce   sync.Once
+	logWriterMu     sync.Mutex
 )
 
 // InitLogWriter 初始化全局日志写入器
@@ -480,6 +481,17 @@ func InitLogWriter(db *sql.DB) {
 		globalLogWriter = NewLogWriter(db, 10000, 100, 200*time.Millisecond)
 		log.Info("log writer: initialized")
 	})
+}
+
+// ReinitLogWriter 重新初始化全局日志写入器（数据库替换后调用）
+func ReinitLogWriter(db *sql.DB) {
+	logWriterMu.Lock()
+	defer logWriterMu.Unlock()
+	if globalLogWriter != nil {
+		globalLogWriter.Stop()
+	}
+	globalLogWriter = NewLogWriter(db, 10000, 100, 200*time.Millisecond)
+	log.Info("log writer: reinitialized")
 }
 
 // GetLogWriter 获取全局日志写入器

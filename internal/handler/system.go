@@ -165,10 +165,25 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	shmPath := dbPath + "-shm"
 	backupPath := "./data/data.db.backup." + time.Now().Format("20060102150405")
 
+	// 关闭数据库连接，释放文件句柄（Windows 必须先关闭才能操作文件）
+	if err := database.CloseAndRelease(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "关闭数据库连接失败: " + err.Error()})
+		return
+	}
+
+	// 后续操作如果失败，必须重新打开数据库
+	reopenOnError := func() {
+		if err := database.Reopen(); err != nil {
+			// 记录严重错误，但此时无法通过日志系统记录（因为依赖数据库）
+			_ = err
+		}
+	}
+
 	// 备份当前数据库
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Rename(dbPath, backupPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "备份现有数据库失败"})
+			reopenOnError()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "备份现有数据库失败: " + err.Error()})
 			return
 		}
 	}
@@ -180,6 +195,7 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	dst, err := os.Create(dbPath)
 	if err != nil {
 		os.Rename(backupPath, dbPath)
+		reopenOnError()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建数据库文件失败"})
 		return
 	}
@@ -189,12 +205,29 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 		dst.Close()
 		os.Remove(dbPath)
 		os.Rename(backupPath, dbPath)
+		reopenOnError()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存数据库文件失败"})
 		return
 	}
+	dst.Close()
+
+	// 重新打开新数据库
+	if err := database.Reopen(); err != nil {
+		// 回滚：恢复备份
+		os.Remove(dbPath)
+		os.Rename(backupPath, dbPath)
+		database.Reopen()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "新数据库打开失败，已回滚: " + err.Error()})
+		return
+	}
+
+	// 重新初始化日志写入器等依赖数据库的组件
+	amp.ReinitLogWriter(database.GetDB())
+	amp.ReinitRequestDetailStore(database.GetDB())
+	amp.ReinitPendingCleaner(database.GetDB())
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":    "数据库上传成功，请重启服务使更改生效",
+		"message":    "数据库上传并切换成功",
 		"backupFile": filepath.Base(backupPath),
 	})
 }
@@ -276,9 +309,20 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 	shmPath := dbPath + "-shm"
 	currentBackup := "./data/data.db.backup." + time.Now().Format("20060102150405")
 
+	// 关闭数据库连接，释放文件句柄
+	if err := database.CloseAndRelease(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "关闭数据库连接失败: " + err.Error()})
+		return
+	}
+
+	reopenOnError := func() {
+		_ = database.Reopen()
+	}
+
 	// 备份当前数据库
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Rename(dbPath, currentBackup); err != nil {
+			reopenOnError()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "备份当前数据库失败"})
 			return
 		}
@@ -288,31 +332,49 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 	os.Remove(walPath)
 	os.Remove(shmPath)
 
-	src, err := os.Open(backupPath)
+	srcFile, err := os.Open(backupPath)
 	if err != nil {
 		os.Rename(currentBackup, dbPath)
+		reopenOnError()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取备份文件失败"})
 		return
 	}
-	defer src.Close()
+	defer srcFile.Close()
 
 	dst, err := os.Create(dbPath)
 	if err != nil {
 		os.Rename(currentBackup, dbPath)
+		reopenOnError()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建数据库文件失败"})
 		return
 	}
 	defer dst.Close()
 
-	if _, err := io.Copy(dst, src); err != nil {
+	if _, err := io.Copy(dst, srcFile); err != nil {
 		dst.Close()
 		os.Remove(dbPath)
 		os.Rename(currentBackup, dbPath)
+		reopenOnError()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "恢复数据库失败"})
 		return
 	}
+	dst.Close()
 
-	c.JSON(http.StatusOK, gin.H{"message": "数据库恢复成功，请重启服务使更改生效"})
+	// 重新打开新数据库
+	if err := database.Reopen(); err != nil {
+		os.Remove(dbPath)
+		os.Rename(currentBackup, dbPath)
+		database.Reopen()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "恢复后数据库打开失败，已回滚: " + err.Error()})
+		return
+	}
+
+	// 重新初始化依赖数据库的组件
+	amp.ReinitLogWriter(database.GetDB())
+	amp.ReinitRequestDetailStore(database.GetDB())
+	amp.ReinitPendingCleaner(database.GetDB())
+
+	c.JSON(http.StatusOK, gin.H{"message": "数据库恢复并切换成功"})
 }
 
 func (h *SystemHandler) DeleteBackup(c *gin.Context) {

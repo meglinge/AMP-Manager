@@ -85,6 +85,16 @@ func InitPendingCleaner(db *sql.DB) {
 	log.Info("pending cleaner: started")
 }
 
+// ReinitPendingCleaner 重新初始化全局 pending 清理器（数据库替换后调用）
+func ReinitPendingCleaner(db *sql.DB) {
+	if globalPendingCleaner != nil {
+		globalPendingCleaner.Stop()
+	}
+	globalPendingCleaner = NewPendingCleaner(db)
+	globalPendingCleaner.Start()
+	log.Info("pending cleaner: reinitialized")
+}
+
 // StopPendingCleaner 停止全局 pending 清理器
 func StopPendingCleaner() {
 	if globalPendingCleaner != nil {
