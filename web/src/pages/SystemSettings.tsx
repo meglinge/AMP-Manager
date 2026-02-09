@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from '@/lib/motion'
 import {
   uploadDatabase,
   downloadDatabase,
@@ -33,7 +34,19 @@ import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+type SettingsTab = 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
+
+const tabs: { key: SettingsTab; label: string }[] = [
+  { key: 'database', label: '数据库管理' },
+  { key: 'retry', label: '重试策略' },
+  { key: 'monitoring', label: '请求监控' },
+  { key: 'cache', label: '缓存配置' },
+  { key: 'timeout', label: '超时配置' },
+]
+
 export default function SystemSettings() {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('database')
+
   const [backups, setBackups] = useState<Backup[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -255,342 +268,404 @@ export default function SystemSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      {message && (
-        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-          <AlertDescription>{message.text}</AlertDescription>
-        </Alert>
-      )}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+      >
+        <h2 className="text-2xl font-bold tracking-tight">系统设置</h2>
+        <p className="text-muted-foreground">管理系统级配置和数据库</p>
+      </motion.div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>数据库管理</CardTitle>
-          <CardDescription>上传、下载和管理系统数据库</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-4">
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".db"
-                onChange={handleUpload}
-                className="hidden"
-                id="db-upload"
-                disabled={loading}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
+        className="flex items-center gap-1 border-b pb-0"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`relative px-4 py-2 text-sm font-medium transition-colors rounded-t-md ${
+              activeTab === tab.key
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground/80'
+            }`}
+          >
+            {tab.label}
+            {activeTab === tab.key && (
+              <motion.div
+                layoutId="settings-tab-indicator"
+                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
               />
-              <Button asChild disabled={loading}>
-                <label htmlFor="db-upload" className="cursor-pointer">
-                  上传数据库
-                </label>
-              </Button>
-            </div>
+            )}
+          </button>
+        ))}
+      </motion.div>
 
-            <Button variant="secondary" onClick={handleDownload} disabled={loading}>
-              下载当前数据库
-            </Button>
-          </div>
+      <AnimatePresence>
+        {message && (
+          <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
+            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+              <AlertDescription>{message.text}</AlertDescription>
+            </Alert>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <p className="text-sm text-muted-foreground">
-            上传新数据库将自动备份当前数据库。更改生效需要重启服务。
-          </p>
-        </CardContent>
-      </Card>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+          className="space-y-6"
+        >
+          {activeTab === 'database' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>数据库管理</CardTitle>
+                  <CardDescription>上传、下载和管理系统数据库</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap gap-4">
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".db"
+                        onChange={handleUpload}
+                        className="hidden"
+                        id="db-upload"
+                        disabled={loading}
+                      />
+                      <Button asChild disabled={loading}>
+                        <label htmlFor="db-upload" className="cursor-pointer">
+                          上传数据库
+                        </label>
+                      </Button>
+                    </div>
+                    <Button variant="secondary" onClick={handleDownload} disabled={loading}>
+                      下载当前数据库
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    上传新数据库将自动备份当前数据库。更改生效需要重启服务。
+                  </p>
+                </CardContent>
+              </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>备份列表</CardTitle>
-          <CardDescription>查看和管理数据库备份</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {backups.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
-              暂无备份
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>文件名</TableHead>
-                    <TableHead>大小</TableHead>
-                    <TableHead>备份时间</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {backups.map((backup) => (
-                    <TableRow key={backup.filename}>
-                      <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{formatSize(backup.size)}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(backup.modTime)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRestore(backup.filename)}
-                            disabled={loading}
-                          >
-                            恢复
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDelete(backup.filename)}
-                            disabled={loading}
-                          >
-                            删除
-                          </Button>
+              <Card>
+                <CardHeader>
+                  <CardTitle>备份列表</CardTitle>
+                  <CardDescription>查看和管理数据库备份</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {backups.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
+                      暂无备份
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>文件名</TableHead>
+                            <TableHead>大小</TableHead>
+                            <TableHead>备份时间</TableHead>
+                            <TableHead>操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {backups.map((backup) => (
+                            <TableRow key={backup.filename}>
+                              <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{formatSize(backup.size)}</Badge>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {formatDate(backup.modTime)}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRestore(backup.filename)}
+                                    disabled={loading}
+                                  >
+                                    恢复
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDelete(backup.filename)}
+                                    disabled={loading}
+                                  >
+                                    删除
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeTab === 'retry' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>重试配置</CardTitle>
+                <CardDescription>配置请求失败时的自动重试策略（首包门控）</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {retryConfig ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label>启用重试</Label>
+                        <p className="text-sm text-muted-foreground">在首包到达前自动重试失败的请求</p>
+                      </div>
+                      <Switch
+                        checked={retryConfig.enabled}
+                        onCheckedChange={(checked) => handleRetryConfigChange('enabled', checked)}
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>最大重试次数</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={retryConfig.maxAttempts}
+                          onChange={(e) => handleRetryConfigChange('maxAttempts', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>首包超时 (毫秒)</Label>
+                        <Input
+                          type="number"
+                          min={1000}
+                          value={retryConfig.gateTimeoutMs}
+                          onChange={(e) => handleRetryConfigChange('gateTimeoutMs', parseInt(e.target.value) || 10000)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>退避基数 (毫秒)</Label>
+                        <Input
+                          type="number"
+                          min={50}
+                          value={retryConfig.backoffBaseMs}
+                          onChange={(e) => handleRetryConfigChange('backoffBaseMs', parseInt(e.target.value) || 100)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>退避上限 (毫秒)</Label>
+                        <Input
+                          type="number"
+                          min={500}
+                          value={retryConfig.backoffMaxMs}
+                          onChange={(e) => handleRetryConfigChange('backoffMaxMs', parseInt(e.target.value) || 2000)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>429 时重试</Label>
+                          <p className="text-sm text-muted-foreground">请求被限流时自动重试</p>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                        <Switch
+                          checked={retryConfig.retryOn429}
+                          onCheckedChange={(checked) => handleRetryConfigChange('retryOn429', checked)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>5xx 时重试</Label>
+                          <p className="text-sm text-muted-foreground">服务端错误时自动重试</p>
+                        </div>
+                        <Switch
+                          checked={retryConfig.retryOn5xx}
+                          onCheckedChange={(checked) => handleRetryConfigChange('retryOn5xx', checked)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>尊重 Retry-After</Label>
+                          <p className="text-sm text-muted-foreground">按服务器返回的等待时间退避</p>
+                        </div>
+                        <Switch
+                          checked={retryConfig.respectRetryAfter}
+                          onCheckedChange={(checked) => handleRetryConfigChange('respectRetryAfter', checked)}
+                        />
+                      </div>
+                    </div>
+
+                    <Button onClick={handleSaveRetryConfig} disabled={retryLoading}>
+                      {retryLoading ? '保存中...' : '保存配置'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>重试配置</CardTitle>
-          <CardDescription>配置请求失败时的自动重试策略（首包门控）</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {retryConfig ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>启用重试</Label>
-                  <p className="text-sm text-muted-foreground">在首包到达前自动重试失败的请求</p>
-                </div>
-                <Switch
-                  checked={retryConfig.enabled}
-                  onCheckedChange={(checked) => handleRetryConfigChange('enabled', checked)}
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>最大重试次数</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={retryConfig.maxAttempts}
-                    onChange={(e) => handleRetryConfigChange('maxAttempts', parseInt(e.target.value) || 1)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>首包超时 (毫秒)</Label>
-                  <Input
-                    type="number"
-                    min={1000}
-                    value={retryConfig.gateTimeoutMs}
-                    onChange={(e) => handleRetryConfigChange('gateTimeoutMs', parseInt(e.target.value) || 10000)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>退避基数 (毫秒)</Label>
-                  <Input
-                    type="number"
-                    min={50}
-                    value={retryConfig.backoffBaseMs}
-                    onChange={(e) => handleRetryConfigChange('backoffBaseMs', parseInt(e.target.value) || 100)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>退避上限 (毫秒)</Label>
-                  <Input
-                    type="number"
-                    min={500}
-                    value={retryConfig.backoffMaxMs}
-                    onChange={(e) => handleRetryConfigChange('backoffMaxMs', parseInt(e.target.value) || 2000)}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-4">
+          {activeTab === 'monitoring' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>请求详情监控</CardTitle>
+                <CardDescription>控制是否记录请求和响应的详细信息（头部和正文）</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>429 时重试</Label>
-                    <p className="text-sm text-muted-foreground">请求被限流时自动重试</p>
+                    <Label>启用详情监控</Label>
+                    <p className="text-sm text-muted-foreground">
+                      启用后可在日志页面点击状态列查看请求/响应详情。关闭可减少内存使用。
+                    </p>
                   </div>
                   <Switch
-                    checked={retryConfig.retryOn429}
-                    onCheckedChange={(checked) => handleRetryConfigChange('retryOn429', checked)}
+                    checked={requestDetailEnabled}
+                    onCheckedChange={handleRequestDetailToggle}
+                    disabled={requestDetailLoading}
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>5xx 时重试</Label>
-                    <p className="text-sm text-muted-foreground">服务端错误时自动重试</p>
-                  </div>
-                  <Switch
-                    checked={retryConfig.retryOn5xx}
-                    onCheckedChange={(checked) => handleRetryConfigChange('retryOn5xx', checked)}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>尊重 Retry-After</Label>
-                    <p className="text-sm text-muted-foreground">按服务器返回的等待时间退避</p>
-                  </div>
-                  <Switch
-                    checked={retryConfig.respectRetryAfter}
-                    onCheckedChange={(checked) => handleRetryConfigChange('respectRetryAfter', checked)}
-                  />
-                </div>
-              </div>
-
-              <Button onClick={handleSaveRetryConfig} disabled={retryLoading}>
-                {retryLoading ? '保存中...' : '保存配置'}
-              </Button>
-            </>
-          ) : (
-            <div className="text-center text-muted-foreground py-4">加载中...</div>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>请求详情监控</CardTitle>
-          <CardDescription>控制是否记录请求和响应的详细信息（头部和正文）</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>启用详情监控</Label>
-              <p className="text-sm text-muted-foreground">
-                启用后可在日志页面点击状态列查看请求/响应详情。关闭可减少内存使用。
-              </p>
-            </div>
-            <Switch
-              checked={requestDetailEnabled}
-              onCheckedChange={handleRequestDetailToggle}
-              disabled={requestDetailLoading}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>缓存 TTL 覆盖</CardTitle>
-          <CardDescription>控制发送给 Claude API 的 cache_control TTL 值</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <Label>TTL 策略</Label>
-            <div className="flex gap-2">
-              <Button
-                variant={cacheTTL === '1h' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleCacheTTLChange('1h')}
-                disabled={cacheTTLLoading}
-              >
-                1 小时
-              </Button>
-              <Button
-                variant={cacheTTL === '5m' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleCacheTTLChange('5m')}
-                disabled={cacheTTLLoading}
-              >
-                5 分钟
-              </Button>
-              <Button
-                variant={cacheTTL === '' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleCacheTTLChange('')}
-                disabled={cacheTTLLoading}
-              >
-                不覆盖
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              选择"1小时"将强制所有 cache_control TTL 为 1h（省钱），"5分钟"为原始值，"不覆盖"保留请求原始 TTL 不做修改。
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>超时配置</CardTitle>
-          <CardDescription>配置代理连接和流式响应的超时时间（单位：秒）</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {timeoutConfig ? (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>空闲连接超时</Label>
-                  <Input
-                    type="number"
-                    min={30}
-                    value={timeoutConfig.idleConnTimeoutSec}
-                    onChange={(e) => handleTimeoutConfigChange('idleConnTimeoutSec', parseInt(e.target.value) || 300)}
-                  />
-                  <p className="text-xs text-muted-foreground">连接池中空闲连接的最大存活时间（&gt;=30秒）</p>
+          {activeTab === 'cache' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>缓存 TTL 覆盖</CardTitle>
+                <CardDescription>控制发送给 Claude API 的 cache_control TTL 值</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  <Label>TTL 策略</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={cacheTTL === '1h' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleCacheTTLChange('1h')}
+                      disabled={cacheTTLLoading}
+                    >
+                      1 小时
+                    </Button>
+                    <Button
+                      variant={cacheTTL === '5m' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleCacheTTLChange('5m')}
+                      disabled={cacheTTLLoading}
+                    >
+                      5 分钟
+                    </Button>
+                    <Button
+                      variant={cacheTTL === '' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleCacheTTLChange('')}
+                      disabled={cacheTTLLoading}
+                    >
+                      不覆盖
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    选择"1小时"将强制所有 cache_control TTL 为 1h（省钱），"5分钟"为原始值，"不覆盖"保留请求原始 TTL 不做修改。
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>读取空闲超时</Label>
-                  <Input
-                    type="number"
-                    min={60}
-                    value={timeoutConfig.readIdleTimeoutSec}
-                    onChange={(e) => handleTimeoutConfigChange('readIdleTimeoutSec', parseInt(e.target.value) || 300)}
-                  />
-                  <p className="text-xs text-muted-foreground">AI 思考时无数据的最大等待时间（&gt;=60秒）</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>心跳间隔</Label>
-                  <Input
-                    type="number"
-                    min={5}
-                    value={timeoutConfig.keepAliveIntervalSec}
-                    onChange={(e) => handleTimeoutConfigChange('keepAliveIntervalSec', parseInt(e.target.value) || 15)}
-                  />
-                  <p className="text-xs text-muted-foreground">SSE 流心跳发送间隔（&gt;=5秒）</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>连接超时</Label>
-                  <Input
-                    type="number"
-                    min={5}
-                    value={timeoutConfig.dialTimeoutSec}
-                    onChange={(e) => handleTimeoutConfigChange('dialTimeoutSec', parseInt(e.target.value) || 30)}
-                  />
-                  <p className="text-xs text-muted-foreground">建立 TCP 连接的超时时间（&gt;=5秒）</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>TLS 握手超时</Label>
-                  <Input
-                    type="number"
-                    min={5}
-                    value={timeoutConfig.tlsHandshakeTimeoutSec}
-                    onChange={(e) => handleTimeoutConfigChange('tlsHandshakeTimeoutSec', parseInt(e.target.value) || 15)}
-                  />
-                  <p className="text-xs text-muted-foreground">TLS 握手的超时时间（&gt;=5秒）</p>
-                </div>
-              </div>
-
-              <Button onClick={handleSaveTimeoutConfig} disabled={timeoutLoading}>
-                {timeoutLoading ? '保存中...' : '保存配置'}
-              </Button>
-            </>
-          ) : (
-            <div className="text-center text-muted-foreground py-4">加载中...</div>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
-    </div>
+
+          {activeTab === 'timeout' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>超时配置</CardTitle>
+                <CardDescription>配置代理连接和流式响应的超时时间（单位：秒）</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {timeoutConfig ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>空闲连接超时</Label>
+                        <Input
+                          type="number"
+                          min={30}
+                          value={timeoutConfig.idleConnTimeoutSec}
+                          onChange={(e) => handleTimeoutConfigChange('idleConnTimeoutSec', parseInt(e.target.value) || 300)}
+                        />
+                        <p className="text-xs text-muted-foreground">连接池中空闲连接的最大存活时间（&gt;=30秒）</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>读取空闲超时</Label>
+                        <Input
+                          type="number"
+                          min={60}
+                          value={timeoutConfig.readIdleTimeoutSec}
+                          onChange={(e) => handleTimeoutConfigChange('readIdleTimeoutSec', parseInt(e.target.value) || 300)}
+                        />
+                        <p className="text-xs text-muted-foreground">AI 思考时无数据的最大等待时间（&gt;=60秒）</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>心跳间隔</Label>
+                        <Input
+                          type="number"
+                          min={5}
+                          value={timeoutConfig.keepAliveIntervalSec}
+                          onChange={(e) => handleTimeoutConfigChange('keepAliveIntervalSec', parseInt(e.target.value) || 15)}
+                        />
+                        <p className="text-xs text-muted-foreground">SSE 流心跳发送间隔（&gt;=5秒）</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>连接超时</Label>
+                        <Input
+                          type="number"
+                          min={5}
+                          value={timeoutConfig.dialTimeoutSec}
+                          onChange={(e) => handleTimeoutConfigChange('dialTimeoutSec', parseInt(e.target.value) || 30)}
+                        />
+                        <p className="text-xs text-muted-foreground">建立 TCP 连接的超时时间（&gt;=5秒）</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>TLS 握手超时</Label>
+                        <Input
+                          type="number"
+                          min={5}
+                          value={timeoutConfig.tlsHandshakeTimeoutSec}
+                          onChange={(e) => handleTimeoutConfigChange('tlsHandshakeTimeoutSec', parseInt(e.target.value) || 15)}
+                        />
+                        <p className="text-xs text-muted-foreground">TLS 握手的超时时间（&gt;=5秒）</p>
+                      </div>
+                    </div>
+
+                    <Button onClick={handleSaveTimeoutConfig} disabled={timeoutLoading}>
+                      {timeoutLoading ? '保存中...' : '保存配置'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </motion.div>
   )
 }

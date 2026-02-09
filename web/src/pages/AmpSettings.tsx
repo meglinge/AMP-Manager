@@ -1,4 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react'
+import { motion } from '@/lib/motion'
 import {
     getAmpSettings,
     updateAmpSettings,
@@ -107,7 +108,7 @@ export default function AmpSettings() {
     }
 
     return (
-        <div className="mx-auto max-w-2xl">
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.7 }} className="mx-auto max-w-2xl">
             <Card>
                 <CardHeader>
                     <CardTitle>Amp 设置</CardTitle>
@@ -127,6 +128,7 @@ export default function AmpSettings() {
                     )}
 
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1, type: 'spring', bounce: 0.2, duration: 0.5 }}>
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <Label htmlFor="enabled">启用代理</Label>
@@ -138,7 +140,9 @@ export default function AmpSettings() {
                                 onCheckedChange={setEnabled}
                             />
                         </div>
+                        </motion.div>
 
+                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2, type: 'spring', bounce: 0.2, duration: 0.5 }}>
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <Label htmlFor="nativeMode">原生模式</Label>
@@ -156,9 +160,13 @@ export default function AmpSettings() {
                                 <AlertDescription>原生模式已开启，以下设置将不生效。所有请求将直接转发到上游服务器。</AlertDescription>
                             </Alert>
                         )}
+                        </motion.div>
 
+                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25, type: 'spring', bounce: 0.2, duration: 0.5 }}>
                         <Separator />
+                        </motion.div>
 
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, type: 'spring', bounce: 0.2, duration: 0.6 }}>
                         <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
                             <div className="space-y-2">
                                 <Label htmlFor="upstreamUrl">Upstream URL</Label>
@@ -240,6 +248,7 @@ export default function AmpSettings() {
                                 </RadioGroup>
                             </div>
                         </div>
+                        </motion.div>
 
                         {testResult && (
                             <Alert
@@ -270,6 +279,6 @@ export default function AmpSettings() {
                     </Button>
                 </CardFooter>
             </Card>
-        </div>
+        </motion.div>
     )
 }

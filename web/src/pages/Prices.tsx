@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
+import { motion } from '@/lib/motion'
 import { listPrices, getPriceStats, refreshPrices, ModelPrice, PriceStats } from '../api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -153,7 +154,7 @@ export default function PricesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">模型价格表</h1>
@@ -180,32 +181,40 @@ export default function PricesPage() {
 
       {/* 统计卡片 */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>总模型数</CardDescription>
-            <CardTitle className="text-2xl">{prices.length}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>数据来源</CardDescription>
-            <CardTitle className="text-2xl">{stats?.source || '-'}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>更新时间</CardDescription>
-            <CardTitle className="text-lg">
-              {stats?.fetchedAt ? new Date(stats.fetchedAt).toLocaleString() : '-'}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Provider 数</CardDescription>
-            <CardTitle className="text-2xl">{providers.length}</CardTitle>
-          </CardHeader>
-        </Card>
+        <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', bounce: 0.35, duration: 0.6, delay: 0 * 0.08 }} whileHover={{ scale: 1.05, y: -4 }}>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>总模型数</CardDescription>
+              <CardTitle className="text-2xl">{prices.length}</CardTitle>
+            </CardHeader>
+          </Card>
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', bounce: 0.35, duration: 0.6, delay: 1 * 0.08 }} whileHover={{ scale: 1.05, y: -4 }}>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>数据来源</CardDescription>
+              <CardTitle className="text-2xl">{stats?.source || '-'}</CardTitle>
+            </CardHeader>
+          </Card>
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', bounce: 0.35, duration: 0.6, delay: 2 * 0.08 }} whileHover={{ scale: 1.05, y: -4 }}>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>更新时间</CardDescription>
+              <CardTitle className="text-lg">
+                {stats?.fetchedAt ? new Date(stats.fetchedAt).toLocaleString() : '-'}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', bounce: 0.35, duration: 0.6, delay: 3 * 0.08 }} whileHover={{ scale: 1.05, y: -4 }}>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Provider 数</CardDescription>
+              <CardTitle className="text-2xl">{providers.length}</CardTitle>
+            </CardHeader>
+          </Card>
+        </motion.div>
       </div>
 
       {/* Provider 分布 */}
@@ -232,18 +241,19 @@ export default function PricesPage() {
               .map(([provider, count]) => {
                 const isSelected = providerFilter === provider
                 return (
-                  <Badge
-                    key={provider}
-                    variant={isSelected ? 'default' : (providerVariants[provider] || 'outline')}
-                    className="cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isSelected}
-                    onClick={() => setProviderFilter(isSelected ? '' : provider)}
-                    onKeyDown={(e) => handleBadgeKeyDown(e, () => setProviderFilter(isSelected ? '' : provider))}
-                  >
-                    {provider} ({count})
-                  </Badge>
+                  <motion.div key={provider} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', bounce: 0.4, duration: 0.4 }} whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} style={{ display: 'inline-block' }}>
+                    <Badge
+                      variant={isSelected ? 'default' : (providerVariants[provider] || 'outline')}
+                      className="cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
+                      onClick={() => setProviderFilter(isSelected ? '' : provider)}
+                      onKeyDown={(e) => handleBadgeKeyDown(e, () => setProviderFilter(isSelected ? '' : provider))}
+                    >
+                      {provider} ({count})
+                    </Badge>
+                  </motion.div>
                 )
               })}
           </div>
@@ -341,6 +351,6 @@ export default function PricesPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   )
 }

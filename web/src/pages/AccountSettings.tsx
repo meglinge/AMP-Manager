@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion, AnimatePresence } from '@/lib/motion'
 import { changePassword, changeUsername } from '../api/users'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -78,18 +79,23 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   }
 
   return (
-    <div className="space-y-6">
-      {message && (
-        <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-          {message.type === 'success' ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <XCircle className="h-4 w-4" />
-          )}
-          <AlertDescription>{message.text}</AlertDescription>
-        </Alert>
-      )}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <AnimatePresence>
+        {message && (
+          <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
+            <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
+              {message.type === 'success' ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
+              <AlertDescription>{message.text}</AlertDescription>
+            </Alert>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.25, duration: 0.6, delay: 0.1 }}>
       <Card>
         <CardHeader>
           <CardTitle>修改密码</CardTitle>
@@ -134,7 +140,9 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
           </form>
         </CardContent>
       </Card>
+      </motion.div>
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.25, duration: 0.6, delay: 0.2 }}>
       <Card>
         <CardHeader>
           <CardTitle>修改用户名</CardTitle>
@@ -160,6 +168,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
           </form>
         </CardContent>
       </Card>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

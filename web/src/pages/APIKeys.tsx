@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from '@/lib/motion'
 import {
   getAPIKeys,
   createAPIKey,
@@ -127,8 +128,10 @@ export default function APIKeys() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mx-auto max-w-4xl space-y-6">
+      <AnimatePresence>
       {newKey && (
+        <motion.div initial={{ opacity: 0, y: -30, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -30, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.6 }}>
         <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
             <CardTitle className="text-green-800 dark:text-green-200">API Key 创建成功</CardTitle>
@@ -191,8 +194,11 @@ export default function APIKeys() {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
       )}
+      </AnimatePresence>
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
@@ -213,7 +219,7 @@ export default function APIKeys() {
               暂无 API Key，点击上方按钮创建
             </div>
           ) : (
-            <div className="rounded-md border">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }} className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -258,10 +264,11 @@ export default function APIKeys() {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </motion.div>
           )}
         </CardContent>
       </Card>
+      </motion.div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
@@ -372,6 +379,7 @@ export default function APIKeys() {
         </DialogContent>
       </Dialog>
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.2 }}>
       <Card>
         <CardHeader>
           <CardTitle>使用说明</CardTitle>
@@ -398,6 +406,7 @@ export default function APIKeys() {
           <p>3. Amp CLI 会自动使用这些环境变量连接到反代服务</p>
         </CardContent>
       </Card>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

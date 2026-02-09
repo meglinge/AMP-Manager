@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { login, LoginRequest } from '../api/auth'
+import { motion } from '@/lib/motion'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -12,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { LogIn } from 'lucide-react'
 
 interface Props {
   onSwitch: () => void
@@ -42,62 +44,119 @@ export default function Login({ onSwitch, onSuccess }: Props) {
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">用户登录</CardTitle>
-        <CardDescription>请输入您的账号信息</CardDescription>
-      </CardHeader>
+    <motion.div
+      initial={{ opacity: 0, y: 40, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', bounce: 0.25, duration: 0.7 }}
+    >
+      <Card className="w-full max-w-md glass-card border-0 shadow-xl">
+        <CardHeader className="text-center pb-2">
+          <motion.div
+            className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10"
+            initial={{ scale: 0, rotate: -180 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: 'spring', bounce: 0.4, duration: 0.8, delay: 0.2 }}
+          >
+            <LogIn className="h-7 w-7 text-primary" />
+          </motion.div>
+          <CardTitle className="text-2xl font-bold">欢迎回来</CardTitle>
+          <CardDescription>登录到 AMPManager 管理面板</CardDescription>
+        </CardHeader>
 
-      <CardContent>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        <CardContent>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+            >
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="username">用户名</Label>
-            <Input
-              id="username"
-              type="text"
-              required
-              value={formData.username}
-              onChange={(e) =>
-                setFormData({ ...formData, username: e.target.value })
-              }
-              placeholder="请输入用户名"
-            />
-          </div>
+          <form onSubmit={handleSubmit}>
+            <motion.div
+              className="space-y-4"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: { opacity: 0 },
+                visible: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.25 } },
+              }}
+            >
+              <motion.div
+                className="space-y-2"
+                variants={{
+                  hidden: { opacity: 0, y: 16 },
+                  visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0.25, duration: 0.5 } },
+                }}
+              >
+                <Label htmlFor="username">用户名</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  required
+                  value={formData.username}
+                  onChange={(e) =>
+                    setFormData({ ...formData, username: e.target.value })
+                  }
+                  placeholder="请输入用户名"
+                  className="h-11 bg-white/50 dark:bg-white/5"
+                />
+              </motion.div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password">密码</Label>
-            <Input
-              id="password"
-              type="password"
-              required
-              value={formData.password}
-              onChange={(e) =>
-                setFormData({ ...formData, password: e.target.value })
-              }
-              placeholder="请输入密码"
-            />
-          </div>
+              <motion.div
+                className="space-y-2"
+                variants={{
+                  hidden: { opacity: 0, y: 16 },
+                  visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0.25, duration: 0.5 } },
+                }}
+              >
+                <Label htmlFor="password">密码</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                  placeholder="请输入密码"
+                  className="h-11 bg-white/50 dark:bg-white/5"
+                />
+              </motion.div>
 
-          <Button type="submit" disabled={loading} className="w-full">
-            {loading ? '登录中...' : '登录'}
-          </Button>
-        </form>
-      </CardContent>
+              <motion.div
+                variants={{
+                  hidden: { opacity: 0, y: 16 },
+                  visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0.25, duration: 0.5 } },
+                }}
+              >
+                <Button type="submit" disabled={loading} className="w-full h-11 text-base font-medium">
+                  {loading ? (
+                    <motion.div
+                      className="h-5 w-5 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                    />
+                  ) : '登录'}
+                </Button>
+              </motion.div>
+            </motion.div>
+          </form>
+        </CardContent>
 
-      <CardFooter className="justify-center">
-        <p className="text-sm text-muted-foreground">
-          没有账号？{' '}
-          <Button variant="link" className="h-auto p-0" onClick={onSwitch}>
-            立即注册
-          </Button>
-        </p>
-      </CardFooter>
-    </Card>
+        <CardFooter className="justify-center pb-6">
+          <p className="text-sm text-muted-foreground">
+            没有账号？{' '}
+            <Button variant="link" className="h-auto p-0 text-primary font-medium" onClick={onSwitch}>
+              立即注册
+            </Button>
+          </p>
+        </CardFooter>
+      </Card>
+    </motion.div>
   )
 }

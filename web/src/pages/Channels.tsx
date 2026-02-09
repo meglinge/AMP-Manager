@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from '@/lib/motion'
 import {
   listChannels,
   createChannel,
@@ -173,13 +174,14 @@ export default function Channels() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mx-auto max-w-6xl space-y-6">
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
@@ -210,6 +212,7 @@ export default function Channels() {
           <TestResultsDisplay testResults={testResults} channels={channels} />
         </CardContent>
       </Card>
+      </motion.div>
 
       <ChannelFormDialog
         open={showForm}
@@ -221,6 +224,7 @@ export default function Channels() {
         saving={saving}
       />
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.2 }}>
       <Card>
         <CardHeader>
           <CardTitle>渠道路由说明</CardTitle>
@@ -232,6 +236,7 @@ export default function Channels() {
           <p>• <strong>回退机制</strong>：如果没有匹配的渠道，请求将转发到用户配置的上游地址</p>
         </CardContent>
       </Card>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

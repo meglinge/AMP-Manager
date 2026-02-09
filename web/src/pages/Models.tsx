@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from '@/lib/motion'
 import { listAvailableModels, fetchAllModels, AvailableModel, FetchModelsResult } from '../api/models'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -77,7 +78,7 @@ export default function Models({ isAdmin }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mx-auto max-w-6xl space-y-6">
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -142,7 +143,7 @@ export default function Models({ isAdmin }: Props) {
           ) : (
             <div className="space-y-6">
               {Object.entries(groupedModels).map(([type, typeModels]) => (
-                <div key={type}>
+                <motion.div key={type} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}>
                   <h3 className="mb-3 flex items-center gap-2 text-lg font-medium">
                     <Badge variant={getTypeBadgeVariant(type)}>
                       {type.toUpperCase()}
@@ -150,8 +151,16 @@ export default function Models({ isAdmin }: Props) {
                     <span className="text-sm text-muted-foreground">({typeModels.length} 个模型)</span>
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {typeModels.map((model) => (
-                      <Card key={`${model.channelName}-${model.modelId}`} className="hover:bg-muted/50 transition-colors">
+                    {typeModels.map((model, index) => (
+                      <motion.div
+                        key={`${model.channelName}-${model.modelId}`}
+                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ type: 'spring', bounce: 0.3, duration: 0.5, delay: index * 0.03 }}
+                        whileHover={{ scale: 1.04, y: -4 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        <Card className="hover:bg-muted/50 transition-colors h-full">
                         <CardContent className="p-4">
                           <div className="font-mono text-sm font-medium">
                             {model.modelId}
@@ -165,10 +174,11 @@ export default function Models({ isAdmin }: Props) {
                             渠道: {model.channelName}
                           </div>
                         </CardContent>
-                      </Card>
+                        </Card>
+                      </motion.div>
                     ))}
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           )}
@@ -186,6 +196,6 @@ export default function Models({ isAdmin }: Props) {
           </Card>
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from '@/lib/motion'
 import {
   listModelMetadata,
   createModelMetadata,
@@ -155,13 +156,14 @@ export default function ModelMetadataPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mx-auto max-w-6xl space-y-6">
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
@@ -225,6 +227,7 @@ export default function ModelMetadataPage() {
           )}
         </CardContent>
       </Card>
+      </motion.div>
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="sm:max-w-[600px]">
@@ -316,6 +319,7 @@ export default function ModelMetadataPage() {
         </DialogContent>
       </Dialog>
 
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.2 }}>
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">模型元数据说明</CardTitle>
@@ -332,6 +336,7 @@ export default function ModelMetadataPage() {
           <p>• 如果没有配置匹配的模型，将使用代码内置的默认值 (200k)</p>
         </CardContent>
       </Card>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
