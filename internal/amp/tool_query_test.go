@@ -29,3 +29,78 @@ func TestDetectLocalToolQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestIsAdRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawQuery string
+		want     bool
+	}{
+		{"empty", "", false},
+		{"normal query", "webSearch2", false},
+		{"recordAdImpressionEnd", "recordAdImpressionEnd", true},
+		{"recordAdImpressionStart", "recordAdImpressionStart", true},
+		{"getCurrentAd", "getCurrentAd", true},
+		{"ad with params", "foo=bar&getCurrentAd&x=y", true},
+		{"not ad", "recordSomethingElse", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isAdRequest(tc.rawQuery)
+			if got != tc.want {
+				t.Fatalf("isAdRequest(%q) = %v, want %v", tc.rawQuery, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectAdEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawQuery string
+		want     string
+	}{
+		{"empty", "", ""},
+		{"getCurrentAd", "getCurrentAd", "getCurrentAd"},
+		{"recordAdImpressionStart", "recordAdImpressionStart", "recordAdImpressionStart"},
+		{"recordAdImpressionEnd", "recordAdImpressionEnd", "recordAdImpressionEnd"},
+		{"with other params", "foo=bar&recordAdImpressionEnd&x=y", "recordAdImpressionEnd"},
+		{"not ad", "webSearch2", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detectAdEndpoint(tc.rawQuery)
+			if got != tc.want {
+				t.Fatalf("detectAdEndpoint(%q) = %q, want %q", tc.rawQuery, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildAdResponse(t *testing.T) {
+	resp := buildAdResponse("getCurrentAd")
+	if resp["ok"] != true {
+		t.Fatal("getCurrentAd response should have ok=true")
+	}
+	if resp["result"] != nil {
+		t.Fatal("getCurrentAd response should have result=nil (no ad available)")
+	}
+
+	resp = buildAdResponse("recordAdImpressionStart")
+	if resp["ok"] != true {
+		t.Fatal("recordAdImpressionStart response should have ok=true")
+	}
+	if resp["creditsConsumed"] != "0" {
+		t.Fatal("recordAdImpressionStart response should have creditsConsumed=0")
+	}
+
+	resp = buildAdResponse("recordAdImpressionEnd")
+	if resp["ok"] != true {
+		t.Fatal("recordAdImpressionEnd response should have ok=true")
+	}
+	if resp["creditsConsumed"] != "0" {
+		t.Fatal("recordAdImpressionEnd response should have creditsConsumed=0")
+	}
+}

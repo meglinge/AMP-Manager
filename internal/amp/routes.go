@@ -94,10 +94,10 @@ func registerManagementRoutes(engine *gin.Engine, proxyHandler gin.HandlerFunc, 
 	api.Any("/auth", proxyHandler)
 	api.Any("/auth/*path", proxyHandler)
 
-	// Metadata and telemetry
+	// Metadata and telemetry (ads blocked locally)
 	api.Any("/meta", proxyHandler)
 	api.Any("/meta/*path", proxyHandler)
-	api.Any("/ads", proxyHandler)
+	api.Any("/ads", AdBlockMiddleware())
 	api.Any("/telemetry", proxyHandler)
 	api.Any("/telemetry/*path", proxyHandler)
 
@@ -141,8 +141,8 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	api.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
-	api.Any("/internal", NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
-	api.Any("/internal/*path", NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
+	api.Any("/internal", NativeModeSkipMiddleware(AdBlockMiddleware()), NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
+	api.Any("/internal/*path", NativeModeSkipMiddleware(AdBlockMiddleware()), NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
 
 	api.Any("/provider/:provider/*path", createProviderHandler(proxyHandler, channelHandler, modelsHandler))
 

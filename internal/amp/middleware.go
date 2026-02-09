@@ -43,6 +43,13 @@ const (
 	mcpToolPrefix              = "mcp_"
 )
 
+// adEndpoints are ad-related query parameters that should be blocked
+var adEndpoints = []string{
+	"recordAdImpressionEnd",
+	"recordAdImpressionStart",
+	"getCurrentAd",
+}
+
 func detectLocalToolQuery(rawQuery string) (string, bool) {
 	if rawQuery == "" {
 		return "", false
@@ -61,6 +68,83 @@ func detectLocalToolQuery(rawQuery string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// detectAdEndpoint checks if the query string contains an ad-related endpoint
+// and returns its name for per-endpoint response generation
+func detectAdEndpoint(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	parts := strings.Split(rawQuery, "&")
+	for _, part := range parts {
+		key := part
+		if idx := strings.IndexByte(part, '='); idx >= 0 {
+			key = part[:idx]
+		}
+		for _, ad := range adEndpoints {
+			if key == ad {
+				return ad
+			}
+		}
+	}
+	return ""
+}
+
+// isAdRequest checks if the query string contains ad-related endpoints
+func isAdRequest(rawQuery string) bool {
+	return detectAdEndpoint(rawQuery) != ""
+}
+
+// buildAdResponse returns a realistic response for each ad endpoint
+// so the client behaves as if ampcode.com actually handled the request
+func buildAdResponse(endpoint string) gin.H {
+	switch endpoint {
+	case "getCurrentAd":
+		return gin.H{
+			"ok":     true,
+			"result": nil,
+		}
+	case "recordAdImpressionStart":
+		return gin.H{
+			"ok":              true,
+			"result":          gin.H{},
+			"creditsConsumed": "0",
+		}
+	case "recordAdImpressionEnd":
+		return gin.H{
+			"ok":              true,
+			"result":          gin.H{},
+			"creditsConsumed": "0",
+		}
+	default:
+		return gin.H{"ok": true}
+	}
+}
+
+// AdBlockMiddleware intercepts ad-related requests and returns realistic fake responses
+func AdBlockMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		endpoint := detectAdEndpoint(c.Request.URL.RawQuery)
+		if endpoint != "" {
+			log.Debugf("amp: blocked ad request: path=%s, endpoint=%s", c.Request.URL.Path, endpoint)
+			c.JSON(http.StatusOK, buildAdResponse(endpoint))
+			c.Abort()
+			return
+		}
+
+		if c.Request.URL.Path == "/api/ads" || strings.HasPrefix(c.Request.URL.Path, "/api/ads/") {
+			log.Debugf("amp: blocked ads endpoint: path=%s", c.Request.URL.Path)
+			c.JSON(http.StatusOK, gin.H{
+				"ok":     true,
+				"result": nil,
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
 }
 
 // Pre-compiled regex for matching isFreeTierRequest field
