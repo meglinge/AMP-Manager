@@ -113,6 +113,11 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		return nil, err
 	}
 
+	if len(req.GroupIDs) > 0 {
+		chRepo := repository.NewChannelRepository()
+		_ = chRepo.SetGroups(channel.ID, req.GroupIDs)
+	}
+
 	return s.toResponse(channel), nil
 }
 
@@ -202,6 +207,9 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if err := s.repo.Update(existing); err != nil {
 		return nil, err
 	}
+
+	chRepo := repository.NewChannelRepository()
+	_ = chRepo.SetGroups(id, req.GroupIDs)
 
 	return s.toResponse(existing), nil
 }
@@ -355,6 +363,83 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 	return selected, nil
 }
 
+// SelectChannelForModelWithGroups 根据分组过滤选择渠道
+// 无分组用户: 只能使用未关联分组的渠道
+// 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
+func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, groupIDs []string) (*model.Channel, error) {
+	channels, err := s.repo.ListEnabled()
+	if err != nil {
+		return nil, err
+	}
+
+	chRepo := repository.NewChannelRepository()
+
+	var candidates []*model.Channel
+	for _, ch := range channels {
+		if !s.channelMatchesModel(ch, modelName) {
+			continue
+		}
+
+		chGroupIDs, err := chRepo.GetGroupIDs(ch.ID)
+		if err != nil {
+			continue
+		}
+
+		if len(chGroupIDs) == 0 {
+			candidates = append(candidates, ch)
+		} else if len(groupIDs) > 0 {
+			if hasOverlap(groupIDs, chGroupIDs) {
+				candidates = append(candidates, ch)
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+
+	minPriority := candidates[0].Priority
+	for _, c := range candidates {
+		if c.Priority < minPriority {
+			minPriority = c.Priority
+		}
+	}
+
+	var priorityCandidates []*model.Channel
+	for _, c := range candidates {
+		if c.Priority == minPriority {
+			priorityCandidates = append(priorityCandidates, c)
+		}
+	}
+
+	sort.Slice(priorityCandidates, func(i, j int) bool {
+		return priorityCandidates[i].ID < priorityCandidates[j].ID
+	})
+
+	counter := s.getRRCounter(modelName)
+	idx := int(counter.Add(1) - 1)
+	selected := priorityCandidates[idx%len(priorityCandidates)]
+
+	return selected, nil
+}
+
+func hasOverlap(a, b []string) bool {
+	set := make(map[string]struct{}, len(a))
+	for _, v := range a {
+		set[v] = struct{}{}
+	}
+	for _, v := range b {
+		if _, ok := set[v]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
 	models, valid := getParsedModels(channel.ModelsJSON)
 	if !valid {
@@ -427,19 +512,34 @@ func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelRespon
 		headers = map[string]string{}
 	}
 
+	groupIDs := []string{}
+	groupNames := []string{}
+	chRepo := repository.NewChannelRepository()
+	if gids, err := chRepo.GetGroupIDs(channel.ID); err == nil && len(gids) > 0 {
+		groupIDs = gids
+		groupRepo := repository.NewGroupRepository()
+		for _, gid := range gids {
+			if g, err := groupRepo.GetByID(gid); err == nil && g != nil {
+				groupNames = append(groupNames, g.Name)
+			}
+		}
+	}
+
 	return &model.ChannelResponse{
-		ID:        channel.ID,
-		Type:      channel.Type,
-		Endpoint:  channel.Endpoint,
-		Name:      channel.Name,
-		BaseURL:   channel.BaseURL,
-		APIKeySet: channel.APIKey != "",
-		Enabled:   channel.Enabled,
-		Weight:    channel.Weight,
-		Priority:  channel.Priority,
-		Models:    models,
-		Headers:   headers,
-		CreatedAt: channel.CreatedAt,
-		UpdatedAt: channel.UpdatedAt,
+		ID:         channel.ID,
+		Type:       channel.Type,
+		Endpoint:   channel.Endpoint,
+		Name:       channel.Name,
+		BaseURL:    channel.BaseURL,
+		APIKeySet:  channel.APIKey != "",
+		Enabled:    channel.Enabled,
+		Weight:     channel.Weight,
+		Priority:   channel.Priority,
+		GroupIDs:   groupIDs,
+		GroupNames: groupNames,
+		Models:     models,
+		Headers:    headers,
+		CreatedAt:  channel.CreatedAt,
+		UpdatedAt:  channel.UpdatedAt,
 	}
 }

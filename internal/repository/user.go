@@ -22,7 +22,12 @@ type UserRepositoryInterface interface {
 	UpdatePassword(id string, passwordHash string) error
 	UpdateUsername(id string, username string) error
 	SetAdmin(id string, isAdmin bool) error
+	SetGroups(id string, groupIDs []string) error
+	GetGroupIDs(userID string) ([]string, error)
 	Delete(id string) error
+	GetBalance(userID string) (int64, error)
+	DeductBalance(userID string, amountMicros int64) error
+	TopUpBalance(userID string, amountMicros int64) error
 }
 
 var _ UserRepositoryInterface = (*UserRepository)(nil)
@@ -40,9 +45,9 @@ func (r *UserRepository) Create(user *model.User) error {
 	user.UpdatedAt = time.Now()
 
 	_, err := db.Exec(
-		`INSERT INTO users (id, username, password_hash, is_admin, created_at, updated_at) 
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		user.ID, user.Username, user.PasswordHash, user.IsAdmin, user.CreatedAt, user.UpdatedAt,
+		`INSERT INTO users (id, username, password_hash, is_admin, balance_micros, created_at, updated_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		user.ID, user.Username, user.PasswordHash, user.IsAdmin, user.BalanceMicros, user.CreatedAt, user.UpdatedAt,
 	)
 	return err
 }
@@ -51,9 +56,9 @@ func (r *UserRepository) GetByUsername(username string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, created_at, updated_at FROM users WHERE username = ?`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users WHERE username = ?`,
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -71,9 +76,9 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, created_at, updated_at FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users WHERE id = ?`,
 		id,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -83,7 +88,7 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 func (r *UserRepository) List() ([]*model.User, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, username, password_hash, is_admin, created_at, updated_at FROM users ORDER BY created_at DESC`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -93,7 +98,7 @@ func (r *UserRepository) List() ([]*model.User, error) {
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -148,8 +153,101 @@ func (r *UserRepository) SetAdmin(id string, isAdmin bool) error {
 	return err
 }
 
+func (r *UserRepository) SetGroups(id string, groupIDs []string) error {
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`DELETE FROM user_groups WHERE user_id = ?`, id)
+	if err != nil {
+		return err
+	}
+
+	for _, gid := range groupIDs {
+		if gid == "" {
+			continue
+		}
+		_, err = tx.Exec(`INSERT INTO user_groups (user_id, group_id) VALUES (?, ?)`, id, gid)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *UserRepository) GetGroupIDs(userID string) ([]string, error) {
+	db := database.GetDB()
+	rows, err := db.Query(`SELECT group_id FROM user_groups WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *UserRepository) Delete(id string) error {
 	db := database.GetDB()
 	_, err := db.Exec(`DELETE FROM users WHERE id = ?`, id)
 	return err
+}
+
+func (r *UserRepository) GetBalance(userID string) (int64, error) {
+	db := database.GetDB()
+	var balance int64
+	err := db.QueryRow(`SELECT balance_micros FROM users WHERE id = ?`, userID).Scan(&balance)
+	if err == sql.ErrNoRows {
+		return 0, ErrUserNotFound
+	}
+	return balance, err
+}
+
+func (r *UserRepository) DeductBalance(userID string, amountMicros int64) error {
+	db := database.GetDB()
+	result, err := db.Exec(
+		`UPDATE users SET balance_micros = balance_micros - ?, updated_at = ? WHERE id = ?`,
+		amountMicros, time.Now(), userID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) TopUpBalance(userID string, amountMicros int64) error {
+	db := database.GetDB()
+	result, err := db.Exec(
+		`UPDATE users SET balance_micros = balance_micros + ?, updated_at = ? WHERE id = ?`,
+		amountMicros, time.Now(), userID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }

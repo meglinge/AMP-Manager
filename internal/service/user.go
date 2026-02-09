@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"log"
 
 	"ampmanager/internal/config"
@@ -117,15 +118,31 @@ func (s *UserService) ListUsers() ([]*model.UserInfo, error) {
 		return nil, err
 	}
 
+	groupRepo := repository.NewGroupRepository()
 	result := make([]*model.UserInfo, len(users))
 	for i, u := range users {
-		result[i] = &model.UserInfo{
-			ID:        u.ID,
-			Username:  u.Username,
-			IsAdmin:   u.IsAdmin,
-			CreatedAt: u.CreatedAt,
-			UpdatedAt: u.UpdatedAt,
+		info := &model.UserInfo{
+			ID:            u.ID,
+			Username:      u.Username,
+			IsAdmin:       u.IsAdmin,
+			BalanceMicros: u.BalanceMicros,
+			BalanceUsd:    fmt.Sprintf("%.6f", float64(u.BalanceMicros)/1e6),
+			GroupIDs:      []string{},
+			GroupNames:    []string{},
+			CreatedAt:     u.CreatedAt,
+			UpdatedAt:     u.UpdatedAt,
 		}
+		gids, err := s.repo.GetGroupIDs(u.ID)
+		if err == nil && len(gids) > 0 {
+			info.GroupIDs = gids
+			for _, gid := range gids {
+				group, err := groupRepo.GetByID(gid)
+				if err == nil && group != nil {
+					info.GroupNames = append(info.GroupNames, group.Name)
+				}
+			}
+		}
+		result[i] = info
 	}
 	return result, nil
 }
@@ -166,6 +183,10 @@ func (s *UserService) SetAdmin(userID string, isAdmin bool) error {
 	return s.repo.SetAdmin(userID, isAdmin)
 }
 
+func (s *UserService) SetGroups(userID string, groupIDs []string) error {
+	return s.repo.SetGroups(userID, groupIDs)
+}
+
 func (s *UserService) DeleteUser(userID string) error {
 	return s.repo.Delete(userID)
 }
@@ -176,4 +197,12 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 		return err
 	}
 	return s.repo.UpdatePassword(userID, string(hashedPassword))
+}
+
+func (s *UserService) GetBalance(userID string) (int64, error) {
+	return s.repo.GetBalance(userID)
+}
+
+func (s *UserService) TopUp(userID string, amountMicros int64) error {
+	return s.repo.TopUpBalance(userID, amountMicros)
 }

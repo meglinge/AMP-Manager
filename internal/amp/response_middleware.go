@@ -86,7 +86,7 @@ func (p *NonStreamingPipeline) ProcessNonStreamingResponse(resp *http.Response, 
 		log.Warnf("amp proxy: failed to read response body: %v", err)
 		resp.Body = io.NopCloser(bytes.NewReader(compressedData))
 		if ctx.Trace != nil {
-			resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode)
+			resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode, ctx.Ctx)
 		}
 		return nil
 	}
@@ -98,7 +98,7 @@ func (p *NonStreamingPipeline) ProcessNonStreamingResponse(resp *http.Response, 
 		resp.ContentLength = int64(maxResponseSize)
 		resp.Header.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 		if ctx.Trace != nil {
-			resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode)
+			resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode, ctx.Ctx)
 		}
 		return nil
 	}
@@ -122,7 +122,7 @@ func (p *NonStreamingPipeline) ProcessNonStreamingResponse(resp *http.Response, 
 
 	// 添加日志包装
 	if ctx.Trace != nil {
-		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode)
+		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode, ctx.Ctx)
 	}
 
 	return nil
@@ -172,7 +172,7 @@ func (m *LoggingMiddleware) WrapReader(reader io.ReadCloser, ctx *ResponseContex
 	if ctx.Trace == nil {
 		return reader
 	}
-	return NewLoggingBodyWrapper(reader, ctx.Trace, ctx.StatusCode)
+	return NewLoggingBodyWrapper(reader, ctx.Trace, ctx.StatusCode, ctx.Ctx)
 }
 
 // ========== 非流式中间件实现 ==========
@@ -368,7 +368,7 @@ func (p *StreamingPipelineWithContext) ProcessStreamingResponse(resp *http.Respo
 	// 3. 响应捕获包装器
 	captureWrapper := NewResponseCaptureWrapper(tokenExtractor, ctx.RequestID, ctx.Headers)
 	// 4. 日志包装器（最外层）
-	resp.Body = NewLoggingBodyWrapper(captureWrapper, ctx.Trace, resp.StatusCode)
+	resp.Body = NewLoggingBodyWrapper(captureWrapper, ctx.Trace, resp.StatusCode, ctx.Ctx)
 
 	return nil
 }

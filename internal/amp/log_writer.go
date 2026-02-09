@@ -1,12 +1,15 @@
 package amp
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/repository"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -46,9 +49,10 @@ type LogEntry struct {
 	RequestID                *string
 	ThinkingLevel            *string
 	// 成本相关
-	CostMicros   *int64
-	CostUsd      *string
-	PricingModel *string
+	CostMicros     *int64
+	CostUsd        *string
+	PricingModel   *string
+	RateMultiplier *float64
 }
 
 // LogWriter 异步批量日志写入器
@@ -207,6 +211,12 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		thinkingLevel = &snapshot.ThinkingLevel
 	}
 
+	var rateMultiplier *float64
+	if snapshot.RateMultiplier != 0 {
+		rm := snapshot.RateMultiplier
+		rateMultiplier = &rm
+	}
+
 	// 同步更新数据库
 	result, err := w.db.Exec(`
 		UPDATE request_logs SET
@@ -229,6 +239,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			cost_usd = ?,
 			pricing_model = ?,
 			thinking_level = COALESCE(?, thinking_level),
+			rate_multiplier = COALESCE(?, rate_multiplier),
 			response_text = COALESCE(?, response_text)
 		WHERE id = ?
 	`,
@@ -251,6 +262,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		costUsd,
 		pricingModel,
 		thinkingLevel,
+		rateMultiplier,
 		stringPtrIfNonEmpty(snapshot.ResponseText),
 		snapshot.RequestID,
 	)
@@ -315,14 +327,19 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	if snapshot.ThinkingLevel != "" {
 		thinkingLevel = &snapshot.ThinkingLevel
 	}
+	var rateMultiplier *float64
+	if snapshot.RateMultiplier != 0 {
+		rm := snapshot.RateMultiplier
+		rateMultiplier = &rm
+	}
 
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, thinking_level
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, thinking_level, rate_multiplier
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.Format(time.RFC3339),
@@ -349,6 +366,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		costUsd,
 		pricingModel,
 		thinkingLevel,
+		rateMultiplier,
 	)
 
 	if err != nil {
@@ -513,14 +531,16 @@ type LoggingBodyWrapper struct {
 	trace      *RequestTrace
 	statusCode int
 	once       sync.Once
+	ctx        context.Context
 }
 
 // NewLoggingBodyWrapper 创建日志包装器
-func NewLoggingBodyWrapper(body io.ReadCloser, trace *RequestTrace, statusCode int) *LoggingBodyWrapper {
+func NewLoggingBodyWrapper(body io.ReadCloser, trace *RequestTrace, statusCode int, ctx context.Context) *LoggingBodyWrapper {
 	return &LoggingBodyWrapper{
 		ReadCloser: body,
 		trace:      trace,
 		statusCode: statusCode,
+		ctx:        ctx,
 	}
 }
 
@@ -547,7 +567,30 @@ func (w *LoggingBodyWrapper) Close() error {
 						w.trace.CacheCreationInputTokens,
 					)
 					if costResult.PriceFound {
-						w.trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+						multiplier := 1.0
+						var proxyCfg *ProxyConfig
+						if w.ctx != nil {
+							proxyCfg = GetProxyConfig(w.ctx)
+						}
+						if proxyCfg != nil {
+							multiplier = proxyCfg.RateMultiplier
+							w.trace.RateMultiplier = multiplier
+						}
+
+						if multiplier == 0 {
+							w.trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+						} else {
+							adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
+							adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
+							w.trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+
+							if proxyCfg != nil && adjustedCostMicros > 0 {
+								userRepo := repository.NewUserRepository()
+								if err := userRepo.DeductBalance(proxyCfg.UserID, adjustedCostMicros); err != nil {
+									log.Warnf("log writer: failed to deduct balance for user %s: %v", proxyCfg.UserID, err)
+								}
+							}
+						}
 					}
 				}
 			}

@@ -11,6 +11,7 @@ import {
   ChannelRequest,
   TestChannelResult,
 } from '../api/channels'
+import { listGroups, Group } from '../api/groups'
 import { fetchChannelModels } from '../api/models'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -28,6 +29,7 @@ export default function Channels() {
   const [testResults, setTestResults] = useState<Record<string, TestChannelResult>>({})
   const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({})
   const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
+  const [groups, setGroups] = useState<Group[]>([])
 
   const [formData, setFormData] = useState<ChannelRequest>({
     type: 'openai',
@@ -38,6 +40,7 @@ export default function Channels() {
     enabled: true,
     weight: 1,
     priority: 100,
+    groupIds: [],
     models: [],
     headers: {},
   })
@@ -45,6 +48,7 @@ export default function Channels() {
 
   useEffect(() => {
     loadChannels()
+    loadGroups()
   }, [])
 
   const loadChannels = async () => {
@@ -58,6 +62,13 @@ export default function Channels() {
     }
   }
 
+  const loadGroups = async () => {
+    try {
+      const data = await listGroups()
+      setGroups(data)
+    } catch {}
+  }
+
   const handleCreate = () => {
     setEditingChannel(null)
     setFormData({
@@ -69,6 +80,7 @@ export default function Channels() {
       enabled: true,
       weight: 1,
       priority: 100,
+      groupIds: [],
       models: [],
       headers: {},
     })
@@ -86,6 +98,7 @@ export default function Channels() {
       enabled: channel.enabled,
       weight: channel.weight,
       priority: channel.priority,
+      groupIds: channel.groupIds || [],
       models: channel.models,
       headers: channel.headers,
     })
@@ -222,6 +235,7 @@ export default function Channels() {
         setFormData={setFormData}
         onSubmit={handleSubmit}
         saving={saving}
+        groups={groups}
       />
 
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.2 }}>

@@ -34,6 +34,8 @@ export interface Channel {
   enabled: boolean
   weight: number
   priority: number
+  groupIds: string[]
+  groupNames: string[]
   models: ChannelModel[]
   headers: Record<string, string>
   createdAt: string
@@ -49,6 +51,7 @@ export interface ChannelRequest {
   enabled: boolean
   weight: number
   priority: number
+  groupIds?: string[]
   models?: ChannelModel[]
   headers?: Record<string, string>
 }

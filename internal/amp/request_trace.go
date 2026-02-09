@@ -43,6 +43,9 @@ type RequestTrace struct {
 	CostUsd      *string
 	PricingModel *string
 
+	// 倍率信息
+	RateMultiplier float64
+
 	// 错误信息
 	ErrorType string
 
@@ -202,6 +205,7 @@ func (t *RequestTrace) Clone() RequestTrace {
 		CostMicros:               copyInt64Ptr(t.CostMicros),
 		CostUsd:                  copyStringPtr(t.CostUsd),
 		PricingModel:             copyStringPtr(t.PricingModel),
+		RateMultiplier:           t.RateMultiplier,
 		ErrorType:                t.ErrorType,
 		ResponseText:             t.ResponseText,
 	}

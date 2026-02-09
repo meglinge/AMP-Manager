@@ -14,6 +14,7 @@ import (
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
 	"ampmanager/internal/translator/filters"
@@ -185,7 +186,14 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		channel, err := channelService.SelectChannelForModel(modelName)
+		var channel *model.Channel
+		var err error
+		proxyCfg := GetProxyConfig(c.Request.Context())
+		if proxyCfg != nil {
+			channel, err = channelService.SelectChannelForModelWithGroups(modelName, proxyCfg.GroupIDs)
+		} else {
+			channel, err = channelService.SelectChannelForModel(modelName)
+		}
 		if err != nil {
 			log.Errorf("channel router: failed to select channel: %v", err)
 			c.Next()
@@ -577,7 +585,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
 					if trace != nil {
 						trace.SetError("upstream_error")
-						resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+						resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
 					}
 					return nil
 				}
@@ -602,7 +610,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				if trace != nil {
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
 					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
-					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode)
+					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
 				}
 
 				// Wrap SSE responses with keep-alive for long-running streams
@@ -908,7 +916,27 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 					trace.CacheCreationInputTokens,
 				)
 				if costResult.PriceFound {
-					trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+					proxyCfg := GetProxyConfig(resp.Request.Context())
+					multiplier := 1.0
+					if proxyCfg != nil {
+						multiplier = proxyCfg.RateMultiplier
+						trace.RateMultiplier = multiplier
+					}
+
+					if multiplier == 0 {
+						trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+					} else {
+						adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
+						adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
+						trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+
+						if proxyCfg != nil && adjustedCostMicros > 0 {
+							userRepo := repository.NewUserRepository()
+							if err := userRepo.DeductBalance(proxyCfg.UserID, adjustedCostMicros); err != nil {
+								log.Warnf("channel router: failed to deduct balance for user %s: %v", proxyCfg.UserID, err)
+							}
+						}
+					}
 				}
 			}
 		}

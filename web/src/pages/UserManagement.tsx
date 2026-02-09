@@ -5,8 +5,11 @@ import {
   setUserAdmin,
   deleteUser,
   resetUserPassword,
+  setUserGroups,
+  topUpUser,
   UserInfo,
 } from '../api/users'
+import { listGroups, Group } from '../api/groups'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -30,18 +33,24 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
-import { CheckCircle2, XCircle, Trash2, KeyRound } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Checkbox } from '@/components/ui/checkbox'
+import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet } from 'lucide-react'
 
 export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [resetPasswordModal, setResetPasswordModal] = useState<{ userId: string; username: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<UserInfo | null>(null)
+  const [topUpModal, setTopUpModal] = useState<{ userId: string; username: string } | null>(null)
+  const [topUpAmount, setTopUpAmount] = useState('')
 
   useEffect(() => {
     fetchUsers()
+    fetchGroups()
   }, [])
 
   const fetchUsers = async () => {
@@ -53,6 +62,13 @@ export default function UserManagement() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchGroups = async () => {
+    try {
+      const data = await listGroups()
+      setGroups(data)
+    } catch {}
   }
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -96,6 +112,24 @@ export default function UserManagement() {
     }
   }
 
+  const handleTopUp = async () => {
+    if (!topUpModal || !topUpAmount) return
+    const amount = parseFloat(topUpAmount)
+    if (isNaN(amount) || amount <= 0) {
+      showMessage('error', '请输入有效金额')
+      return
+    }
+    try {
+      await topUpUser(topUpModal.userId, amount)
+      showMessage('success', '充值成功')
+      setTopUpModal(null)
+      setTopUpAmount('')
+      fetchUsers()
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '充值失败')
+    }
+  }
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('zh-CN')
   }
@@ -132,6 +166,8 @@ export default function UserManagement() {
               <TableRow>
                 <TableHead>用户名</TableHead>
                 <TableHead>角色</TableHead>
+                <TableHead>分组</TableHead>
+                <TableHead>余额 (USD)</TableHead>
                 <TableHead>管理员权限</TableHead>
                 <TableHead>创建时间</TableHead>
                 <TableHead>操作</TableHead>
@@ -145,6 +181,55 @@ export default function UserManagement() {
                     <Badge variant={user.isAdmin ? 'default' : 'secondary'}>
                       {user.isAdmin ? '管理员' : '普通用户'}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-auto min-h-[32px] py-1 px-2">
+                          {user.groupNames && user.groupNames.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {user.groupNames.map((name, idx) => (
+                                <Badge key={idx} variant="secondary" className="text-xs">{name}</Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">未分组</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-2" align="start">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium px-1">选择分组</p>
+                          {groups.map(g => (
+                            <label key={g.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted cursor-pointer">
+                              <Checkbox
+                                checked={(user.groupIds || []).includes(g.id)}
+                                onCheckedChange={async (checked) => {
+                                  const currentIds = user.groupIds || []
+                                  const newIds = checked
+                                    ? [...currentIds, g.id]
+                                    : currentIds.filter(id => id !== g.id)
+                                  try {
+                                    await setUserGroups(user.id, newIds)
+                                    showMessage('success', '分组已更新')
+                                    fetchUsers()
+                                  } catch (err) {
+                                    showMessage('error', err instanceof Error ? err.message : '设置分组失败')
+                                  }
+                                }}
+                              />
+                              <span className="text-sm">{g.name}</span>
+                            </label>
+                          ))}
+                          {groups.length === 0 && (
+                            <p className="text-xs text-muted-foreground px-1">暂无分组</p>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    ${parseFloat(user.balanceUsd || '0').toFixed(4)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -162,6 +247,14 @@ export default function UserManagement() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTopUpModal({ userId: user.id, username: user.username })}
+                      >
+                        <Wallet className="mr-1 h-4 w-4" />
+                        充值
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -239,6 +332,45 @@ export default function UserManagement() {
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
               确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!topUpModal} onOpenChange={(open) => !open && setTopUpModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>余额充值</DialogTitle>
+            <DialogDescription>
+              为用户 <span className="font-medium">{topUpModal?.username}</span> 充值
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="topUpAmount">充值金额 (USD)</Label>
+              <Input
+                id="topUpAmount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="例如: 10.00"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTopUpModal(null)
+                setTopUpAmount('')
+              }}
+            >
+              取消
+            </Button>
+            <Button onClick={handleTopUp} disabled={!topUpAmount || parseFloat(topUpAmount) <= 0}>
+              确认充值
             </Button>
           </DialogFooter>
         </DialogContent>

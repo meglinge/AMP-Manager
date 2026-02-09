@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"ampmanager/internal/middleware"
@@ -204,4 +205,65 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "密码已重置"})
+}
+
+func (h *UserHandler) SetGroup(c *gin.Context) {
+	userID := c.Param("id")
+	var req model.SetGroupsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	if err := h.userService.SetGroups(userID, req.GroupIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置分组失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "分组设置成功"})
+}
+
+func (h *UserHandler) TopUp(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req model.TopUpRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	amountMicros := int64(req.AmountUsd * 1e6)
+	if amountMicros <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "充值金额必须大于0"})
+		return
+	}
+
+	if err := h.userService.TopUp(userID, amountMicros); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "充值失败"})
+		return
+	}
+
+	balance, _ := h.userService.GetBalance(userID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "充值成功",
+		"balanceMicros": balance,
+		"balanceUsd":    fmt.Sprintf("%.6f", float64(balance)/1e6),
+	})
+}
+
+func (h *UserHandler) GetMyBalance(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	balance, err := h.userService.GetBalance(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"balanceMicros": balance,
+		"balanceUsd":    fmt.Sprintf("%.6f", float64(balance)/1e6),
+	})
 }

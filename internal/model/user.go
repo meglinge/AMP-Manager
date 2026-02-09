@@ -3,12 +3,13 @@ package model
 import "time"
 
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	IsAdmin      bool      `json:"is_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Username      string    `json:"username"`
+	PasswordHash  string    `json:"-"`
+	IsAdmin       bool      `json:"is_admin"`
+	BalanceMicros int64     `json:"balance_micros"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type RegisterRequest struct {
@@ -30,11 +31,15 @@ type AuthResponse struct {
 }
 
 type UserInfo struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	IsAdmin   bool      `json:"isAdmin"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID            string    `json:"id"`
+	Username      string    `json:"username"`
+	IsAdmin       bool      `json:"isAdmin"`
+	BalanceMicros int64     `json:"balanceMicros"`
+	BalanceUsd    string    `json:"balanceUsd"`
+	GroupIDs      []string  `json:"groupIds"`
+	GroupNames    []string  `json:"groupNames"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type ChangePasswordRequest struct {
@@ -52,4 +57,12 @@ type SetAdminRequest struct {
 
 type ResetPasswordRequest struct {
 	NewPassword string `json:"newPassword" binding:"required,min=6,max=128"`
+}
+
+type SetGroupsRequest struct {
+	GroupIDs []string `json:"groupIds"`
+}
+
+type TopUpRequest struct {
+	AmountUsd float64 `json:"amountUsd" binding:"required,gt=0"`
 }

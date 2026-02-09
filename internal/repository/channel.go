@@ -18,6 +18,8 @@ type ChannelRepositoryInterface interface {
 	Update(channel *model.Channel) error
 	Delete(id string) error
 	SetEnabled(id string, enabled bool) error
+	SetGroups(id string, groupIDs []string) error
+	GetGroupIDs(channelID string) ([]string, error)
 }
 
 var _ ChannelRepositoryInterface = (*ChannelRepository)(nil)
@@ -145,4 +147,49 @@ func (r *ChannelRepository) SetEnabled(id string, enabled bool) error {
 	db := database.GetDB()
 	_, err := db.Exec(`UPDATE channels SET enabled = ?, updated_at = ? WHERE id = ?`, enabled, time.Now(), id)
 	return err
+}
+
+func (r *ChannelRepository) SetGroups(id string, groupIDs []string) error {
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`DELETE FROM channel_groups WHERE channel_id = ?`, id)
+	if err != nil {
+		return err
+	}
+
+	for _, gid := range groupIDs {
+		if gid == "" {
+			continue
+		}
+		_, err = tx.Exec(`INSERT INTO channel_groups (channel_id, group_id) VALUES (?, ?)`, id, gid)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *ChannelRepository) GetGroupIDs(channelID string) ([]string, error) {
+	db := database.GetDB()
+	rows, err := db.Query(`SELECT group_id FROM channel_groups WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

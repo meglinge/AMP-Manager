@@ -12,6 +12,10 @@ export interface UserInfo {
   id: string
   username: string
   isAdmin: boolean
+  balanceMicros: number
+  balanceUsd: string
+  groupIds: string[]
+  groupNames: string[]
   createdAt: string
   updatedAt: string
 }
@@ -71,6 +75,18 @@ export async function changePassword(oldPassword: string, newPassword: string): 
   }
 }
 
+export async function setUserGroups(userId: string, groupIds: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/users/${userId}/group`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ groupIds }),
+  })
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '设置分组失败')
+  }
+}
+
 export async function changeUsername(newUsername: string): Promise<void> {
   const res = await fetch(`${API_BASE}/me/username`, {
     method: 'PUT',
@@ -81,4 +97,30 @@ export async function changeUsername(newUsername: string): Promise<void> {
     const data = await res.json()
     throw new Error(data.error || '修改用户名失败')
   }
+}
+
+export interface BalanceInfo {
+  balanceMicros: number
+  balanceUsd: string
+}
+
+export async function getMyBalance(): Promise<BalanceInfo> {
+  const res = await fetch(`${API_BASE}/me/balance`, {
+    headers: getAuthHeaders(),
+  })
+  if (!res.ok) throw new Error('获取余额失败')
+  return res.json()
+}
+
+export async function topUpUser(userId: string, amountUsd: number): Promise<BalanceInfo & { message: string }> {
+  const res = await fetch(`${API_BASE}/admin/users/${userId}/topup`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ amountUsd }),
+  })
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '充值失败')
+  }
+  return res.json()
 }

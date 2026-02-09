@@ -17,6 +17,7 @@ import {
   ChannelEndpoint,
   ChannelModel,
 } from '@/api/channels'
+import { Group } from '@/api/groups'
 import ModelRulesEditor from './ModelRulesEditor'
 
 const CHANNEL_TYPES: { value: ChannelType; label: string; defaultUrl: string; defaultEndpoint: ChannelEndpoint }[] = [
@@ -38,6 +39,7 @@ interface ChannelFormDialogProps {
   setFormData: React.Dispatch<React.SetStateAction<ChannelRequest>>
   onSubmit: () => void
   saving: boolean
+  groups?: Group[]
 }
 
 export function ChannelFormDialog({
@@ -48,6 +50,7 @@ export function ChannelFormDialog({
   setFormData,
   onSubmit,
   saving,
+  groups = [],
 }: ChannelFormDialogProps) {
   const handleTypeChange = (type: ChannelType) => {
     const channelType = CHANNEL_TYPES.find(t => t.value === type)
@@ -185,6 +188,37 @@ export function ChannelFormDialog({
               onChange={(e) => setFormData(prev => ({ ...prev, apiKey: e.target.value }))}
               placeholder={editingChannel ? '留空保持原有密钥' : '输入 API Key'}
             />
+          </div>
+
+          {/* 分组 */}
+          <div className="space-y-2 col-span-2">
+            <Label>分组</Label>
+            <div className="flex flex-wrap gap-2 rounded-md border p-3 min-h-[40px]">
+              {groups.length === 0 ? (
+                <span className="text-sm text-muted-foreground">暂无分组</span>
+              ) : (
+                groups.map(g => {
+                  const selected = (formData.groupIds || []).includes(g.id)
+                  return (
+                    <label key={g.id} className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={(e) => {
+                          const current = formData.groupIds || []
+                          const newIds = e.target.checked
+                            ? [...current, g.id]
+                            : current.filter(id => id !== g.id)
+                          setFormData(prev => ({ ...prev, groupIds: newIds }))
+                        }}
+                        className="rounded border-input"
+                      />
+                      <span className="text-sm">{g.name}</span>
+                    </label>
+                  )
+                })
+              )}
+            </div>
           </div>
 
           {/* 权重 */}

@@ -155,6 +155,8 @@ var (
 	settingsRepo = repository.NewAmpSettingsRepository()
 )
 
+var groupRepo = repository.NewGroupRepository()
+
 func APIKeyAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey := extractAPIKey(c)
@@ -217,6 +219,14 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			WebSearchMode:      settings.WebSearchMode,
 			NativeMode:         settings.NativeMode,
 		}
+
+		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)
+		if err != nil {
+			log.Warnf("amp api key auth: failed to get rate multiplier for user %s: %v", apiKeyRecord.UserID, err)
+		}
+		proxyCfg.RateMultiplier = rateMultiplier
+		proxyCfg.GroupIDs = groupIDs
+
 		ctx := WithProxyConfig(c.Request.Context(), proxyCfg)
 		c.Request = c.Request.WithContext(ctx)
 

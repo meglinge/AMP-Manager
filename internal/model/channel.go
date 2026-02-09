@@ -49,6 +49,7 @@ type ChannelRequest struct {
 	Enabled  bool                   `json:"enabled"`
 	Weight   int                    `json:"weight"`
 	Priority int                    `json:"priority"`
+	GroupIDs []string               `json:"groupIds"`
 	Models   []ChannelModel         `json:"models,omitempty"`
 	Headers  map[string]string      `json:"headers,omitempty"`
 }
@@ -63,6 +64,8 @@ type ChannelResponse struct {
 	Enabled     bool               `json:"enabled"`
 	Weight      int                `json:"weight"`
 	Priority    int                `json:"priority"`
+	GroupIDs    []string           `json:"groupIds"`
+	GroupNames  []string           `json:"groupNames"`
 	Models      []ChannelModel     `json:"models"`
 	Headers     map[string]string  `json:"headers"`
 	CreatedAt   time.Time          `json:"createdAt"`

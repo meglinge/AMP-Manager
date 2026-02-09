@@ -30,6 +30,8 @@ type ProxyConfig struct {
 	ForceModelMappings bool
 	WebSearchMode      string // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool
+	RateMultiplier     float64
+	GroupIDs           []string
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {
@@ -445,7 +447,7 @@ func modifyResponse(resp *http.Response) error {
 func handleErrorResponse(resp *http.Response, ctx *ResponseContext) error {
 	if ctx.Trace != nil {
 		ctx.Trace.SetError("upstream_error")
-		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode)
+		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode, nil)
 	}
 	return nil
 }
