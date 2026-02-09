@@ -22,6 +22,10 @@ web/dist/
 # Embedded frontend (generated during build)
 internal/web/dist/
 
+# Git
+.git/
+.github/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -32,3 +36,15 @@ Thumbs.db
 
 # CLI Proxy API reference (read-only)
 CLIProxyAPI/
+
+# Misc
+*.md
+LICENSE
+.air.toml
+.amp/
+-p/
+docker-compose*.yml
+Dockerfile
+*.ps1
+*.sh
+amp_processor.rs
