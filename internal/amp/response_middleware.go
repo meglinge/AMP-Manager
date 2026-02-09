@@ -2,6 +2,7 @@ package amp
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/gzip"
 	"context"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -230,11 +233,17 @@ func NewGzipDecompressor() *GzipDecompressor {
 	}
 }
 
-// Decompress 解压数据
+// Decompress 解压数据，支持 gzip/br/zstd/deflate
 func (d *GzipDecompressor) Decompress(data []byte, contentEncoding string, header http.Header) []byte {
 	switch strings.ToLower(contentEncoding) {
 	case "gzip":
 		return d.decompressGzip(data, header, true)
+	case "br":
+		return d.decompressBrotli(data, header)
+	case "zstd":
+		return d.decompressZstd(data, header)
+	case "deflate":
+		return d.decompressDeflate(data, header)
 	case "":
 		// 检测隐式 gzip
 		if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
@@ -242,7 +251,7 @@ func (d *GzipDecompressor) Decompress(data []byte, contentEncoding string, heade
 		}
 		return data
 	default:
-		log.Debugf("amp proxy: unsupported Content-Encoding: %s, skipping decompression", contentEncoding)
+		log.Warnf("amp proxy: unsupported Content-Encoding: %s, passing through raw data", contentEncoding)
 		return data
 	}
 }
@@ -270,6 +279,60 @@ func (d *GzipDecompressor) decompressGzip(data []byte, header http.Header, expli
 		header.Del("Content-Encoding")
 	}
 	log.Debugf("amp proxy: decompressed gzip response (%d -> %d bytes)", len(data), len(decompressed))
+	return decompressed
+}
+
+func (d *GzipDecompressor) decompressBrotli(data []byte, header http.Header) []byte {
+	reader := brotli.NewReader(bytes.NewReader(data))
+	decompressed, err := io.ReadAll(io.LimitReader(reader, d.maxDecompressedSize+1))
+	if err != nil {
+		log.Warnf("amp proxy: failed to decompress brotli: %v", err)
+		return data
+	}
+	if int64(len(decompressed)) > d.maxDecompressedSize {
+		log.Warnf("amp proxy: brotli decompressed response too large (%d bytes)", len(decompressed))
+		return data
+	}
+	header.Del("Content-Encoding")
+	log.Debugf("amp proxy: decompressed brotli response (%d -> %d bytes)", len(data), len(decompressed))
+	return decompressed
+}
+
+func (d *GzipDecompressor) decompressZstd(data []byte, header http.Header) []byte {
+	decoder, err := zstd.NewReader(bytes.NewReader(data))
+	if err != nil {
+		log.Warnf("amp proxy: failed to create zstd reader: %v", err)
+		return data
+	}
+	defer decoder.Close()
+	decompressed, err := io.ReadAll(io.LimitReader(decoder, d.maxDecompressedSize+1))
+	if err != nil {
+		log.Warnf("amp proxy: failed to decompress zstd: %v", err)
+		return data
+	}
+	if int64(len(decompressed)) > d.maxDecompressedSize {
+		log.Warnf("amp proxy: zstd decompressed response too large (%d bytes)", len(decompressed))
+		return data
+	}
+	header.Del("Content-Encoding")
+	log.Debugf("amp proxy: decompressed zstd response (%d -> %d bytes)", len(data), len(decompressed))
+	return decompressed
+}
+
+func (d *GzipDecompressor) decompressDeflate(data []byte, header http.Header) []byte {
+	reader := flate.NewReader(bytes.NewReader(data))
+	defer reader.Close()
+	decompressed, err := io.ReadAll(io.LimitReader(reader, d.maxDecompressedSize+1))
+	if err != nil {
+		log.Warnf("amp proxy: failed to decompress deflate: %v", err)
+		return data
+	}
+	if int64(len(decompressed)) > d.maxDecompressedSize {
+		log.Warnf("amp proxy: deflate decompressed response too large (%d bytes)", len(decompressed))
+		return data
+	}
+	header.Del("Content-Encoding")
+	log.Debugf("amp proxy: decompressed deflate response (%d -> %d bytes)", len(data), len(decompressed))
 	return decompressed
 }
 

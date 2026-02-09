@@ -856,7 +856,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		return nil
 	}
 
-	// Decompress gzip if needed (ReverseProxy does not auto-decompress)
+	// Decompress if needed (supports gzip/br/zstd/deflate)
 	contentEncoding := resp.Header.Get("Content-Encoding")
 	body = NewGzipDecompressor().Decompress(body, contentEncoding, resp.Header)
 

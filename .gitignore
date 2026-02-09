@@ -37,3 +37,4 @@ CLIProxyAPI/
 *.log
 *.tmp
 tmp/
+.amp/
