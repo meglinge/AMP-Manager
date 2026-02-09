@@ -113,6 +113,16 @@ func (s *RequestLogService) GetDistinctModels() ([]string, error) {
 	return s.repo.GetDistinctModels()
 }
 
+// GetDashboardStats 获取仪表盘统计数据
+func (s *RequestLogService) GetDashboardStats(userID string) (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
+	return s.repo.GetDashboardStats(userID)
+}
+
+// GetCacheHitRateByProvider 按提供商获取缓存命中率
+func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]repository.DashboardCacheHitRate, error) {
+	return s.repo.GetCacheHitRateByProvider(userID)
+}
+
 // GetByID 获取单条日志
 func (s *RequestLogService) GetByID(id, userID string) (*model.RequestLog, error) {
 	log, err := s.repo.GetByID(id)

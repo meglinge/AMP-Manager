@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence, sidebarContainerVariants, sidebarItemVariants } from '@/lib/motion'
+import Overview from './Overview'
 import AmpSettings from './AmpSettings'
 import APIKeys from './APIKeys'
 import RequestLogs from './RequestLogs'
@@ -9,6 +10,7 @@ import Models from './Models'
 import ModelMetadata from './ModelMetadata'
 import Prices from './Prices'
 import SystemSettings from './SystemSettings'
+import Groups from './Groups'
 import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
 import { Button } from '@/components/ui/button'
@@ -44,6 +46,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  FolderOpen,
+  LayoutDashboard,
 } from 'lucide-react'
 
 interface Props {
@@ -52,9 +56,10 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings'
+type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups'
 
 const navIcons: Record<Page, React.ElementType> = {
+  'overview': LayoutDashboard,
   'amp-settings': Settings,
   'api-keys': Key,
   'request-logs': ScrollText,
@@ -66,20 +71,23 @@ const navIcons: Record<Page, React.ElementType> = {
   'prices': DollarSign,
   'user-management': Users,
   'system-settings': Wrench,
+  'groups': FolderOpen,
 }
 
 export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
-  const [currentPage, setCurrentPage] = useState<Page>('amp-settings')
+  const [currentPage, setCurrentPage] = useState<Page>('overview')
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
+    { key: 'overview', label: '概览' },
     { key: 'amp-settings', label: 'Amp 设置' },
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
     { key: 'usage-stats', label: '使用量统计' },
     { key: 'models', label: '可用模型' },
     { key: 'account-settings', label: '账户设置' },
+    { key: 'groups', label: '分组管理', adminOnly: true },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
     { key: 'prices', label: '模型价格', adminOnly: true },
@@ -279,6 +287,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                 exit={{ opacity: 0, y: -12, scale: 0.99 }}
                 transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
               >
+                {currentPage === 'overview' && <Overview />}
                 {currentPage === 'amp-settings' && <AmpSettings />}
                 {currentPage === 'api-keys' && <APIKeys />}
                 {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
@@ -286,6 +295,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                 {currentPage === 'models' && <Models isAdmin={isAdmin} />}
                 {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
                 {currentPage === 'channels' && isAdmin && <Channels />}
+                {currentPage === 'groups' && isAdmin && <Groups />}
                 {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                 {currentPage === 'prices' && isAdmin && <Prices />}
                 {currentPage === 'user-management' && isAdmin && <UserManagement />}

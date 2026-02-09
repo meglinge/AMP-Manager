@@ -326,6 +326,172 @@ func (r *RequestLogRepository) GetDistinctModels() ([]string, error) {
 	return models, rows.Err()
 }
 
+// DashboardPeriodStats 仪表盘时段统计
+type DashboardPeriodStats struct {
+	RequestCount    int64
+	InputTokensSum  int64
+	OutputTokensSum int64
+	CostMicrosSum   int64
+	ErrorCount      int64
+}
+
+// DashboardTopModel 仪表盘热门模型
+type DashboardTopModel struct {
+	Model        string
+	RequestCount int64
+	CostMicros   int64
+}
+
+// DashboardDailyTrend 仪表盘每日趋势
+type DashboardDailyTrend struct {
+	Date       string
+	CostMicros int64
+	Requests   int64
+}
+
+// DashboardCacheHitRate 按提供商分类的缓存命中率
+type DashboardCacheHitRate struct {
+	Provider            string
+	TotalInputTokens    int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	RequestCount        int64
+	HitRate             float64
+}
+
+// GetDashboardStats 获取仪表盘统计数据
+func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
+	db := database.GetDB()
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	weekStart := todayStart.AddDate(0, 0, -7)
+	monthStart := todayStart.AddDate(0, 0, -30)
+
+	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
+		var s DashboardPeriodStats
+		err := db.QueryRow(`
+			SELECT COUNT(*),
+			       COALESCE(SUM(input_tokens), 0),
+			       COALESCE(SUM(output_tokens), 0),
+			       COALESCE(SUM(cost_micros), 0),
+			       SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END)
+			FROM request_logs WHERE user_id = ? AND created_at >= ?
+		`, userID, from).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
+		return s, err
+	}
+
+	today, err = queryPeriod(todayStart)
+	if err != nil {
+		return
+	}
+	week, err = queryPeriod(weekStart)
+	if err != nil {
+		return
+	}
+	month, err = queryPeriod(monthStart)
+	if err != nil {
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT COALESCE(mapped_model, original_model, 'unknown') as model,
+		       COUNT(*) as cnt,
+		       COALESCE(SUM(cost_micros), 0) as cost
+		FROM request_logs
+		WHERE user_id = ? AND created_at >= ?
+		GROUP BY model
+		ORDER BY cnt DESC
+		LIMIT 5
+	`, userID, monthStart)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m DashboardTopModel
+		if err = rows.Scan(&m.Model, &m.RequestCount, &m.CostMicros); err != nil {
+			return
+		}
+		topModels = append(topModels, m)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	rows2, err := db.Query(`
+		SELECT substr(created_at, 1, 10) as day,
+		       COALESCE(SUM(cost_micros), 0) as cost,
+		       COUNT(*) as cnt
+		FROM request_logs
+		WHERE user_id = ? AND created_at >= ?
+		GROUP BY day
+		ORDER BY day ASC
+	`, userID, todayStart.AddDate(0, 0, -13))
+	if err != nil {
+		return
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var d DashboardDailyTrend
+		if err = rows2.Scan(&d.Date, &d.CostMicros, &d.Requests); err != nil {
+			return
+		}
+		dailyTrend = append(dailyTrend, d)
+	}
+	err = rows2.Err()
+	return
+}
+
+// GetCacheHitRateByProvider 按提供商分类获取缓存命中率（30天）
+func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]DashboardCacheHitRate, error) {
+	db := database.GetDB()
+	monthStart := time.Now().UTC().AddDate(0, 0, -30)
+
+	query := `
+		SELECT provider, total_input, cache_read, cache_creation, req_count FROM (
+			SELECT 
+				CASE
+					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%' THEN 'Claude'
+					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%' 
+					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%'
+					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%'
+					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%'
+					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%' THEN 'OpenAI'
+					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%' THEN 'Gemini'
+					ELSE 'Other'
+				END as provider,
+				COALESCE(SUM(input_tokens), 0) as total_input,
+				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read,
+				COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation,
+				COUNT(*) as req_count
+			FROM request_logs
+			WHERE user_id = ? AND created_at >= ?
+			GROUP BY provider
+		) WHERE provider IN ('Claude', 'OpenAI', 'Gemini')
+		ORDER BY req_count DESC
+	`
+
+	rows, err := db.Query(query, userID, monthStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []DashboardCacheHitRate
+	for rows.Next() {
+		var r DashboardCacheHitRate
+		if err := rows.Scan(&r.Provider, &r.TotalInputTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.RequestCount); err != nil {
+			return nil, err
+		}
+		totalRelevant := r.TotalInputTokens + r.CacheReadTokens
+		if totalRelevant > 0 {
+			r.HitRate = float64(r.CacheReadTokens) / float64(totalRelevant) * 100
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
 // GetByID 获取单条日志
 func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	db := database.GetDB()
