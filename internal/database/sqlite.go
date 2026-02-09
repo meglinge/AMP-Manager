@@ -85,6 +85,15 @@ func GetDB() *sql.DB {
 
 func createTables() error {
 	schema := `
+	CREATE TABLE IF NOT EXISTS groups (
+		id TEXT PRIMARY KEY,
+		name TEXT UNIQUE NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
+
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
@@ -142,6 +151,26 @@ func createTables() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_channels_type_enabled ON channels(type, enabled);
 	CREATE INDEX IF NOT EXISTS idx_channels_enabled ON channels(enabled);
+
+	CREATE TABLE IF NOT EXISTS user_groups (
+		user_id TEXT NOT NULL,
+		group_id TEXT NOT NULL,
+		PRIMARY KEY (user_id, group_id),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id);
+
+	CREATE TABLE IF NOT EXISTS channel_groups (
+		channel_id TEXT NOT NULL,
+		group_id TEXT NOT NULL,
+		PRIMARY KEY (channel_id, group_id),
+		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_channel_groups_channel ON channel_groups(channel_id);
+	CREATE INDEX IF NOT EXISTS idx_channel_groups_group ON channel_groups(group_id);
 
 	CREATE TABLE IF NOT EXISTS channel_models (
 		id TEXT PRIMARY KEY,
@@ -300,6 +329,56 @@ func runMigrations() error {
 			name: "add_native_mode",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN native_mode INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_user_group_id",
+			sql:  `ALTER TABLE users ADD COLUMN group_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "add_channel_group_id",
+			sql:  `ALTER TABLE channels ADD COLUMN group_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "create_user_groups_table",
+			sql: `CREATE TABLE IF NOT EXISTS user_groups (
+				user_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				PRIMARY KEY (user_id, group_id),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_user_groups_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id);
+				  CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)`,
+		},
+		{
+			name: "create_channel_groups_table",
+			sql: `CREATE TABLE IF NOT EXISTS channel_groups (
+				channel_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				PRIMARY KEY (channel_id, group_id),
+				FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_channel_groups_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_channel_groups_channel ON channel_groups(channel_id);
+				  CREATE INDEX IF NOT EXISTS idx_channel_groups_group ON channel_groups(group_id)`,
+		},
+		{
+			name: "add_group_rate_multiplier",
+			sql:  `ALTER TABLE groups ADD COLUMN rate_multiplier REAL NOT NULL DEFAULT 1.0`,
+		},
+		{
+			name: "add_user_balance_micros",
+			sql:  `ALTER TABLE users ADD COLUMN balance_micros INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_request_logs_rate_multiplier",
+			sql:  `ALTER TABLE request_logs ADD COLUMN rate_multiplier REAL`,
+		},
 	}
 
 	for _, m := range migrations {
@@ -307,7 +386,7 @@ func runMigrations() error {
 		if err != nil {
 			// ALTER TABLE 和 INSERT 迁移可能因为已存在而失败，这是正常的
 			// 只有 CREATE INDEX IF NOT EXISTS 类型的迁移失败才是真正的错误
-			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" {
+			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" || m.name == "create_user_groups_indexes" || m.name == "create_channel_groups_indexes" {
 				return fmt.Errorf("migration '%s' failed: %w", m.name, err)
 			}
 		}

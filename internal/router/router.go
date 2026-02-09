@@ -67,6 +67,7 @@ func Setup() *gin.Engine {
 	modelMetadataHandler := handler.NewModelMetadataHandler()
 	systemHandler := handler.NewSystemHandler()
 	billingHandler := handler.NewBillingHandler()
+	groupHandler := handler.NewGroupHandler()
 
 	api := r.Group("/api")
 	{
@@ -83,6 +84,8 @@ func Setup() *gin.Engine {
 		{
 			me.PUT("/password", userHandler.ChangePassword)
 			me.PUT("/username", userHandler.ChangeUsername)
+			me.GET("/balance", userHandler.GetMyBalance)
+			me.GET("/dashboard", requestLogHandler.GetDashboard)
 
 			ampGroup := me.Group("/amp")
 			{
@@ -170,8 +173,19 @@ func Setup() *gin.Engine {
 			{
 				users.GET("", userHandler.ListUsers)
 				users.PATCH("/:id/admin", userHandler.SetAdmin)
+				users.PATCH("/:id/group", userHandler.SetGroup)
 				users.POST("/:id/reset-password", userHandler.ResetPassword)
+				users.POST("/:id/topup", userHandler.TopUp)
 				users.DELETE("/:id", userHandler.DeleteUser)
+			}
+
+			groups := admin.Group("/groups")
+			{
+				groups.GET("", groupHandler.List)
+				groups.POST("", groupHandler.Create)
+				groups.GET("/:id", groupHandler.Get)
+				groups.PUT("/:id", groupHandler.Update)
+				groups.DELETE("/:id", groupHandler.Delete)
 			}
 
 			// 管理员日志和使用统计
