@@ -36,6 +36,7 @@ export interface AmpSettings {
   enabled: boolean
   nativeMode: boolean
   webSearchMode?: WebSearchMode
+  showBalanceInAd?: boolean
 }
 
 export interface UpdateAmpSettingsRequest {
@@ -46,6 +47,7 @@ export interface UpdateAmpSettingsRequest {
   enabled?: boolean
   nativeMode?: boolean
   webSearchMode?: WebSearchMode
+  showBalanceInAd?: boolean
 }
 
 export interface TestResult {

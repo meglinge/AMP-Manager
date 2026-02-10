@@ -30,6 +30,7 @@ type ProxyConfig struct {
 	ForceModelMappings bool
 	WebSearchMode      string // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool
+	ShowBalanceInAd    bool
 	RateMultiplier     float64
 	GroupIDs           []string
 }

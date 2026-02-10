@@ -52,6 +52,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 			HasAPIKey:          false,
 			WebSearchMode:      model.WebSearchModeUpstream,
 			NativeMode:         false,
+			ShowBalanceInAd:    false,
 		}, nil
 	}
 
@@ -71,6 +72,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 		HasAPIKey:          settings.UpstreamAPIKey != "",
 		WebSearchMode:      settings.WebSearchMode,
 		NativeMode:         settings.NativeMode,
+		ShowBalanceInAd:    settings.ShowBalanceInAd,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil
@@ -89,6 +91,13 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		Enabled:            req.Enabled,
 		WebSearchMode:      req.WebSearchMode,
 		NativeMode:         req.NativeMode,
+	}
+
+	// 处理 ShowBalanceInAd（*bool 指针，nil 表示不修改）
+	if req.ShowBalanceInAd != nil {
+		settings.ShowBalanceInAd = *req.ShowBalanceInAd
+	} else if existing != nil {
+		settings.ShowBalanceInAd = existing.ShowBalanceInAd
 	}
 
 	// 处理 WebSearchMode 默认值
@@ -143,6 +152,7 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		HasAPIKey:          settings.UpstreamAPIKey != "",
 		WebSearchMode:      settings.WebSearchMode,
 		NativeMode:         settings.NativeMode,
+		ShowBalanceInAd:    settings.ShowBalanceInAd,
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil

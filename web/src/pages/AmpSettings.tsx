@@ -28,6 +28,7 @@ export default function AmpSettings() {
     const [modelMappings, setModelMappings] = useState<ModelMapping[]>([])
     const [nativeMode, setNativeMode] = useState(false)
     const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>('upstream')
+    const [showBalanceInAd, setShowBalanceInAd] = useState(false)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [testing, setTesting] = useState(false)
@@ -49,6 +50,7 @@ export default function AmpSettings() {
             setModelMappings(data.modelMappings || [])
             setNativeMode(data.nativeMode)
             setWebSearchMode(data.webSearchMode || 'upstream')
+            setShowBalanceInAd(data.showBalanceInAd ?? false)
         } catch (err) {
             setError(err instanceof Error ? err.message : '加载设置失败')
         } finally {
@@ -71,6 +73,7 @@ export default function AmpSettings() {
                 forceModelMappings,
                 modelMappings,
                 webSearchMode,
+                showBalanceInAd,
             })
             setSettings(data)
             setUpstreamApiKey('')
@@ -246,6 +249,20 @@ export default function AmpSettings() {
                                         </Label>
                                     </div>
                                 </RadioGroup>
+                            </div>
+
+                            <Separator />
+
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label htmlFor="showBalanceInAd">显示余额提醒</Label>
+                                    <p className="text-sm text-muted-foreground">在 Amp CLI 的广告位显示当前账户余额</p>
+                                </div>
+                                <Switch
+                                    id="showBalanceInAd"
+                                    checked={showBalanceInAd}
+                                    onCheckedChange={setShowBalanceInAd}
+                                />
                             </div>
                         </div>
                         </motion.div>

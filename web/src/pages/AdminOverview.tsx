@@ -168,8 +168,8 @@ export default function AdminOverview() {
         animate="visible"
         className="grid gap-4 md:grid-cols-2 lg:grid-cols-5"
       >
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Wallet className="h-4 w-4" />
@@ -179,16 +179,11 @@ export default function AdminOverview() {
                 ${totalBalanceUsd.toFixed(2)}
               </CardTitle>
             </CardHeader>
-            <CardContent className="pb-3">
-              <p className="text-xs text-muted-foreground">
-                {data.balance.totalBalanceMicros.toLocaleString()} 微美元
-              </p>
-            </CardContent>
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card className="bg-gradient-to-br from-purple-500/10 to-violet-500/10 border-purple-500/20">
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full bg-gradient-to-br from-purple-500/10 to-violet-500/10 border-purple-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Users className="h-4 w-4" />
@@ -206,8 +201,8 @@ export default function AdminOverview() {
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card>
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardDescription className="flex items-center gap-1.5">
@@ -231,8 +226,8 @@ export default function AdminOverview() {
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card>
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <TrendingUp className="h-4 w-4" />
@@ -249,8 +244,8 @@ export default function AdminOverview() {
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Activity className="h-4 w-4" />

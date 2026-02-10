@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -147,6 +148,53 @@ func AdBlockMiddleware() gin.HandlerFunc {
 	}
 }
 
+// BalanceAdMiddleware intercepts ad requests and optionally injects balance info
+func BalanceAdMiddleware() gin.HandlerFunc {
+	userRepo := repository.NewUserRepository()
+	return func(c *gin.Context) {
+		endpoint := detectAdEndpoint(c.Request.URL.RawQuery)
+		if endpoint != "" {
+			cfg := GetProxyConfig(c.Request.Context())
+			if cfg != nil && cfg.ShowBalanceInAd && endpoint == "getCurrentAd" {
+				balance, err := userRepo.GetBalance(cfg.UserID)
+				if err == nil {
+					balanceUsd := fmt.Sprintf("$%.2f", float64(balance)/1e6)
+					c.JSON(http.StatusOK, gin.H{
+						"ok": true,
+						"result": gin.H{
+							"id":           "balance-info",
+							"type":         "text",
+							"title":        "💰 账户余额",
+							"body":         fmt.Sprintf("当前余额: %s", balanceUsd),
+							"impressionId": "balance-" + cfg.UserID,
+							"ctaText":      "",
+							"ctaUrl":       "",
+						},
+					})
+					c.Abort()
+					return
+				}
+			}
+			log.Debugf("amp: blocked ad request: path=%s, endpoint=%s", c.Request.URL.Path, endpoint)
+			c.JSON(http.StatusOK, buildAdResponse(endpoint))
+			c.Abort()
+			return
+		}
+
+		if c.Request.URL.Path == "/api/ads" || strings.HasPrefix(c.Request.URL.Path, "/api/ads/") {
+			log.Debugf("amp: blocked ads endpoint: path=%s", c.Request.URL.Path)
+			c.JSON(http.StatusOK, gin.H{
+				"ok":     true,
+				"result": nil,
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // Pre-compiled regex for matching isFreeTierRequest field
 var isFreeTierRequestRegex = regexp.MustCompile(`"isFreeTierRequest"\s*:\s*false`)
 
@@ -218,6 +266,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			ForceModelMappings: settings.ForceModelMappings,
 			WebSearchMode:      settings.WebSearchMode,
 			NativeMode:         settings.NativeMode,
+			ShowBalanceInAd:    settings.ShowBalanceInAd,
 		}
 
 		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)

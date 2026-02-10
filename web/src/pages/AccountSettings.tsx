@@ -308,9 +308,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                       <div className="text-3xl font-bold tracking-tight">
                         {formatBalance(balance.balanceMicros)}
                       </div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        ≈ ¥{(balance.balanceMicros / 1e6 * 7.2).toFixed(2)}
-                      </div>
+
                     </div>
                     <p className="text-sm text-muted-foreground">
                       余额由管理员充值，每次 API 请求将根据模型定价和分组倍率自动扣费。

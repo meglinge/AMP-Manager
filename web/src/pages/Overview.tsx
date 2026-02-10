@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { getDashboard, DashboardData, DashboardCacheHitRate } from '@/api/dashboard'
-import { getBillingState, BillingStateResponse } from '@/api/billing'
+import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Num } from '@/components/Num'
-import { motion, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   type ChartConfig,
   ChartContainer,
@@ -20,7 +21,7 @@ import {
 import {
   Wallet, TrendingUp, Zap, ArrowUpRight, ArrowDownRight,
   RefreshCw, Activity, DollarSign, Hash, AlertTriangle,
-  DatabaseZap, CreditCard, Shield, ArrowRightLeft,
+  DatabaseZap, CreditCard, Shield, ArrowRightLeft, Check, Loader2,
 } from 'lucide-react'
 
 const trendChartConfig = {
@@ -50,6 +51,26 @@ export default function Overview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
+  const [priorityPopoverOpen, setPriorityPopoverOpen] = useState(false)
+  const [prioritySaving, setPrioritySaving] = useState(false)
+
+  const handlePriorityChange = async (value: 'subscription' | 'balance') => {
+    if (value === billingState?.primarySource) {
+      setPriorityPopoverOpen(false)
+      return
+    }
+    setPrioritySaving(true)
+    try {
+      await updateBillingPriority(value)
+      const billing = await getBillingState()
+      setBillingState(billing)
+      setPriorityPopoverOpen(false)
+    } catch {
+      // silently fail
+    } finally {
+      setPrioritySaving(false)
+    }
+  }
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -177,8 +198,8 @@ export default function Overview() {
         animate="visible"
         className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
       >
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Wallet className="h-4 w-4" />
@@ -188,16 +209,11 @@ export default function Overview() {
                 ${balanceUsd.toFixed(2)}
               </CardTitle>
             </CardHeader>
-            <CardContent className="pb-3">
-              <p className="text-xs text-muted-foreground">
-                {data.balance.balanceMicros.toLocaleString()} 微美元
-              </p>
-            </CardContent>
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card>
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardDescription className="flex items-center gap-1.5">
@@ -221,8 +237,8 @@ export default function Overview() {
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card>
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <TrendingUp className="h-4 w-4" />
@@ -239,8 +255,8 @@ export default function Overview() {
           </Card>
         </motion.div>
 
-        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
-          <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
+          <Card className="h-full bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Activity className="h-4 w-4" />
@@ -302,10 +318,70 @@ export default function Overview() {
                   </CardTitle>
                   <CardDescription>订阅与余额使用情况</CardDescription>
                 </div>
-                <Badge variant="outline" className="text-xs">
-                  <ArrowRightLeft className="h-3 w-3 mr-1" />
-                  {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
-                </Badge>
+                <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <ArrowRightLeft className="h-3 w-3 mr-1" />
+                      {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
+                    </Badge>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-64 p-2">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground px-2 py-1">切换扣费规则</p>
+                      {([
+                        { value: 'subscription' as const, label: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
+                        { value: 'balance' as const, label: '余额优先', desc: '先扣余额，不足再用订阅额度' },
+                      ]).map((option) => {
+                        const isActive = billingState.primarySource === option.value
+                        return (
+                          <motion.button
+                            key={option.value}
+                            onClick={() => handlePriorityChange(option.value)}
+                            disabled={prioritySaving}
+                            className={`w-full flex items-center gap-3 rounded-md px-2 py-2.5 text-left text-sm transition-colors ${
+                              isActive
+                                ? 'bg-primary/10 text-primary'
+                                : 'hover:bg-accent text-foreground'
+                            }`}
+                            whileHover={{ x: 2 }}
+                            whileTap={{ scale: 0.98 }}
+                            transition={{ type: 'spring', bounce: 0.3, duration: 0.3 }}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium">{option.label}</div>
+                              <div className="text-[11px] text-muted-foreground">{option.desc}</div>
+                            </div>
+                            <AnimatePresence mode="wait">
+                              {prioritySaving && billingState.primarySource !== option.value ? (
+                                <motion.div
+                                  key="loader"
+                                  initial={{ opacity: 0, scale: 0.5 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.5 }}
+                                >
+                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                </motion.div>
+                              ) : isActive ? (
+                                <motion.div
+                                  key="check"
+                                  initial={{ opacity: 0, scale: 0.5 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.5 }}
+                                  transition={{ type: 'spring', bounce: 0.5, duration: 0.4 }}
+                                >
+                                  <Check className="h-4 w-4 text-primary" />
+                                </motion.div>
+                              ) : null}
+                            </AnimatePresence>
+                          </motion.button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
