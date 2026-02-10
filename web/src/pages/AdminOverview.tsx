@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getDashboard, DashboardData, DashboardCacheHitRate } from '@/api/dashboard'
-import { getBillingState, BillingStateResponse } from '@/api/billing'
+import { getAdminDashboard, AdminDashboardData, DashboardCacheHitRate } from '@/api/dashboard'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Num } from '@/components/Num'
 import { motion, staggerContainer, staggerItem } from '@/lib/motion'
@@ -20,7 +18,7 @@ import {
 import {
   Wallet, TrendingUp, Zap, ArrowUpRight, ArrowDownRight,
   RefreshCw, Activity, DollarSign, Hash, AlertTriangle,
-  DatabaseZap, CreditCard, Shield, ArrowRightLeft,
+  DatabaseZap, Users,
 } from 'lucide-react'
 
 const trendChartConfig = {
@@ -45,24 +43,17 @@ const MODEL_COLORS = [
   'hsl(var(--chart-5))',
 ]
 
-export default function Overview() {
-  const [data, setData] = useState<DashboardData | null>(null)
+export default function AdminOverview() {
+  const [data, setData] = useState<AdminDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
 
   const loadDashboard = async () => {
     setLoading(true)
     setError('')
     try {
-      const result = await getDashboard()
+      const result = await getAdminDashboard()
       setData(result)
-      try {
-        const billing = await getBillingState()
-        setBillingState(billing)
-      } catch {
-        // billing state is optional
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -147,7 +138,7 @@ export default function Overview() {
 
   if (!data) return null
 
-  const balanceUsd = parseFloat(data.balance.balanceUsd)
+  const totalBalanceUsd = parseFloat(data.balance.totalBalanceUsd)
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
 
@@ -161,8 +152,8 @@ export default function Overview() {
         className="flex items-center justify-between"
       >
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">概览</h2>
-          <p className="text-muted-foreground">账户用量和费用一览</p>
+          <h2 className="text-2xl font-bold tracking-tight">管理员概览</h2>
+          <p className="text-muted-foreground">系统全局用量和费用汇总</p>
         </div>
         <Button variant="outline" size="sm" onClick={loadDashboard} disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -170,27 +161,46 @@ export default function Overview() {
         </Button>
       </motion.div>
 
-      {/* Balance + Today/Week/Month stats */}
+      {/* Balance + UserCount + Today/Week/Month */}
       <motion.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+        className="grid gap-4 md:grid-cols-2 lg:grid-cols-5"
       >
         <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
           <Card className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1.5">
                 <Wallet className="h-4 w-4" />
-                账户余额
+                全部用户总余额
               </CardDescription>
               <CardTitle className="text-3xl text-blue-600 dark:text-blue-400">
-                ${balanceUsd.toFixed(2)}
+                ${totalBalanceUsd.toFixed(2)}
               </CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground">
-                {data.balance.balanceMicros.toLocaleString()} 微美元
+                {data.balance.totalBalanceMicros.toLocaleString()} 微美元
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }}>
+          <Card className="bg-gradient-to-br from-purple-500/10 to-violet-500/10 border-purple-500/20">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1.5">
+                <Users className="h-4 w-4" />
+                注册用户数
+              </CardDescription>
+              <CardTitle className="text-3xl text-purple-600 dark:text-purple-400">
+                <Num value={data.balance.userCount} />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-3">
+              <p className="text-xs text-muted-foreground">
+                人均余额 ${data.balance.userCount > 0 ? (totalBalanceUsd / data.balance.userCount).toFixed(2) : '0.00'}
               </p>
             </CardContent>
           </Card>
@@ -202,7 +212,7 @@ export default function Overview() {
               <div className="flex items-center justify-between">
                 <CardDescription className="flex items-center gap-1.5">
                   <Zap className="h-4 w-4" />
-                  今日用量
+                  今日全局
                 </CardDescription>
                 {data.today.errorCount > 0 && (
                   <Badge variant="destructive" className="text-[10px]">
@@ -266,10 +276,10 @@ export default function Overview() {
         className="grid gap-4 md:grid-cols-4"
       >
         {[
-          { label: '输入 Tokens (30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
-          { label: '输出 Tokens (30天)', value: data.month.outputTokensSum, icon: ArrowDownRight, color: 'text-purple-500' },
-          { label: '总请求 (30天)', value: data.month.requestCount, icon: Hash, color: 'text-blue-500' },
-          { label: '错误数 (30天)', value: data.month.errorCount, icon: AlertTriangle, color: data.month.errorCount > 0 ? 'text-red-500' : 'text-muted-foreground' },
+          { label: '输入 Tokens (全局30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
+          { label: '输出 Tokens (全局30天)', value: data.month.outputTokensSum, icon: ArrowDownRight, color: 'text-purple-500' },
+          { label: '总请求 (全局30天)', value: data.month.requestCount, icon: Hash, color: 'text-blue-500' },
+          { label: '错误数 (全局30天)', value: data.month.errorCount, icon: AlertTriangle, color: data.month.errorCount > 0 ? 'text-red-500' : 'text-muted-foreground' },
         ].map((item) => (
           <motion.div key={item.label} variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }}>
             <Card>
@@ -285,105 +295,6 @@ export default function Overview() {
         ))}
       </motion.div>
 
-      {/* Billing Status */}
-      {billingState && (
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.15 }}
-        >
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    计费状态
-                  </CardTitle>
-                  <CardDescription>订阅与余额使用情况</CardDescription>
-                </div>
-                <Badge variant="outline" className="text-xs">
-                  <ArrowRightLeft className="h-3 w-3 mr-1" />
-                  {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-lg border p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium flex items-center gap-1.5">
-                      <Shield className="h-4 w-4 text-purple-500" />
-                      订阅状态
-                    </span>
-                    {billingState.subscription ? (
-                      <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
-                        {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">未订阅</Badge>
-                    )}
-                  </div>
-                  {billingState.subscription ? (
-                    <div className="space-y-1">
-                      <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {billingState.subscription.expiresAt
-                          ? `到期: ${new Date(billingState.subscription.expiresAt).toLocaleDateString('zh-CN')}`
-                          : '永不过期'}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">暂未订阅任何套餐</p>
-                  )}
-                </div>
-                <div className="rounded-lg border p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium flex items-center gap-1.5">
-                      <Wallet className="h-4 w-4 text-blue-500" />
-                      余额
-                    </span>
-                    <span className="text-lg font-bold">${parseFloat(billingState.balanceUsd).toFixed(2)}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    扣费优先级: {billingState.primarySource === 'subscription' ? '① 订阅 → ② 余额' : '① 余额 → ② 订阅'}
-                  </p>
-                </div>
-              </div>
-              {billingState.windows && billingState.windows.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">订阅额度使用情况</p>
-                  {billingState.windows.map((w, i) => {
-                    const limitTypeLabels: Record<string, string> = {
-                      daily: '日限制', weekly: '周限制', monthly: '月限制',
-                      rolling_5h: '5小时滚动', total: '总量限制',
-                    }
-                    const windowModeLabels: Record<string, string> = {
-                      fixed: '固定窗口', sliding: '滑动窗口',
-                    }
-                    const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
-                    const leftUsd = (w.leftMicros / 1e6).toFixed(2)
-                    const limitUsd = (w.limitMicros / 1e6).toFixed(2)
-                    return (
-                      <div key={i} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">
-                            {limitTypeLabels[w.limitType] || w.limitType}
-                            <span className="ml-1 opacity-60">({windowModeLabels[w.windowMode] || w.windowMode})</span>
-                          </span>
-                          <span className="font-mono">${leftUsd} / ${limitUsd}</span>
-                        </div>
-                        <Progress value={Math.min(usedPct, 100)} className="h-2" />
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
       {/* Cost Area Chart + Requests Bar Chart */}
       <div className="grid gap-6 lg:grid-cols-2">
         <motion.div
@@ -395,9 +306,9 @@ export default function Overview() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-emerald-500" />
-                每日成本趋势
+                每日成本趋势（全局）
               </CardTitle>
-              <CardDescription>近 14 天成本变化 (USD)</CardDescription>
+              <CardDescription>近 14 天全局成本变化 (USD)</CardDescription>
             </CardHeader>
             <CardContent>
               {trendData.length === 0 ? (
@@ -406,25 +317,14 @@ export default function Overview() {
                 <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
                   <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="adminFillCost" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="var(--color-cost)" stopOpacity={0.4} />
                         <stop offset="95%" stopColor="var(--color-cost)" stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      tickFormatter={v => v}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={4}
-                      tickFormatter={v => `$${v}`}
-                    />
+                    <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={4} tickFormatter={v => `$${v}`} />
                     <ChartTooltip
                       cursor={false}
                       content={
@@ -439,7 +339,7 @@ export default function Overview() {
                       dataKey="cost"
                       stroke="var(--color-cost)"
                       strokeWidth={2}
-                      fill="url(#fillCost)"
+                      fill="url(#adminFillCost)"
                       dot={{ r: 3, fill: 'var(--color-cost)', strokeWidth: 0 }}
                       activeDot={{ r: 5, strokeWidth: 2 }}
                     />
@@ -459,9 +359,9 @@ export default function Overview() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-blue-500" />
-                每日请求量
+                每日请求量（全局）
               </CardTitle>
-              <CardDescription>近 14 天请求数变化</CardDescription>
+              <CardDescription>近 14 天全局请求数变化</CardDescription>
             </CardHeader>
             <CardContent>
               {trendData.length === 0 ? (
@@ -470,33 +370,16 @@ export default function Overview() {
                 <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
                   <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="fillRequests" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="adminFillRequests" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--color-requests)" stopOpacity={0.9} />
                         <stop offset="100%" stopColor="var(--color-requests)" stopOpacity={0.4} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={4}
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent indicator="dot" />}
-                    />
-                    <Bar
-                      dataKey="requests"
-                      fill="url(#fillRequests)"
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={36}
-                    />
+                    <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={4} />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                    <Bar dataKey="requests" fill="url(#adminFillRequests)" radius={[6, 6, 0, 0]} maxBarSize={36} />
                   </BarChart>
                 </ChartContainer>
               )}
@@ -514,8 +397,8 @@ export default function Overview() {
         >
           <Card className="h-full">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">模型请求分布</CardTitle>
-              <CardDescription>30 天内各模型请求占比</CardDescription>
+              <CardTitle className="text-base">模型请求分布（全局）</CardTitle>
+              <CardDescription>30 天内全局各模型请求占比</CardDescription>
             </CardHeader>
             <CardContent>
               {modelPieData.length === 0 ? (
@@ -608,14 +491,14 @@ export default function Overview() {
         >
           <Card className="h-full">
             <CardHeader>
-              <CardTitle className="text-base">热门模型排行（30天）</CardTitle>
-              <CardDescription>按请求次数和成本排名</CardDescription>
+              <CardTitle className="text-base">热门模型排行（全局30天）</CardTitle>
+              <CardDescription>按请求次数和成本排名 Top 10</CardDescription>
             </CardHeader>
             <CardContent>
               {modelBarData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={modelChartConfig} className="h-[260px] w-full">
+                <ChartContainer config={modelChartConfig} className="h-[300px] w-full">
                   <BarChart
                     accessibilityLayer
                     data={modelBarData}
@@ -650,11 +533,7 @@ export default function Overview() {
                         />
                       }
                     />
-                    <Bar
-                      dataKey="requests"
-                      radius={[0, 6, 6, 0]}
-                      maxBarSize={28}
-                    >
+                    <Bar dataKey="requests" radius={[0, 6, 6, 0]} maxBarSize={24}>
                       {modelBarData.map((_entry, i) => (
                         <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                       ))}
@@ -677,9 +556,9 @@ export default function Overview() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <DatabaseZap className="h-4 w-4" />
-              缓存命中率（30天）
+              缓存命中率（全局30天）
             </CardTitle>
-            <CardDescription>按模型提供商分类的缓存使用情况</CardDescription>
+            <CardDescription>按模型提供商分类的全局缓存使用情况</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-3">
@@ -770,7 +649,7 @@ export default function Overview() {
                                       if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
                                         return (
                                           <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                                            <tspan className={`text-sm font-bold fill-foreground`}>
+                                            <tspan className="text-sm font-bold fill-foreground">
                                               {rate!.hitRate}%
                                             </tspan>
                                           </text>

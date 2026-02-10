@@ -68,6 +68,8 @@ func Setup() *gin.Engine {
 	systemHandler := handler.NewSystemHandler()
 	billingHandler := handler.NewBillingHandler()
 	groupHandler := handler.NewGroupHandler()
+	subscriptionHandler := handler.NewSubscriptionHandler()
+	billingSettingHandler := handler.NewBillingSettingHandler()
 
 	api := r.Group("/api")
 	{
@@ -86,6 +88,9 @@ func Setup() *gin.Engine {
 			me.PUT("/username", userHandler.ChangeUsername)
 			me.GET("/balance", userHandler.GetMyBalance)
 			me.GET("/dashboard", requestLogHandler.GetDashboard)
+			me.GET("/billing/state", billingSettingHandler.GetBillingState)
+			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
+			me.GET("/subscription", billingSettingHandler.GetMySubscription)
 
 			ampGroup := me.Group("/amp")
 			{
@@ -177,6 +182,10 @@ func Setup() *gin.Engine {
 				users.POST("/:id/reset-password", userHandler.ResetPassword)
 				users.POST("/:id/topup", userHandler.TopUp)
 				users.DELETE("/:id", userHandler.DeleteUser)
+				users.GET("/:id/subscription", subscriptionHandler.GetUserSubscription)
+				users.POST("/:id/subscription", subscriptionHandler.AssignSubscription)
+				users.PATCH("/:id/subscription", subscriptionHandler.UpdateSubscriptionExpiry)
+				users.DELETE("/:id/subscription", subscriptionHandler.CancelSubscription)
 			}
 
 			groups := admin.Group("/groups")
@@ -188,11 +197,25 @@ func Setup() *gin.Engine {
 				groups.DELETE("/:id", groupHandler.Delete)
 			}
 
+			subscriptions := admin.Group("/subscriptions")
+			{
+				plans := subscriptions.Group("/plans")
+				{
+					plans.GET("", subscriptionHandler.List)
+					plans.POST("", subscriptionHandler.Create)
+					plans.GET("/:id", subscriptionHandler.Get)
+					plans.PUT("/:id", subscriptionHandler.Update)
+					plans.DELETE("/:id", subscriptionHandler.Delete)
+					plans.PATCH("/:id/enabled", subscriptionHandler.SetEnabled)
+				}
+			}
+
 			// 管理员日志和使用统计
 			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
 			admin.GET("/request-logs/:id/detail", requestLogHandler.AdminGetRequestLogDetail)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
+			admin.GET("/dashboard", requestLogHandler.GetAdminDashboard)
 
 			// 价格表管理
 			prices := admin.Group("/prices")

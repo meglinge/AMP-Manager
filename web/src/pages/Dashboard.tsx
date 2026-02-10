@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence, sidebarContainerVariants, sidebarItemVariants } from '@/lib/motion'
 import Overview from './Overview'
+import AdminOverview from './AdminOverview'
 import AmpSettings from './AmpSettings'
 import APIKeys from './APIKeys'
 import RequestLogs from './RequestLogs'
@@ -11,6 +12,7 @@ import ModelMetadata from './ModelMetadata'
 import Prices from './Prices'
 import SystemSettings from './SystemSettings'
 import Groups from './Groups'
+import SubscriptionPlans from './SubscriptionPlans'
 import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
 import { Button } from '@/components/ui/button'
@@ -48,6 +50,7 @@ import {
   Zap,
   FolderOpen,
   LayoutDashboard,
+  CreditCard,
 } from 'lucide-react'
 
 interface Props {
@@ -56,10 +59,11 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups'
+type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview'
 
 const navIcons: Record<Page, React.ElementType> = {
   'overview': LayoutDashboard,
+  'admin-overview': BarChart3,
   'amp-settings': Settings,
   'api-keys': Key,
   'request-logs': ScrollText,
@@ -72,6 +76,7 @@ const navIcons: Record<Page, React.ElementType> = {
   'user-management': Users,
   'system-settings': Wrench,
   'groups': FolderOpen,
+  'subscription-plans': CreditCard,
 }
 
 export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
@@ -87,7 +92,9 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
     { key: 'usage-stats', label: '使用量统计' },
     { key: 'models', label: '可用模型' },
     { key: 'account-settings', label: '账户设置' },
+    { key: 'admin-overview', label: '管理概览', adminOnly: true },
     { key: 'groups', label: '分组管理', adminOnly: true },
+    { key: 'subscription-plans', label: '订阅套餐', adminOnly: true },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
     { key: 'prices', label: '模型价格', adminOnly: true },
@@ -288,6 +295,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                 transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
               >
                 {currentPage === 'overview' && <Overview />}
+                {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
                 {currentPage === 'amp-settings' && <AmpSettings />}
                 {currentPage === 'api-keys' && <APIKeys />}
                 {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
@@ -296,6 +304,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                 {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
                 {currentPage === 'channels' && isAdmin && <Channels />}
                 {currentPage === 'groups' && isAdmin && <Groups />}
+                {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
                 {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                 {currentPage === 'prices' && isAdmin && <Prices />}
                 {currentPage === 'user-management' && isAdmin && <UserManagement />}

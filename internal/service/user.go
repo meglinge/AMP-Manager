@@ -206,3 +206,7 @@ func (s *UserService) GetBalance(userID string) (int64, error) {
 func (s *UserService) TopUp(userID string, amountMicros int64) error {
 	return s.repo.TopUpBalance(userID, amountMicros)
 }
+
+func (s *UserService) GetTotalBalanceAndUserCount() (int64, int64, error) {
+	return s.repo.GetTotalBalanceAndUserCount()
+}

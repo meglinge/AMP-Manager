@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
-	"ampmanager/internal/repository"
+	"ampmanager/internal/service"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -585,9 +585,9 @@ func (w *LoggingBodyWrapper) Close() error {
 							w.trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
-								userRepo := repository.NewUserRepository()
-								if err := userRepo.DeductBalance(proxyCfg.UserID, adjustedCostMicros); err != nil {
-									log.Warnf("log writer: failed to deduct balance for user %s: %v", proxyCfg.UserID, err)
+								billingSvc := service.NewBillingService()
+								if err := billingSvc.SettleRequestCost(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+									log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 								}
 							}
 						}

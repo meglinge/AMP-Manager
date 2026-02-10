@@ -14,7 +14,6 @@ import (
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
-	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
 	"ampmanager/internal/translator/filters"
@@ -931,9 +930,9 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 						trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
 
 						if proxyCfg != nil && adjustedCostMicros > 0 {
-							userRepo := repository.NewUserRepository()
-							if err := userRepo.DeductBalance(proxyCfg.UserID, adjustedCostMicros); err != nil {
-								log.Warnf("channel router: failed to deduct balance for user %s: %v", proxyCfg.UserID, err)
+							billingSvc := service.NewBillingService()
+							if err := billingSvc.SettleRequestCost(trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+								log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 							}
 						}
 					}

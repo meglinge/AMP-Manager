@@ -256,6 +256,73 @@ func createTables() error {
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS subscription_plans (
+		id TEXT PRIMARY KEY,
+		name TEXT UNIQUE NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_subscription_plans_enabled ON subscription_plans(enabled);
+
+	CREATE TABLE IF NOT EXISTS subscription_plan_limits (
+		id TEXT PRIMARY KEY,
+		plan_id TEXT NOT NULL,
+		limit_type TEXT NOT NULL CHECK (limit_type IN ('daily', 'weekly', 'monthly', 'rolling_5h', 'total')),
+		window_mode TEXT NOT NULL DEFAULT 'fixed' CHECK (window_mode IN ('fixed', 'sliding')),
+		limit_micros INTEGER NOT NULL CHECK (limit_micros >= 0),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_plan_limits_plan ON subscription_plan_limits(plan_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_limits_unique ON subscription_plan_limits(plan_id, limit_type);
+
+	CREATE TABLE IF NOT EXISTS user_subscriptions (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		plan_id TEXT NOT NULL,
+		starts_at DATETIME NOT NULL,
+		expires_at DATETIME,
+		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'expired', 'cancelled')),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_subs_user ON user_subscriptions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_subs_plan ON user_subscriptions(plan_id);
+	CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subs_active_unique ON user_subscriptions(user_id) WHERE status = 'active';
+
+	CREATE TABLE IF NOT EXISTS user_billing_settings (
+		user_id TEXT PRIMARY KEY,
+		primary_source TEXT NOT NULL DEFAULT 'subscription' CHECK (primary_source IN ('subscription', 'balance')),
+		secondary_source TEXT NOT NULL DEFAULT 'balance' CHECK (secondary_source IN ('subscription', 'balance')),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		CHECK (primary_source != secondary_source),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS billing_events (
+		id TEXT PRIMARY KEY,
+		request_log_id TEXT,
+		user_id TEXT NOT NULL,
+		user_subscription_id TEXT,
+		source TEXT NOT NULL CHECK (source IN ('subscription', 'balance')),
+		event_type TEXT NOT NULL CHECK (event_type IN ('charge', 'refund', 'adjustment')),
+		amount_micros INTEGER NOT NULL CHECK (amount_micros >= 0),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_user ON billing_events(user_id);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_sub ON billing_events(user_subscription_id);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_request ON billing_events(request_log_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type) WHERE request_log_id IS NOT NULL;
 	`
 	_, err := db.Exec(schema)
 	return err
@@ -379,6 +446,22 @@ func runMigrations() error {
 			name: "add_request_logs_rate_multiplier",
 			sql:  `ALTER TABLE request_logs ADD COLUMN rate_multiplier REAL`,
 		},
+		{
+			name: "add_request_logs_charged_subscription_micros",
+			sql:  `ALTER TABLE request_logs ADD COLUMN charged_subscription_micros INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_request_logs_charged_balance_micros",
+			sql:  `ALTER TABLE request_logs ADD COLUMN charged_balance_micros INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_request_logs_billing_status",
+			sql:  `ALTER TABLE request_logs ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'none'`,
+		},
+		{
+			name: "add_billing_events_usage_window_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_events_usage_window ON billing_events(user_subscription_id, source, created_at)`,
+		},
 	}
 
 	for _, m := range migrations {
@@ -386,7 +469,7 @@ func runMigrations() error {
 		if err != nil {
 			// ALTER TABLE 和 INSERT 迁移可能因为已存在而失败，这是正常的
 			// 只有 CREATE INDEX IF NOT EXISTS 类型的迁移失败才是真正的错误
-			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" || m.name == "create_user_groups_indexes" || m.name == "create_channel_groups_indexes" {
+			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" || m.name == "create_user_groups_indexes" || m.name == "create_channel_groups_indexes" || m.name == "add_billing_events_usage_window_index" {
 				return fmt.Errorf("migration '%s' failed: %w", m.name, err)
 			}
 		}

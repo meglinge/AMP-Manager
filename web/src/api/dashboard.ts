@@ -60,3 +60,25 @@ export async function getDashboard(): Promise<DashboardData> {
   if (!res.ok) throw new Error('获取仪表盘数据失败')
   return res.json()
 }
+
+export interface AdminDashboardData {
+  balance: {
+    totalBalanceMicros: number
+    totalBalanceUsd: string
+    userCount: number
+  }
+  today: DashboardPeriodStats
+  week: DashboardPeriodStats
+  month: DashboardPeriodStats
+  topModels: DashboardTopModel[]
+  dailyTrend: DashboardDailyTrend[]
+  cacheHitRates: DashboardCacheHitRate[]
+}
+
+export async function getAdminDashboard(): Promise<AdminDashboardData> {
+  const res = await fetch(`${API_BASE}/admin/dashboard`, {
+    headers: getAuthHeaders(),
+  })
+  if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
+  return res.json()
+}

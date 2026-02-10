@@ -386,3 +386,82 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 		"cacheHitRates": cacheHitRateList,
 	})
 }
+
+// GetAdminDashboard 获取管理员仪表盘数据（全局汇总）
+func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
+	userService := service.NewUserService()
+	totalBalance, userCount, err := userService.GetTotalBalanceAndUserCount()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
+		return
+	}
+
+	today, week, month, topModels, dailyTrend, err := h.logService.GetAdminDashboardStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
+		return
+	}
+
+	formatPeriod := func(s repository.DashboardPeriodStats) gin.H {
+		return gin.H{
+			"requestCount":    s.RequestCount,
+			"inputTokensSum":  s.InputTokensSum,
+			"outputTokensSum": s.OutputTokensSum,
+			"costMicros":      s.CostMicrosSum,
+			"costUsd":         fmt.Sprintf("%.6f", float64(s.CostMicrosSum)/1e6),
+			"errorCount":      s.ErrorCount,
+		}
+	}
+
+	topModelsList := make([]gin.H, 0, len(topModels))
+	for _, m := range topModels {
+		topModelsList = append(topModelsList, gin.H{
+			"model":        m.Model,
+			"requestCount": m.RequestCount,
+			"costMicros":   m.CostMicros,
+			"costUsd":      fmt.Sprintf("%.6f", float64(m.CostMicros)/1e6),
+		})
+	}
+
+	trendList := make([]gin.H, 0, len(dailyTrend))
+	for _, d := range dailyTrend {
+		trendList = append(trendList, gin.H{
+			"date":       d.Date,
+			"costMicros": d.CostMicros,
+			"costUsd":    fmt.Sprintf("%.6f", float64(d.CostMicros)/1e6),
+			"requests":   d.Requests,
+		})
+	}
+
+	cacheHitRates, err := h.logService.GetAdminCacheHitRateByProvider()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取缓存命中率失败"})
+		return
+	}
+
+	cacheHitRateList := make([]gin.H, 0, len(cacheHitRates))
+	for _, r := range cacheHitRates {
+		cacheHitRateList = append(cacheHitRateList, gin.H{
+			"provider":            r.Provider,
+			"totalInputTokens":    r.TotalInputTokens,
+			"cacheReadTokens":     r.CacheReadTokens,
+			"cacheCreationTokens": r.CacheCreationTokens,
+			"requestCount":        r.RequestCount,
+			"hitRate":             fmt.Sprintf("%.1f", r.HitRate),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"balance": gin.H{
+			"totalBalanceMicros": totalBalance,
+			"totalBalanceUsd":    fmt.Sprintf("%.6f", float64(totalBalance)/1e6),
+			"userCount":          userCount,
+		},
+		"today":         formatPeriod(today),
+		"week":          formatPeriod(week),
+		"month":         formatPeriod(month),
+		"topModels":     topModelsList,
+		"dailyTrend":    trendList,
+		"cacheHitRates": cacheHitRateList,
+	})
+}

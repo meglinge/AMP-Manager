@@ -28,6 +28,7 @@ type UserRepositoryInterface interface {
 	GetBalance(userID string) (int64, error)
 	DeductBalance(userID string, amountMicros int64) error
 	TopUpBalance(userID string, amountMicros int64) error
+	GetTotalBalanceAndUserCount() (int64, int64, error)
 }
 
 var _ UserRepositoryInterface = (*UserRepository)(nil)
@@ -250,4 +251,11 @@ func (r *UserRepository) TopUpBalance(userID string, amountMicros int64) error {
 		return ErrUserNotFound
 	}
 	return nil
+}
+
+// GetTotalBalanceAndUserCount 获取所有用户总余额和用户数
+func (r *UserRepository) GetTotalBalanceAndUserCount() (totalBalance int64, userCount int64, err error) {
+	db := database.GetDB()
+	err = db.QueryRow(`SELECT COALESCE(SUM(balance_micros), 0), COUNT(*) FROM users`).Scan(&totalBalance, &userCount)
+	return
 }

@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { changePassword, changeUsername, getMyBalance, BalanceInfo } from '../api/users'
+import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle2, XCircle, Wallet, RefreshCw } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
+import { CheckCircle2, XCircle, Wallet, RefreshCw, CreditCard, ArrowRightLeft, Shield } from 'lucide-react'
 
-type AccountTab = 'security' | 'balance'
+type AccountTab = 'security' | 'balance' | 'billing'
 
 const tabs: { key: AccountTab; label: string }[] = [
   { key: 'balance', label: '余额' },
+  { key: 'billing', label: '计费设置' },
   { key: 'security', label: '账户安全' },
 ]
 
@@ -35,8 +40,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   const [balance, setBalance] = useState<BalanceInfo | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
 
+  const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
+  const [billingLoading, setBillingLoading] = useState(false)
+  const [prioritySaving, setPrioritySaving] = useState(false)
+
   useEffect(() => {
     fetchBalance()
+    fetchBillingState()
   }, [])
 
   const fetchBalance = async () => {
@@ -48,6 +58,18 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
       console.error('获取余额失败:', err)
     } finally {
       setBalanceLoading(false)
+    }
+  }
+
+  const fetchBillingState = async () => {
+    setBillingLoading(true)
+    try {
+      const data = await getBillingState()
+      setBillingState(data)
+    } catch (err) {
+      console.error('获取计费状态失败:', err)
+    } finally {
+      setBillingLoading(false)
     }
   }
 
@@ -108,6 +130,19 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   const formatBalance = (micros: number) => {
     const usd = micros / 1e6
     return `$${usd.toFixed(6)}`
+  }
+
+  const handlePriorityChange = async (value: string) => {
+    setPrioritySaving(true)
+    try {
+      await updateBillingPriority(value as 'subscription' | 'balance')
+      showMessage('success', '计费优先级已更新')
+      fetchBillingState()
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '更新失败')
+    } finally {
+      setPrioritySaving(false)
+    }
   }
 
   return (
@@ -288,6 +323,121 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {activeTab === 'billing' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <ArrowRightLeft className="h-5 w-5" />
+                        扣费优先级
+                      </CardTitle>
+                      <CardDescription>设置 API 请求的扣费来源优先顺序</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={fetchBillingState} disabled={billingLoading}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${billingLoading ? 'animate-spin' : ''}`} />
+                      刷新
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>扣费优先级</Label>
+                    <Select
+                      value={billingState?.primarySource || 'subscription'}
+                      onValueChange={handlePriorityChange}
+                      disabled={prioritySaving}
+                    >
+                      <SelectTrigger className="w-64">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="subscription">订阅优先 — 先用订阅额度，不足再扣余额</SelectItem>
+                        <SelectItem value="balance">余额优先 — 先扣余额，不足再用订阅额度</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      当前: {billingState?.primarySource === 'subscription' ? '① 订阅额度 → ② 余额' : '① 余额 → ② 订阅额度'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {billingState?.subscription && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="h-5 w-5" />
+                      当前订阅
+                    </CardTitle>
+                    <CardDescription>订阅套餐信息与额度使用情况</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <p className="font-semibold text-lg">{billingState.subscription.planName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {billingState.subscription.expiresAt
+                            ? `到期时间: ${new Date(billingState.subscription.expiresAt).toLocaleString('zh-CN')}`
+                            : '永不过期'}
+                        </p>
+                      </div>
+                      <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
+                        {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
+                      </Badge>
+                    </div>
+
+                    {billingState.windows && billingState.windows.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">额度使用情况</p>
+                        {billingState.windows.map((w, i) => {
+                          const limitTypeLabels: Record<string, string> = {
+                            daily: '日限制', weekly: '周限制', monthly: '月限制',
+                            rolling_5h: '5小时滚动', total: '总量限制',
+                          }
+                          const windowModeLabels: Record<string, string> = {
+                            fixed: '固定窗口', sliding: '滑动窗口',
+                          }
+                          const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
+                          const usedUsd = (w.usedMicros / 1e6).toFixed(2)
+                          const leftUsd = (w.leftMicros / 1e6).toFixed(2)
+                          const limitUsd = (w.limitMicros / 1e6).toFixed(2)
+                          return (
+                            <div key={i} className="space-y-1.5">
+                              <div className="flex items-center justify-between text-sm">
+                                <span>
+                                  {limitTypeLabels[w.limitType] || w.limitType}
+                                  <span className="ml-1 text-muted-foreground text-xs">({windowModeLabels[w.windowMode] || w.windowMode})</span>
+                                </span>
+                                <span className="font-mono text-xs">
+                                  已用 ${usedUsd} / 剩余 ${leftUsd} / 限额 ${limitUsd}
+                                </span>
+                              </div>
+                              <Progress value={Math.min(usedPct, 100)} className="h-2" />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {!billingState?.subscription && !billingLoading && (
+                <Card>
+                  <CardContent className="py-8">
+                    <div className="text-center text-muted-foreground">
+                      <CreditCard className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>暂未订阅任何套餐</p>
+                      <p className="text-xs mt-1">联系管理员分配订阅套餐</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

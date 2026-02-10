@@ -123,6 +123,16 @@ func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]reposito
 	return s.repo.GetCacheHitRateByProvider(userID)
 }
 
+// GetAdminDashboardStats 获取管理员仪表盘统计数据
+func (s *RequestLogService) GetAdminDashboardStats() (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
+	return s.repo.GetAdminDashboardStats()
+}
+
+// GetAdminCacheHitRateByProvider 管理员全局缓存命中率
+func (s *RequestLogService) GetAdminCacheHitRateByProvider() ([]repository.DashboardCacheHitRate, error) {
+	return s.repo.GetAdminCacheHitRateByProvider()
+}
+
 // GetByID 获取单条日志
 func (s *RequestLogService) GetByID(id, userID string) (*model.RequestLog, error) {
 	log, err := s.repo.GetByID(id)

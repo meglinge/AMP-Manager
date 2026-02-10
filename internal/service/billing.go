@@ -1,0 +1,416 @@
+package service
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"math"
+	"time"
+
+	"ampmanager/internal/database"
+	"ampmanager/internal/model"
+	"ampmanager/internal/repository"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+)
+
+var (
+	ErrInsufficientFunds = errors.New("余额和订阅额度均不足")
+)
+
+type BillingService struct {
+	settingRepo repository.BillingSettingRepositoryInterface
+	subRepo     repository.UserSubscriptionRepositoryInterface
+	planRepo    repository.SubscriptionPlanRepositoryInterface
+	eventRepo   repository.BillingEventRepositoryInterface
+	userRepo    repository.UserRepositoryInterface
+	quotaSvc    *QuotaService
+	subSvc      *UserSubscriptionService
+}
+
+func NewBillingService() *BillingService {
+	return &BillingService{
+		settingRepo: repository.NewBillingSettingRepository(),
+		subRepo:     repository.NewUserSubscriptionRepository(),
+		planRepo:    repository.NewSubscriptionPlanRepository(),
+		eventRepo:   repository.NewBillingEventRepository(),
+		userRepo:    repository.NewUserRepository(),
+		quotaSvc:    NewQuotaService(),
+		subSvc:      NewUserSubscriptionService(),
+	}
+}
+
+func NewBillingServiceWithRepo(
+	settingRepo repository.BillingSettingRepositoryInterface,
+	subRepo repository.UserSubscriptionRepositoryInterface,
+	planRepo repository.SubscriptionPlanRepositoryInterface,
+	eventRepo repository.BillingEventRepositoryInterface,
+	userRepo repository.UserRepositoryInterface,
+) *BillingService {
+	return &BillingService{
+		settingRepo: settingRepo,
+		subRepo:     subRepo,
+		planRepo:    planRepo,
+		eventRepo:   eventRepo,
+		userRepo:    userRepo,
+		quotaSvc:    NewQuotaService(),
+		subSvc:      NewUserSubscriptionService(),
+	}
+}
+
+func (s *BillingService) CanStartRequest(userID string) (bool, error) {
+	setting, err := s.settingRepo.GetByUserID(userID)
+	if err != nil {
+		return false, err
+	}
+
+	sub, err := s.subRepo.GetActiveByUserID(userID)
+	if err != nil {
+		return false, err
+	}
+
+	var subscriptionRemaining int64
+	if sub != nil {
+		_, limits, err := s.planRepo.GetByID(sub.PlanID)
+		if err != nil {
+			return false, err
+		}
+		if len(limits) > 0 {
+			subscriptionRemaining = s.calcSubscriptionRemaining(sub, limits)
+		}
+	}
+
+	balance, err := s.userRepo.GetBalance(userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			balance = 0
+		} else {
+			return false, err
+		}
+	}
+
+	sources := []model.BillingSource{setting.PrimarySource, setting.SecondarySource}
+	for _, src := range sources {
+		switch src {
+		case model.BillingSourceSubscription:
+			if subscriptionRemaining > 0 {
+				return true, nil
+			}
+		case model.BillingSourceBalance:
+			if balance > 0 {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, limits []model.SubscriptionPlanLimit) int64 {
+	now := time.Now().UTC()
+	minRemaining := int64(math.MaxInt64)
+
+	for _, limit := range limits {
+		start, end, err := GetWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+		if err != nil {
+			continue
+		}
+		used, err := s.eventRepo.GetUsageInWindow(sub.ID, start, end)
+		if err != nil {
+			continue
+		}
+		left := limit.LimitMicros - used
+		if left < 0 {
+			left = 0
+		}
+		if left < minRemaining {
+			minRemaining = left
+		}
+	}
+
+	if minRemaining == math.MaxInt64 {
+		return 0
+	}
+	return minRemaining
+}
+
+func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicros int64) error {
+	if costMicros < 0 {
+		return fmt.Errorf("billing: invalid negative cost %d", costMicros)
+	}
+	if costMicros == 0 {
+		return s.markBillingStatus(requestLogID, "free", 0, 0)
+	}
+
+	db := database.GetDB()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("billing: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	setting, err := s.queryBillingSetting(tx, userID)
+	if err != nil {
+		return fmt.Errorf("billing: query setting: %w", err)
+	}
+
+	sub, err := s.queryActiveSubscription(tx, userID)
+	if err != nil {
+		return fmt.Errorf("billing: query subscription: %w", err)
+	}
+
+	var subscriptionRemaining int64
+	if sub != nil {
+		subscriptionRemaining, err = s.calcSubscriptionRemainingTx(tx, sub)
+		if err != nil {
+			return fmt.Errorf("billing: calc subscription remaining: %w", err)
+		}
+	}
+
+	balance, err := s.queryBalance(tx, userID)
+	if err != nil {
+		return fmt.Errorf("billing: query balance: %w", err)
+	}
+
+	var chargedSubscription, chargedBalance int64
+	remaining := costMicros
+
+	sources := []model.BillingSource{setting.PrimarySource, setting.SecondarySource}
+	for _, src := range sources {
+		if remaining <= 0 {
+			break
+		}
+		switch src {
+		case model.BillingSourceSubscription:
+			if sub != nil && subscriptionRemaining > 0 {
+				charge := remaining
+				if charge > subscriptionRemaining {
+					charge = subscriptionRemaining
+				}
+				chargedSubscription = charge
+				remaining -= charge
+				subscriptionRemaining -= charge
+			}
+		case model.BillingSourceBalance:
+			if balance > 0 {
+				charge := remaining
+				if charge > balance {
+					charge = balance
+				}
+				chargedBalance = charge
+				remaining -= charge
+				balance -= charge
+			}
+		}
+	}
+
+	if remaining > 0 {
+		if sub != nil {
+			chargedSubscription += remaining
+		} else {
+			chargedBalance += remaining
+		}
+	}
+
+	now := time.Now().UTC()
+
+	if chargedSubscription > 0 && sub != nil {
+		if err := s.insertBillingEvent(tx, requestLogID, userID, &sub.ID, model.BillingSourceSubscription, "charge", chargedSubscription, now); err != nil {
+			return fmt.Errorf("billing: insert subscription event: %w", err)
+		}
+	}
+
+	if chargedBalance > 0 {
+		if err := s.insertBillingEvent(tx, requestLogID, userID, nil, model.BillingSourceBalance, "charge", chargedBalance, now); err != nil {
+			return fmt.Errorf("billing: insert balance event: %w", err)
+		}
+		if _, err := tx.Exec(
+			`UPDATE users SET balance_micros = balance_micros - ?, updated_at = ? WHERE id = ?`,
+			chargedBalance, now.Format(time.RFC3339), userID,
+		); err != nil {
+			return fmt.Errorf("billing: deduct balance: %w", err)
+		}
+	}
+
+	billingStatus := "settled"
+	if remaining > 0 {
+		billingStatus = "overuse"
+	}
+	if _, err := tx.Exec(
+		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
+		chargedSubscription, chargedBalance, billingStatus, requestLogID,
+	); err != nil {
+		return fmt.Errorf("billing: update request_logs: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("billing: commit: %w", err)
+	}
+
+	log.Debugf("billing: settled request %s user %s cost=%d sub=%d bal=%d status=%s",
+		requestLogID, userID, costMicros, chargedSubscription, chargedBalance, billingStatus)
+	return nil
+}
+
+func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResponse, error) {
+	setting, err := s.settingRepo.GetByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, err := s.userRepo.GetBalance(userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			balance = 0
+		} else {
+			return nil, err
+		}
+	}
+
+	subSvc := s.subSvc
+	subResp, err := subSvc.GetActive(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	quotaSvc := s.quotaSvc
+	_, windows, err := quotaSvc.GetSubscriptionRemaining(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.BillingStateResponse{
+		BalanceMicros:   balance,
+		BalanceUsd:      fmt.Sprintf("%.6f", float64(balance)/1e6),
+		Subscription:    subResp,
+		Windows:         windows,
+		PrimarySource:   setting.PrimarySource,
+		SecondarySource: setting.SecondarySource,
+	}, nil
+}
+
+func (s *BillingService) queryBillingSetting(tx *sql.Tx, userID string) (*model.UserBillingSetting, error) {
+	setting := &model.UserBillingSetting{}
+	err := tx.QueryRow(
+		`SELECT user_id, primary_source, secondary_source FROM user_billing_settings WHERE user_id = ?`,
+		userID,
+	).Scan(&setting.UserID, &setting.PrimarySource, &setting.SecondarySource)
+	if err == sql.ErrNoRows {
+		return &model.UserBillingSetting{
+			UserID:          userID,
+			PrimarySource:   model.BillingSourceSubscription,
+			SecondarySource: model.BillingSourceBalance,
+		}, nil
+	}
+	return setting, err
+}
+
+func (s *BillingService) queryActiveSubscription(tx *sql.Tx, userID string) (*model.UserSubscription, error) {
+	sub := &model.UserSubscription{}
+	now := time.Now().UTC()
+	err := tx.QueryRow(
+		`SELECT id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at 
+		 FROM user_subscriptions 
+		 WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)`,
+		userID, now,
+	).Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Status, &sub.CreatedAt, &sub.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return sub, err
+}
+
+func (s *BillingService) queryBalance(tx *sql.Tx, userID string) (int64, error) {
+	var balance int64
+	err := tx.QueryRow(`SELECT balance_micros FROM users WHERE id = ?`, userID).Scan(&balance)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return balance, err
+}
+
+func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.UserSubscription) (int64, error) {
+	rows, err := tx.Query(
+		`SELECT id, plan_id, limit_type, window_mode, limit_micros, created_at, updated_at 
+		 FROM subscription_plan_limits WHERE plan_id = ? ORDER BY limit_type`,
+		sub.PlanID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var limits []model.SubscriptionPlanLimit
+	for rows.Next() {
+		l := model.SubscriptionPlanLimit{}
+		if err := rows.Scan(&l.ID, &l.PlanID, &l.LimitType, &l.WindowMode, &l.LimitMicros, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			return 0, err
+		}
+		limits = append(limits, l)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	if len(limits) == 0 {
+		return 0, nil
+	}
+
+	now := time.Now().UTC()
+	minRemaining := int64(math.MaxInt64)
+
+	for _, limit := range limits {
+		start, end, err := GetWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+		if err != nil {
+			return 0, err
+		}
+
+		var chargeSum, refundSum sql.NullInt64
+		err = tx.QueryRow(
+			`SELECT 
+				COALESCE(SUM(CASE WHEN event_type = 'charge' THEN amount_micros ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN event_type = 'refund' THEN amount_micros ELSE 0 END), 0)
+			 FROM billing_events 
+			 WHERE user_subscription_id = ? AND source = 'subscription' AND created_at >= ? AND created_at < ?`,
+			sub.ID, start, end,
+		).Scan(&chargeSum, &refundSum)
+		if err != nil {
+			return 0, err
+		}
+
+		used := chargeSum.Int64 - refundSum.Int64
+		left := limit.LimitMicros - used
+		if left < 0 {
+			left = 0
+		}
+		if left < minRemaining {
+			minRemaining = left
+		}
+	}
+
+	if minRemaining == math.MaxInt64 {
+		return 0, nil
+	}
+	return minRemaining, nil
+}
+
+func (s *BillingService) insertBillingEvent(tx *sql.Tx, requestLogID, userID string, userSubscriptionID *string, source model.BillingSource, eventType string, amount int64, now time.Time) error {
+	id := uuid.New().String()
+	_, err := tx.Exec(
+		`INSERT INTO billing_events (id, request_log_id, user_id, user_subscription_id, source, event_type, amount_micros, created_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, requestLogID, userID, userSubscriptionID, source, eventType, amount, now,
+	)
+	return err
+}
+
+func (s *BillingService) markBillingStatus(requestLogID, status string, subMicros, balMicros int64) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
+		subMicros, balMicros, status, requestLogID,
+	)
+	return err
+}

@@ -10,6 +10,16 @@ import {
   UserInfo,
 } from '../api/users'
 import { listGroups, Group } from '../api/groups'
+import {
+  getPlans,
+  getUserSubscription,
+  assignSubscription,
+  cancelSubscription,
+  updateSubscriptionExpiry,
+  SubscriptionPlanResponse,
+  UserSubscriptionResponse,
+  LimitType,
+} from '../api/subscription'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -31,10 +41,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
-import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet } from 'lucide-react'
+import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet, CreditCard, CalendarClock, Eye, X } from 'lucide-react'
+
+const LIMIT_TYPE_LABELS: Record<LimitType, string> = {
+  daily: '日限制',
+  weekly: '周限制',
+  monthly: '月限制',
+  rolling_5h: '5小时滚动',
+  total: '总量限制',
+}
+
+function microsToUsd(micros: number): string {
+  return (micros / 1_000_000).toFixed(2)
+}
 
 export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
@@ -46,10 +75,21 @@ export default function UserManagement() {
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<UserInfo | null>(null)
   const [topUpModal, setTopUpModal] = useState<{ userId: string; username: string } | null>(null)
   const [topUpAmount, setTopUpAmount] = useState('')
+  const [plans, setPlans] = useState<SubscriptionPlanResponse[]>([])
+  const [assignSubModal, setAssignSubModal] = useState<{ userId: string; username: string } | null>(null)
+  const [assignPlanId, setAssignPlanId] = useState('')
+  const [assignExpiresAt, setAssignExpiresAt] = useState('')
+  const [viewSubModal, setViewSubModal] = useState<{ userId: string; username: string } | null>(null)
+  const [viewingSub, setViewingSub] = useState<UserSubscriptionResponse | null>(null)
+  const [viewSubLoading, setViewSubLoading] = useState(false)
+  const [extendModal, setExtendModal] = useState<{ userId: string; username: string } | null>(null)
+  const [extendDate, setExtendDate] = useState('')
+  const [cancelSubConfirm, setCancelSubConfirm] = useState<{ userId: string; username: string } | null>(null)
 
   useEffect(() => {
     fetchUsers()
     fetchGroups()
+    fetchPlansList()
   }, [])
 
   const fetchUsers = async () => {
@@ -68,6 +108,75 @@ export default function UserManagement() {
       const data = await listGroups()
       setGroups(data)
     } catch {}
+  }
+
+  const fetchPlansList = async () => {
+    try {
+      const data = await getPlans()
+      setPlans(data.filter((p) => p.enabled))
+    } catch {}
+  }
+
+  const handleOpenAssignSub = (userId: string, username: string) => {
+    setAssignPlanId('')
+    setAssignExpiresAt('')
+    setAssignSubModal({ userId, username })
+  }
+
+  const handleAssignSub = async () => {
+    if (!assignSubModal || !assignPlanId) return
+    try {
+      await assignSubscription(assignSubModal.userId, {
+        planId: assignPlanId,
+        expiresAt: assignExpiresAt || undefined,
+      })
+      showMessage('success', '订阅已分配')
+      setAssignSubModal(null)
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '分配订阅失败')
+    }
+  }
+
+  const handleViewSub = async (userId: string, username: string) => {
+    setViewSubModal({ userId, username })
+    setViewSubLoading(true)
+    setViewingSub(null)
+    try {
+      const sub = await getUserSubscription(userId)
+      setViewingSub(sub)
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '获取订阅失败')
+      setViewSubModal(null)
+    } finally {
+      setViewSubLoading(false)
+    }
+  }
+
+  const handleCancelSub = async () => {
+    if (!cancelSubConfirm) return
+    try {
+      await cancelSubscription(cancelSubConfirm.userId)
+      showMessage('success', '订阅已取消')
+      setCancelSubConfirm(null)
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '取消订阅失败')
+    }
+  }
+
+  const handleOpenExtend = (userId: string, username: string) => {
+    setExtendDate('')
+    setExtendModal({ userId, username })
+  }
+
+  const handleExtend = async () => {
+    if (!extendModal || !extendDate) return
+    try {
+      await updateSubscriptionExpiry(extendModal.userId, new Date(extendDate).toISOString())
+      showMessage('success', '到期时间已更新')
+      setExtendModal(null)
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '更新到期时间失败')
+    }
   }
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -255,7 +364,40 @@ export default function UserManagement() {
                     {formatDate(user.createdAt)}
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenAssignSub(user.id, user.username)}
+                      >
+                        <CreditCard className="mr-1 h-4 w-4" />
+                        分配订阅
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewSub(user.id, user.username)}
+                      >
+                        <Eye className="mr-1 h-4 w-4" />
+                        查看订阅
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenExtend(user.id, user.username)}
+                      >
+                        <CalendarClock className="mr-1 h-4 w-4" />
+                        延期
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setCancelSubConfirm({ userId: user.id, username: user.username })}
+                      >
+                        <X className="mr-1 h-4 w-4" />
+                        取消订阅
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -380,6 +522,159 @@ export default function UserManagement() {
             </Button>
             <Button onClick={handleTopUp} disabled={!topUpAmount || parseFloat(topUpAmount) <= 0}>
               确认充值
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Subscription Dialog */}
+      <Dialog open={!!assignSubModal} onOpenChange={(open) => !open && setAssignSubModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>分配订阅</DialogTitle>
+            <DialogDescription>
+              为用户 <span className="font-medium">{assignSubModal?.username}</span> 分配订阅套餐
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>选择套餐</Label>
+              <Select value={assignPlanId} onValueChange={setAssignPlanId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择套餐..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {plans.length === 0 && (
+                <p className="text-xs text-muted-foreground">暂无可用套餐，请先创建</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>到期时间（可选）</Label>
+              <Input
+                type="datetime-local"
+                value={assignExpiresAt}
+                onChange={(e) => setAssignExpiresAt(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">留空表示永不过期</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignSubModal(null)}>
+              取消
+            </Button>
+            <Button onClick={handleAssignSub} disabled={!assignPlanId}>
+              确认分配
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Subscription Dialog */}
+      <Dialog open={!!viewSubModal} onOpenChange={(open) => !open && setViewSubModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>用户订阅详情</DialogTitle>
+            <DialogDescription>
+              用户 <span className="font-medium">{viewSubModal?.username}</span> 的订阅信息
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {viewSubLoading ? (
+              <p className="text-center text-muted-foreground">加载中...</p>
+            ) : viewingSub ? (
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">套餐名称</span>
+                  <span className="font-medium">{viewingSub.planName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">状态</span>
+                  <Badge variant={viewingSub.status === 'active' ? 'default' : 'secondary'}>
+                    {viewingSub.status === 'active' ? '活跃' : viewingSub.status === 'expired' ? '已过期' : viewingSub.status === 'cancelled' ? '已取消' : viewingSub.status}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">开始时间</span>
+                  <span>{formatDate(viewingSub.startsAt)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">到期时间</span>
+                  <span>{viewingSub.expiresAt ? formatDate(viewingSub.expiresAt) : '永不过期'}</span>
+                </div>
+                {viewingSub.limits && viewingSub.limits.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <span className="text-sm font-medium">额度限制</span>
+                    {viewingSub.limits.map((l) => (
+                      <div key={l.id} className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{LIMIT_TYPE_LABELS[l.limitType] || l.limitType}</span>
+                        <span>${microsToUsd(l.limitMicros)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground">该用户暂无订阅</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewSubModal(null)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend Subscription Dialog */}
+      <Dialog open={!!extendModal} onOpenChange={(open) => !open && setExtendModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>延长订阅</DialogTitle>
+            <DialogDescription>
+              为用户 <span className="font-medium">{extendModal?.username}</span> 设置新的到期时间
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>新到期时间</Label>
+              <Input
+                type="datetime-local"
+                value={extendDate}
+                onChange={(e) => setExtendDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtendModal(null)}>
+              取消
+            </Button>
+            <Button onClick={handleExtend} disabled={!extendDate}>
+              确认延期
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Subscription Confirm */}
+      <Dialog open={!!cancelSubConfirm} onOpenChange={(open) => !open && setCancelSubConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认取消订阅</DialogTitle>
+            <DialogDescription>
+              确定要取消用户 <span className="font-medium">{cancelSubConfirm?.username}</span> 的订阅吗？
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelSubConfirm(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleCancelSub}>
+              确认取消订阅
             </Button>
           </DialogFooter>
         </DialogContent>
