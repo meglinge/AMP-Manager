@@ -96,6 +96,7 @@ func (s *ModelService) fetchModelsFromProvider(channel *model.Channel) ([]fetche
 		if err != nil {
 			return nil, err
 		}
+		req.Header.Set("x-goog-api-key", channel.APIKey)
 
 	default:
 		return nil, fmt.Errorf("不支持的渠道类型: %s", channel.Type)

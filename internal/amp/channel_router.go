@@ -538,13 +538,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					}
 				}
 
-				// For Gemini, ensure no auth headers conflict with query key
+				// For Gemini, ensure no conflicting auth headers (but keep x-goog-api-key)
 				if channel.Type == model.ChannelTypeGemini {
 					req.Header.Del("Authorization")
 					req.Header.Del("X-Api-Key")
 					req.Header.Del("x-api-key")
-					req.Header.Del("X-Goog-Api-Key")
-					req.Header.Del("x-goog-api-key")
 				}
 			},
 			FlushInterval: -1, // Flush immediately for SSE streaming support
@@ -765,6 +763,7 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 		req.Header.Set("anthropic-version", "2023-06-01")
 		ensureRequiredAnthropicBetas(req)
 	case model.ChannelTypeGemini:
+		req.Header.Set("x-goog-api-key", channel.APIKey)
 	}
 }
 

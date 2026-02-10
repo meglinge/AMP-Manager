@@ -277,6 +277,7 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 		q := req.URL.Query()
 		q.Set("key", channel.APIKey)
 		req.URL.RawQuery = q.Encode()
+		req.Header.Set("x-goog-api-key", channel.APIKey)
 	}
 
 	start := time.Now()
