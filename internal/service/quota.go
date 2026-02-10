@@ -130,6 +130,8 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 			LimitMicros: limit.LimitMicros,
 			UsedMicros:  used,
 			LeftMicros:  left,
+			WindowStart: start,
+			WindowEnd:   end,
 		})
 
 		if left < minRemaining {

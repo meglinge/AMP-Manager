@@ -128,11 +128,13 @@ type UserSubscriptionResponse struct {
 }
 
 type WindowRemaining struct {
-	LimitType   LimitType `json:"limitType"`
+	LimitType   LimitType  `json:"limitType"`
 	WindowMode  WindowMode `json:"windowMode"`
-	LimitMicros int64     `json:"limitMicros"`
-	UsedMicros  int64     `json:"usedMicros"`
-	LeftMicros  int64     `json:"leftMicros"`
+	LimitMicros int64      `json:"limitMicros"`
+	UsedMicros  int64      `json:"usedMicros"`
+	LeftMicros  int64      `json:"leftMicros"`
+	WindowStart time.Time  `json:"windowStart"`
+	WindowEnd   time.Time  `json:"windowEnd"`
 }
 
 type BillingStateResponse struct {

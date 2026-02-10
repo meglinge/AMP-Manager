@@ -52,6 +52,7 @@ import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet, CreditCard, CalendarClock, Eye, X } from 'lucide-react'
+import { DateTimePicker } from '@/components/ui/datetime-picker'
 
 const LIMIT_TYPE_LABELS: Record<LimitType, string> = {
   daily: '日限制',
@@ -555,10 +556,10 @@ export default function UserManagement() {
             </div>
             <div className="space-y-2">
               <Label>到期时间（可选）</Label>
-              <Input
-                type="datetime-local"
+              <DateTimePicker
                 value={assignExpiresAt}
-                onChange={(e) => setAssignExpiresAt(e.target.value)}
+                onChange={setAssignExpiresAt}
+                placeholder="选择到期时间"
               />
               <p className="text-xs text-muted-foreground">留空表示永不过期</p>
             </div>
@@ -642,10 +643,10 @@ export default function UserManagement() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>新到期时间</Label>
-              <Input
-                type="datetime-local"
+              <DateTimePicker
                 value={extendDate}
-                onChange={(e) => setExtendDate(e.target.value)}
+                onChange={setExtendDate}
+                placeholder="选择到期时间"
               />
             </div>
           </div>

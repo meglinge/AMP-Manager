@@ -91,6 +91,8 @@ export interface WindowRemaining {
   limitMicros: number
   usedMicros: number
   leftMicros: number
+  windowStart: string
+  windowEnd: string
 }
 
 export interface BillingStateSubscription {

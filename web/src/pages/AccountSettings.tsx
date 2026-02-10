@@ -417,6 +417,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                                 </span>
                               </div>
                               <Progress value={Math.min(usedPct, 100)} className="h-2" />
+                              {w.limitType !== 'total' && w.windowEnd && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {w.windowMode === 'fixed'
+                                    ? `重置于 ${new Date(w.windowEnd).toLocaleString('zh-CN')}`
+                                    : `统计窗口: ${new Date(w.windowStart).toLocaleString('zh-CN')} ~ 现在`}
+                                </div>
+                              )}
                             </div>
                           )
                         })}
