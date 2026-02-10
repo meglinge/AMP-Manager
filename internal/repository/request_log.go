@@ -374,7 +374,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 			       COALESCE(SUM(input_tokens), 0),
 			       COALESCE(SUM(output_tokens), 0),
 			       COALESCE(SUM(cost_micros), 0),
-			       SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END)
+			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE user_id = ? AND created_at >= ?
 		`, userID, from.UTC().Format(time.RFC3339)).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
 		return s, err
@@ -507,7 +507,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 			       COALESCE(SUM(input_tokens), 0),
 			       COALESCE(SUM(output_tokens), 0),
 			       COALESCE(SUM(cost_micros), 0),
-			       SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END)
+			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE created_at >= ?
 		`, from.UTC().Format(time.RFC3339)).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
 		return s, err
