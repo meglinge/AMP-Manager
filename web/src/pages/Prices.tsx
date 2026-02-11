@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
-import { motion } from '@/lib/motion'
+import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import { listPrices, getPriceStats, refreshPrices, ModelPrice, PriceStats } from '../api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -332,9 +331,9 @@ export default function PricesPage() {
                         <TableHead>来源</TableHead>
                       </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}-${searchTerm}-${providerFilter}`}>
                       {paginatedPrices.map((price) => (
-                        <TableRow key={`${price.provider ?? 'unknown'}:${price.model}`}>
+                        <motion.tr key={`${price.provider ?? 'unknown'}:${price.model}`} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                           <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
                             {price.model}
                           </TableCell>
@@ -360,9 +359,9 @@ export default function PricesPage() {
                               {price.source}
                             </Badge>
                           </TableCell>
-                        </TableRow>
+                        </motion.tr>
                       ))}
-                    </TableBody>
+                    </motion.tbody>
                   </Table>
                 </div>
 

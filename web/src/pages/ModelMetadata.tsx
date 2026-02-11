@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion } from '@/lib/motion'
+import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   listModelMetadata,
   createModelMetadata,
@@ -16,7 +16,6 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -191,9 +190,9 @@ export default function ModelMetadataPage() {
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={metadata.length}>
                   {metadata.map((item) => (
-                    <TableRow key={item.id}>
+                    <motion.tr key={item.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                       <TableCell className="font-mono">{item.modelPattern}</TableCell>
                       <TableCell>{item.displayName}</TableCell>
                       <TableCell>{formatTokenCount(item.contextLength)}</TableCell>
@@ -219,9 +218,9 @@ export default function ModelMetadataPage() {
                           删除
                         </Button>
                       </TableCell>
-                    </TableRow>
+                    </motion.tr>
                   ))}
-                </TableBody>
+                </motion.tbody>
               </Table>
             </div>
           )}

@@ -3,12 +3,12 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import { Channel, ChannelType, TestChannelResult } from '@/api/channels'
 
 export interface ChannelTableProps {
@@ -66,9 +66,9 @@ export function ChannelTable({
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={channels.length}>
           {channels.map((channel) => (
-            <TableRow key={channel.id}>
+            <motion.tr key={channel.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
               <TableCell className="font-medium">{channel.name}</TableCell>
               <TableCell>
                 <Badge variant={getTypeBadgeVariant(channel.type)}>
@@ -120,9 +120,9 @@ export function ChannelTable({
                   删除
                 </Button>
               </TableCell>
-            </TableRow>
+            </motion.tr>
           ))}
-        </TableBody>
+        </motion.tbody>
       </Table>
     </div>
   )

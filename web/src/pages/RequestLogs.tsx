@@ -11,7 +11,6 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -29,7 +28,7 @@ import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
 import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
-import { motion } from '@/lib/motion'
+import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
 
 interface Props {
@@ -225,9 +224,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>流式</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}`}>
                     {logs.map((log) => (
-                      <TableRow key={log.id}>
+                      <motion.tr key={log.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(log.createdAt)}
                         </TableCell>
@@ -286,9 +285,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                             <Badge variant="secondary">流式</Badge>
                           ) : null}
                         </TableCell>
-                      </TableRow>
+                      </motion.tr>
                     ))}
-                  </TableBody>
+                  </motion.tbody>
                 </Table>
                 </div>
 

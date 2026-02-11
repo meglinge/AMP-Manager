@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from '@/lib/motion'
+import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   getAPIKeys,
   createAPIKey,
@@ -16,7 +16,6 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -230,9 +229,9 @@ export default function APIKeys() {
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={keys.length}>
                   {keys.map((key) => (
-                    <TableRow key={key.id}>
+                    <motion.tr key={key.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                       <TableCell className="font-medium">{key.name}</TableCell>
                       <TableCell className="font-mono text-muted-foreground">
                         {key.prefix}...
@@ -260,9 +259,9 @@ export default function APIKeys() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </motion.tr>
                   ))}
-                </TableBody>
+                </motion.tbody>
               </Table>
             </motion.div>
           )}

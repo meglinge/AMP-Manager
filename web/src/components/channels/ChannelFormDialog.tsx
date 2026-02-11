@@ -260,9 +260,11 @@ export function ChannelFormDialog({
           {/* 模型规则编辑器 */}
           <ModelRulesEditor
             models={formData.models}
+            channelId={editingChannel?.id}
             onAdd={handleAddModel}
             onRemove={handleRemoveModel}
             onChange={handleModelChange}
+            onSetModels={(models) => setFormData(prev => ({ ...prev, models }))}
           />
 
           {/* 自定义请求头 */}

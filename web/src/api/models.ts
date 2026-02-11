@@ -42,6 +42,29 @@ export async function fetchChannelModels(channelId: string): Promise<{ message: 
   return res.json()
 }
 
+export interface ChannelModel2 {
+  id: string
+  channelId: string
+  modelId: string
+  displayName: string
+  createdAt: string
+}
+
+export async function getChannelModels(channelId: string): Promise<ChannelModel2[]> {
+  const token = localStorage.getItem('token')
+  const res = await fetch(`${API_BASE}/admin/channels/${channelId}/models`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || '获取渠道模型失败')
+  }
+  const data = await res.json()
+  return data.models || []
+}
+
 export async function fetchAllModels(): Promise<FetchModelsResult> {
   const token = localStorage.getItem('token')
   const res = await fetch(`${API_BASE}/admin/models/fetch-all`, {
