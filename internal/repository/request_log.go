@@ -94,13 +94,14 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	// 查询数据
 	query := fmt.Sprintf(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, r.original_model, r.mapped_model,
-		       r.provider, r.channel_id, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
+		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
 		       COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200)) as output_preview
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
 		LEFT JOIN request_log_details d ON r.id = d.request_id
+		LEFT JOIN channels c ON r.channel_id = c.id
 		WHERE %s
 		ORDER BY r.created_at DESC
 		LIMIT ? OFFSET ?
@@ -121,12 +122,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username sql.NullString
-		var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
+		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 		err := rows.Scan(
 			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID,
-			&originalModel, &mappedModel, &provider, &channelID, &endpoint,
+			&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
@@ -163,6 +164,9 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		}
 		if channelID.Valid {
 			log.ChannelID = &channelID.String
+		}
+		if channelName.Valid {
+			log.ChannelName = &channelName.String
 		}
 		if endpoint.Valid {
 			log.Endpoint = &endpoint.String
@@ -634,18 +638,20 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var updatedAt sql.NullTime
 	var status sql.NullString
 	var isStreaming int
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 	err := db.QueryRow(`
-		SELECT id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
-		       provider, channel_id, endpoint, method, path, status_code, latency_ms,
-		       is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-		       cache_creation_input_tokens, error_type, request_id, cost_micros, cost_usd, pricing_model, thinking_level
-		FROM request_logs WHERE id = ?
+		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, r.api_key_id, r.original_model, r.mapped_model,
+		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
+		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
+		FROM request_logs r
+		LEFT JOIN channels c ON r.channel_id = c.id
+		WHERE r.id = ?
 	`, id).Scan(
 		&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
-		&originalModel, &mappedModel, &provider, &channelID, &endpoint,
+		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
@@ -682,6 +688,9 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	}
 	if channelID.Valid {
 		log.ChannelID = &channelID.String
+	}
+	if channelName.Valid {
+		log.ChannelName = &channelName.String
 	}
 	if endpoint.Valid {
 		log.Endpoint = &endpoint.String

@@ -212,7 +212,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>时间</TableHead>
                       {isAdmin && <TableHead>用户</TableHead>}
                       <TableHead>模型</TableHead>
-                      <TableHead>供应商</TableHead>
+                      <TableHead>渠道</TableHead>
                       <TableHead>思维等级</TableHead>
                       <TableHead>方法</TableHead>
                       <TableHead>状态</TableHead>
@@ -249,8 +249,8 @@ export default function RequestLogs({ isAdmin }: Props) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {log.provider ? (
-                            <Badge variant="outline" className="text-xs">{log.provider}</Badge>
+                          {(log.channelName || log.provider) ? (
+                            <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}

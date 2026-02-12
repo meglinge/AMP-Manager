@@ -137,6 +137,7 @@ type RequestLog struct {
 	MappedModel              *string          `json:"mappedModel,omitempty"`
 	Provider                 *string          `json:"provider,omitempty"`
 	ChannelID                *string          `json:"channelId,omitempty"`
+	ChannelName              *string          `json:"channelName,omitempty"`
 	Endpoint                 *string          `json:"endpoint,omitempty"`
 	Method                   string           `json:"method"`
 	Path                     string           `json:"path"`

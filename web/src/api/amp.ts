@@ -167,6 +167,7 @@ export interface RequestLog {
   originalModel?: string
   mappedModel?: string
   provider?: string
+  channelName?: string
   channelId?: string
   endpoint?: string
   method: string
