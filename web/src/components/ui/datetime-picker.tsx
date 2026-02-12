@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { Calendar, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
@@ -53,8 +52,8 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
   const [hour, setHour] = useState(parsed ? pad(parsed.getHours()) : '00')
   const [minute, setMinute] = useState(parsed ? pad(parsed.getMinutes()) : '00')
 
-  const hourRef = useRef<HTMLInputElement>(null)
-  const minuteRef = useRef<HTMLInputElement>(null)
+  const hourListRef = useRef<HTMLDivElement>(null)
+  const minuteListRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (value) {
@@ -87,29 +86,35 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
     }
   }
 
-  const handleHourChange = (val: string) => {
-    const num = val.replace(/\D/g, '')
-    if (num === '') {
-      setHour('')
-      return
-    }
-    const n = Math.min(23, Math.max(0, parseInt(num)))
-    const padded = pad(n)
+  const handleHourSelect = (h: number) => {
+    const padded = pad(h)
     setHour(padded)
     handleTimeChange(padded, minute)
   }
 
-  const handleMinuteChange = (val: string) => {
-    const num = val.replace(/\D/g, '')
-    if (num === '') {
-      setMinute('')
-      return
-    }
-    const n = Math.min(59, Math.max(0, parseInt(num)))
-    const padded = pad(n)
+  const handleMinuteSelect = (m: number) => {
+    const padded = pad(m)
     setMinute(padded)
     handleTimeChange(hour, padded)
   }
+
+  const scrollToSelected = useCallback(() => {
+    const ITEM_H = 28
+    if (hourListRef.current) {
+      const h = parseInt(hour) || 0
+      hourListRef.current.scrollTop = h * ITEM_H
+    }
+    if (minuteListRef.current) {
+      const m = parseInt(minute) || 0
+      minuteListRef.current.scrollTop = m * ITEM_H
+    }
+  }, [hour, minute])
+
+  useEffect(() => {
+    if (open) {
+      requestAnimationFrame(scrollToSelected)
+    }
+  }, [open, scrollToSelected])
 
   const prevMonth = () => {
     if (viewMonth === 0) {
@@ -228,28 +233,54 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
 
           {/* Time Selector */}
           <div className="border-t mt-3 pt-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  ref={hourRef}
-                  value={hour}
-                  onChange={(e) => handleHourChange(e.target.value)}
-                  className="w-11 h-7 text-center text-xs px-1"
-                  maxLength={2}
-                />
-                <span className="text-sm text-muted-foreground font-medium">:</span>
-                <Input
-                  ref={minuteRef}
-                  value={minute}
-                  onChange={(e) => handleMinuteChange(e.target.value)}
-                  className="w-11 h-7 text-center text-xs px-1"
-                  maxLength={2}
-                />
+                <span className="text-sm font-medium">{hour}:{minute}</span>
               </div>
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={setNow}>
                 现在
               </Button>
+            </div>
+            <div className="flex gap-2">
+              {/* Hour list */}
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground text-center mb-1">时</div>
+                <div ref={hourListRef} className="h-[140px] overflow-auto rounded-md border">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleHourSelect(i)}
+                      className={cn(
+                        'w-full h-7 text-xs text-center transition-colors',
+                        'hover:bg-accent hover:text-accent-foreground',
+                        pad(i) === hour && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                      )}
+                    >
+                      {pad(i)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Minute list */}
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground text-center mb-1">分</div>
+                <div ref={minuteListRef} className="h-[140px] overflow-auto rounded-md border">
+                  {Array.from({ length: 60 }, (_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleMinuteSelect(i)}
+                      className={cn(
+                        'w-full h-7 text-xs text-center transition-colors',
+                        'hover:bg-accent hover:text-accent-foreground',
+                        pad(i) === minute && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                      )}
+                    >
+                      {pad(i)}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
