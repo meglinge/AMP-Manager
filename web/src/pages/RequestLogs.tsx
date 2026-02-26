@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
-  getRequestLogs, getAdminRequestLogs, getAdminDistinctModels,
-  RequestLog,
+  getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys,
+  RequestLog, DistinctAPIKey,
 } from '@/api/amp'
+import { connectRequestLogsWS } from '@/api/requestLogsWS'
 import { listUsers, UserInfo } from '@/api/users'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -16,13 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { formatDate } from '@/lib/formatters'
 import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -35,8 +34,6 @@ interface Props {
   isAdmin: boolean
 }
 
-type RefreshInterval = 5 | 10 | 30 | 60
-
 export default function RequestLogs({ isAdmin }: Props) {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,14 +44,14 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(20)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', model: '', from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
+  const [keys, setKeys] = useState<DistinctAPIKey[]>([])
 
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(10)
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const wsCloseRef = useRef<(() => void) | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
@@ -78,22 +75,50 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [isAdmin])
 
   useEffect(() => {
+    if (isAdmin) {
+      getAdminDistinctKeys(filters.userId || undefined)
+        .then(res => setKeys(res.keys || []))
+        .catch(console.error)
+    }
+  }, [isAdmin, filters.userId])
+
+  useEffect(() => {
     loadData()
   }, [page, pageSize, filters])
 
   useEffect(() => {
-    if (autoRefresh) {
-      refreshTimerRef.current = setInterval(loadData, refreshInterval * 1000)
+    if (autoRefresh && isAdmin) {
+      const close = connectRequestLogsWS(
+        (newLog) => {
+          setLogs(prev => {
+            const idx = prev.findIndex(l => l.id === newLog.id)
+            if (idx >= 0) {
+              const updated = [...prev]
+              updated[idx] = newLog
+              return updated
+            }
+            return [newLog, ...prev].slice(0, pageSize)
+          })
+          setTotal(prev => prev + 1)
+        },
+        () => {
+          wsCloseRef.current = null
+        },
+      )
+      wsCloseRef.current = close
     } else {
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current)
-        refreshTimerRef.current = null
+      if (wsCloseRef.current) {
+        wsCloseRef.current()
+        wsCloseRef.current = null
       }
     }
     return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
+      if (wsCloseRef.current) {
+        wsCloseRef.current()
+        wsCloseRef.current = null
+      }
     }
-  }, [autoRefresh, refreshInterval, page, pageSize, filters])
+  }, [autoRefresh, isAdmin, pageSize])
 
   useEffect(() => {
     return () => {
@@ -118,7 +143,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         to: filters.to ? localToISO(filters.to) : undefined,
       }
       const result = isAdmin
-        ? await getAdminRequestLogs({ ...params, userId: filters.userId || undefined }, controller.signal)
+        ? await getAdminRequestLogs({ ...params, userId: filters.userId || undefined, apiKeyId: filters.apiKeyId || undefined }, controller.signal)
         : await getRequestLogs(params, controller.signal)
       if (controller.signal.aborted) return
       setLogs(result.items || [])
@@ -147,6 +172,15 @@ export default function RequestLogs({ isAdmin }: Props) {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
+  const getUserDisplay = (log: RequestLog) => {
+    return log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
+  }
+
+  const getKeyDisplay = (log: RequestLog) => {
+    if (log.apiKeyName) return `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}`
+    return log.apiKeyPrefix || log.apiKeyId || '-'
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}>
@@ -159,6 +193,7 @@ export default function RequestLogs({ isAdmin }: Props) {
       <LogFilterBar
         isAdmin={isAdmin}
         users={users}
+        keys={keys}
         models={models}
         values={filters}
         onChange={handleFilterChange}
@@ -180,19 +215,6 @@ export default function RequestLogs({ isAdmin }: Props) {
                 <div className="flex items-center gap-2 border-l pl-3">
                   <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
                   <Label htmlFor="auto-refresh" className="text-sm">自动刷新</Label>
-                  {autoRefresh && (
-                    <Select value={String(refreshInterval)} onValueChange={(v) => setRefreshInterval(Number(v) as RefreshInterval)}>
-                      <SelectTrigger className="w-20">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5">5秒</SelectItem>
-                        <SelectItem value="10">10秒</SelectItem>
-                        <SelectItem value="30">30秒</SelectItem>
-                        <SelectItem value="60">60秒</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
                 </div>
                 <Button variant="outline" onClick={loadData}>刷新</Button>
               </div>
@@ -232,8 +254,22 @@ export default function RequestLogs({ isAdmin }: Props) {
                           {formatDate(log.createdAt)}
                         </TableCell>
                         {isAdmin && (
-                          <TableCell className="text-xs truncate max-w-24" title={log.username || userIdToUsername.get(log.userId) || log.userId}>
-                            {log.username || userIdToUsername.get(log.userId) || (log.userId.slice(0, 8) + '...')}
+                          <TableCell className="text-xs max-w-24">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default truncate block">{getUserDisplay(log)}</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="bg-popover text-popover-foreground border shadow-md px-3 py-2 text-xs space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground">用户</span>
+                                  <span className="font-medium">{log.username || userIdToUsername.get(log.userId) || log.userId}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground">Key</span>
+                                  <span className="font-medium">{getKeyDisplay(log)}</span>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                         )}
                         <TableCell>

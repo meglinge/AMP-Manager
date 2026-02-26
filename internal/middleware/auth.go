@@ -82,6 +82,31 @@ func AdminMiddleware() gin.HandlerFunc {
 	}
 }
 
+// JWTAuthFromQuery 从 query 参数中提取 JWT 进行认证（用于 WebSocket）
+func JWTAuthFromQuery(param string) gin.HandlerFunc {
+	jwtService := service.NewJWTService()
+
+	return func(c *gin.Context) {
+		tokenString := c.Query(param)
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少认证参数"})
+			c.Abort()
+			return
+		}
+
+		claims, err := jwtService.ValidateToken(tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token 验证失败"})
+			c.Abort()
+			return
+		}
+
+		c.Set(ContextKeyUserID, claims.UserID)
+		c.Set(ContextKeyUsername, claims.Username)
+		c.Next()
+	}
+}
+
 func GetUserID(c *gin.Context) string {
 	userID, _ := c.Get(ContextKeyUserID)
 	if id, ok := userID.(string); ok {

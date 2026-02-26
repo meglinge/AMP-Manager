@@ -8,6 +8,8 @@ import (
 	"ampmanager/internal/billing"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/realtime"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/router"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
@@ -53,6 +55,12 @@ func main() {
 	// 初始化 pending 请求清理器
 	amp.InitPendingCleaner(database.GetDB())
 	defer amp.StopPendingCleaner()
+
+	// 初始化实时推送 hub
+	logRepo := repository.NewRequestLogRepository()
+	realtime.InitHub(func(id string) (interface{}, error) {
+		return logRepo.GetByIDWithJoins(id)
+	})
 
 	userService := service.NewUserService()
 	if err := userService.EnsureAdmin(); err != nil {

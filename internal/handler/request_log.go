@@ -9,10 +9,12 @@ import (
 	"ampmanager/internal/amp"
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
+	"ampmanager/internal/realtime"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"nhooyr.io/websocket"
 )
 
 type RequestLogHandler struct {
@@ -214,6 +216,18 @@ func (h *RequestLogHandler) AdminGetDistinctModels(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
+// AdminGetDistinctAPIKeys 管理员获取使用过的 API Key 列表
+func (h *RequestLogHandler) AdminGetDistinctAPIKeys(c *gin.Context) {
+	userID := c.Query("userId")
+	keys, err := h.logService.GetDistinctAPIKeys(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Key 列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"keys": keys})
 }
 
 // AdminGetUsageSummary 管理员获取全局用量统计
@@ -464,4 +478,29 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		"dailyTrend":    trendList,
 		"cacheHitRates": cacheHitRateList,
 	})
+}
+
+// AdminRequestLogsWS WebSocket 实时日志推送
+func (h *RequestLogHandler) AdminRequestLogsWS(c *gin.Context) {
+	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusInternalError, "")
+
+	hub := realtime.GetHub()
+	if hub == nil {
+		conn.Close(websocket.StatusInternalError, "hub not initialized")
+		return
+	}
+
+	client := realtime.NewClient(conn)
+	hub.Register(client)
+	defer hub.Unregister(client)
+
+	ctx := c.Request.Context()
+	go client.WriteLoop(ctx)
+	client.ReadLoop(ctx)
 }

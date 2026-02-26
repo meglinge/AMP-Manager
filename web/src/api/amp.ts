@@ -164,6 +164,8 @@ export interface RequestLog {
   userId: string
   username?: string
   apiKeyId: string
+  apiKeyName?: string
+  apiKeyPrefix?: string
   originalModel?: string
   mappedModel?: string
   provider?: string
@@ -288,6 +290,23 @@ export async function getAdminDistinctModels(signal?: AbortSignal): Promise<{ mo
     signal,
   })
   return handleResponse<{ models: string[] }>(response)
+}
+
+export interface DistinctAPIKey {
+  id: string
+  name: string
+  prefix: string
+}
+
+export async function getAdminDistinctKeys(userId?: string, signal?: AbortSignal): Promise<{ keys: DistinctAPIKey[] }> {
+  const searchParams = new URLSearchParams()
+  if (userId) searchParams.set('userId', userId)
+  const query = searchParams.toString()
+  const response = await fetch(`${ADMIN_API_BASE}/request-logs/keys${query ? `?${query}` : ''}`, {
+    headers: getAuthHeader(),
+    signal,
+  })
+  return handleResponse<{ keys: DistinctAPIKey[] }>(response)
 }
 
 export async function getAdminUsageSummary(params: { from?: string; to?: string; groupBy?: string; userId?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {

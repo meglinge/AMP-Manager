@@ -1,21 +1,16 @@
 import { useState, useEffect } from 'react'
+import { DistinctAPIKey } from '@/api/amp'
 import { UserInfo } from '@/api/users'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
+import { SearchableSelect, SelectOption } from '@/components/SearchableSelect'
 import { motion } from '@/lib/motion'
 
 export interface FilterValues {
   userId: string
+  apiKeyId: string
   model: string
   from: string
   to: string
@@ -24,6 +19,7 @@ export interface FilterValues {
 interface LogFilterBarProps {
   isAdmin: boolean
   users: UserInfo[]
+  keys: DistinctAPIKey[]
   models: string[]
   values: FilterValues
   onChange: (values: FilterValues) => void
@@ -77,7 +73,7 @@ function localToISO(localStr: string): string {
   return new Date(localStr).toISOString()
 }
 
-export function LogFilterBar({ isAdmin, users, models, values, onChange }: LogFilterBarProps) {
+export function LogFilterBar({ isAdmin, users, keys, models, values, onChange }: LogFilterBarProps) {
   const [activePreset, setActivePreset] = useState<PresetKey>('custom')
 
   useEffect(() => {
@@ -112,10 +108,18 @@ export function LogFilterBar({ isAdmin, users, models, values, onChange }: LogFi
 
   const handleClearAll = () => {
     setActivePreset('custom')
-    onChange({ userId: '', model: '', from: '', to: '' })
+    onChange({ userId: '', apiKeyId: '', model: '', from: '', to: '' })
   }
 
-  const hasAnyFilter = values.userId || values.model || values.from || values.to
+  const handleUserChange = (userId: string) => {
+    update({ userId, apiKeyId: '' })
+  }
+
+  const userOptions: SelectOption[] = users.map(u => ({ value: u.id, label: u.username }))
+  const keyOptions: SelectOption[] = keys.map(k => ({ value: k.id, label: `${k.name} (${k.prefix})`, keywords: [k.prefix] }))
+  const modelOptions: SelectOption[] = models.map(m => ({ value: m, label: m }))
+
+  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.from || values.to
 
   return (
     <motion.div
@@ -129,49 +133,41 @@ export function LogFilterBar({ isAdmin, users, models, values, onChange }: LogFi
             {isAdmin && (
               <div className="flex items-center gap-2">
                 <Label className="text-sm text-muted-foreground whitespace-nowrap">用户</Label>
-                <Select
-                  value={values.userId || 'all'}
-                  onValueChange={(v) => update({ userId: v === 'all' ? '' : v })}
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue placeholder="所有用户" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">所有用户</SelectItem>
-                    {users.map(u => (
-                      <SelectItem key={u.id} value={u.id}>{u.username}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={values.userId}
+                  onValueChange={handleUserChange}
+                  options={userOptions}
+                  searchPlaceholder="搜索用户..."
+                  allLabel="所有用户"
+                  className="w-36"
+                />
+              </div>
+            )}
+
+            {isAdmin && keys.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">Key</Label>
+                <SearchableSelect
+                  value={values.apiKeyId}
+                  onValueChange={(v) => update({ apiKeyId: v })}
+                  options={keyOptions}
+                  searchPlaceholder="搜索 Key..."
+                  allLabel="所有 Key"
+                  className="w-48"
+                />
               </div>
             )}
 
             <div className="flex items-center gap-2">
               <Label className="text-sm text-muted-foreground whitespace-nowrap">模型</Label>
-              {isAdmin && models.length > 0 ? (
-                <Select
-                  value={values.model || 'all'}
-                  onValueChange={(v) => update({ model: v === 'all' ? '' : v })}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder="所有模型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">所有模型</SelectItem>
-                    {models.map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  type="text"
-                  placeholder="按模型筛选..."
-                  value={values.model}
-                  onChange={(e) => update({ model: e.target.value })}
-                  className="w-48 h-9"
-                />
-              )}
+              <SearchableSelect
+                value={values.model}
+                onValueChange={(v) => update({ model: v })}
+                options={modelOptions}
+                searchPlaceholder="搜索模型..."
+                allLabel="所有模型"
+                className="w-48"
+              />
             </div>
 
             <div className="h-6 w-px bg-border mx-1" />

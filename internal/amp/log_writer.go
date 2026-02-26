@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/realtime"
 	"ampmanager/internal/service"
 
 	log "github.com/sirupsen/logrus"
@@ -156,6 +157,7 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	}
 
 	log.Debugf("log writer: inserted pending request %s", snapshot.RequestID)
+	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
 }
 
@@ -280,6 +282,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 
 	log.Debugf("log writer: updated request %s to status %s", snapshot.RequestID, status)
+	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
 }
 
@@ -373,6 +376,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		log.Errorf("log writer: failed to insert complete entry: %v", err)
 		return false
 	}
+	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
 }
 

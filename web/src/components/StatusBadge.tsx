@@ -5,6 +5,9 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
+  if (status === 0) {
+    return <Badge variant="secondary" className="animate-pulse">请求中</Badge>
+  }
   if (status >= 200 && status < 300) {
     return <Badge variant="default" className="bg-green-500">{status}</Badge>
   } else if (status >= 400 && status < 500) {

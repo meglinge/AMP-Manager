@@ -213,6 +213,7 @@ func Setup() *gin.Engine {
 			// 管理员日志和使用统计
 			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
+			admin.GET("/request-logs/keys", requestLogHandler.AdminGetDistinctAPIKeys)
 			admin.GET("/request-logs/:id/detail", requestLogHandler.AdminGetRequestLogDetail)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
 			admin.GET("/dashboard", requestLogHandler.GetAdminDashboard)
@@ -226,6 +227,13 @@ func Setup() *gin.Engine {
 			}
 		}
 	}
+
+	// WebSocket 实时日志推送（使用 query 参数认证）
+	api.GET("/admin/request-logs/ws",
+		middleware.JWTAuthFromQuery("token"),
+		middleware.AdminMiddleware(),
+		requestLogHandler.AdminRequestLogsWS,
+	)
 
 	proxy := amp.CreateDynamicReverseProxy()
 	amp.RegisterProxyRoutes(r, proxy)

@@ -113,6 +113,11 @@ func (s *RequestLogService) GetDistinctModels() ([]string, error) {
 	return s.repo.GetDistinctModels()
 }
 
+// GetDistinctAPIKeys 获取使用过的 API Key 列表（管理员用）
+func (s *RequestLogService) GetDistinctAPIKeys(userID string) ([]repository.DistinctAPIKey, error) {
+	return s.repo.GetDistinctAPIKeys(userID)
+}
+
 // GetDashboardStats 获取仪表盘统计数据
 func (s *RequestLogService) GetDashboardStats(userID string) (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
 	return s.repo.GetDashboardStats(userID)

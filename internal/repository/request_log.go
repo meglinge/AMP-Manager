@@ -93,18 +93,19 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 	// 查询数据
 	query := fmt.Sprintf(`
-		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, r.original_model, r.mapped_model,
+		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name as api_key_name, k.prefix as api_key_prefix, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
 		       COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200)) as output_preview
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
+		LEFT JOIN user_api_keys k ON r.api_key_id = k.id
 		LEFT JOIN request_log_details d ON r.id = d.request_id
 		LEFT JOIN channels c ON r.channel_id = c.id
 		WHERE %s
 		ORDER BY r.created_at DESC
-		LIMIT ? OFFSET ?
+                LIMIT ? OFFSET ?
 	`, whereClause)
 
 	args = append(args, params.PageSize, offset)
@@ -121,12 +122,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var updatedAt sql.NullTime
 		var status sql.NullString
 		var isStreaming int
-		var username sql.NullString
+		var username, apiKeyName, apiKeyPrefix sql.NullString
 		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
 
 		err := rows.Scan(
-			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID,
+			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID, &apiKeyName, &apiKeyPrefix,
 			&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
@@ -142,6 +143,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 		if username.Valid {
 			log.Username = &username.String
+		}
+		if apiKeyName.Valid {
+			log.APIKeyName = &apiKeyName.String
+		}
+		if apiKeyPrefix.Valid {
+			log.APIKeyPrefix = &apiKeyPrefix.String
 		}
 		if updatedAt.Valid {
 			formatted := updatedAt.Time.Format(time.RFC3339)
@@ -328,6 +335,54 @@ func (r *RequestLogRepository) GetDistinctModels() ([]string, error) {
 	}
 
 	return models, rows.Err()
+}
+
+// DistinctAPIKey 去重 API Key 信息
+type DistinctAPIKey struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Prefix string `json:"prefix"`
+}
+
+// GetDistinctAPIKeys 获取在日志中使用过的 API Key 列表
+func (r *RequestLogRepository) GetDistinctAPIKeys(userID string) ([]DistinctAPIKey, error) {
+	db := database.GetDB()
+
+	var rows *sql.Rows
+	var err error
+
+	if userID != "" {
+		rows, err = db.Query(`
+			SELECT DISTINCT k.id, k.name, k.prefix
+			FROM request_logs r
+			INNER JOIN user_api_keys k ON r.api_key_id = k.id
+			WHERE r.user_id = ?
+			ORDER BY k.name
+			LIMIT 200
+		`, userID)
+	} else {
+		rows, err = db.Query(`
+			SELECT DISTINCT k.id, k.name, k.prefix
+			FROM request_logs r
+			INNER JOIN user_api_keys k ON r.api_key_id = k.id
+			ORDER BY k.name
+			LIMIT 200
+		`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []DistinctAPIKey
+	for rows.Next() {
+		var k DistinctAPIKey
+		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
 }
 
 // DashboardPeriodStats 仪表盘时段统计
@@ -731,4 +786,120 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	}
 
 	return &log, nil
+}
+
+// GetByIDWithJoins 获取单条日志（含用户名、Key信息、渠道名，用于广播）
+func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, error) {
+	db := database.GetDB()
+
+	var l model.RequestLog
+	var createdAt time.Time
+	var updatedAt sql.NullTime
+	var status sql.NullString
+	var isStreaming int
+	var username, apiKeyName, apiKeyPrefix sql.NullString
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
+
+	err := db.QueryRow(`
+		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name, k.prefix,
+		       r.original_model, r.mapped_model, r.provider, r.channel_id, c.name, r.endpoint,
+		       r.method, r.path, r.status_code, r.latency_ms,
+		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
+		FROM request_logs r
+		LEFT JOIN users u ON r.user_id = u.id
+		LEFT JOIN user_api_keys k ON r.api_key_id = k.id
+		LEFT JOIN channels c ON r.channel_id = c.id
+		WHERE r.id = ?
+	`, id).Scan(
+		&l.ID, &createdAt, &updatedAt, &status, &l.UserID, &username, &l.APIKeyID, &apiKeyName, &apiKeyPrefix,
+		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
+		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs,
+		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
+		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	l.CreatedAt = createdAt.Format(time.RFC3339)
+	l.IsStreaming = isStreaming == 1
+
+	if username.Valid {
+		l.Username = &username.String
+	}
+	if apiKeyName.Valid {
+		l.APIKeyName = &apiKeyName.String
+	}
+	if apiKeyPrefix.Valid {
+		l.APIKeyPrefix = &apiKeyPrefix.String
+	}
+	if updatedAt.Valid {
+		f := updatedAt.Time.Format(time.RFC3339)
+		l.UpdatedAt = &f
+	}
+	if status.Valid {
+		l.Status = model.RequestLogStatus(status.String)
+	} else {
+		l.Status = model.RequestLogStatusSuccess
+	}
+	if originalModel.Valid {
+		l.OriginalModel = &originalModel.String
+	}
+	if mappedModel.Valid {
+		l.MappedModel = &mappedModel.String
+	}
+	if provider.Valid {
+		l.Provider = &provider.String
+	}
+	if channelID.Valid {
+		l.ChannelID = &channelID.String
+	}
+	if channelName.Valid {
+		l.ChannelName = &channelName.String
+	}
+	if endpoint.Valid {
+		l.Endpoint = &endpoint.String
+	}
+	if errorType.Valid {
+		l.ErrorType = &errorType.String
+	}
+	if requestID.Valid {
+		l.RequestID = &requestID.String
+	}
+	if inputTokens.Valid {
+		v := int(inputTokens.Int64)
+		l.InputTokens = &v
+	}
+	if outputTokens.Valid {
+		v := int(outputTokens.Int64)
+		l.OutputTokens = &v
+	}
+	if cacheRead.Valid {
+		v := int(cacheRead.Int64)
+		l.CacheReadInputTokens = &v
+	}
+	if cacheCreation.Valid {
+		v := int(cacheCreation.Int64)
+		l.CacheCreationInputTokens = &v
+	}
+	if costMicros.Valid {
+		l.CostMicros = &costMicros.Int64
+	}
+	if costUsd.Valid {
+		l.CostUsd = &costUsd.String
+	}
+	if pricingModel.Valid {
+		l.PricingModel = &pricingModel.String
+	}
+	if thinkingLevel.Valid {
+		l.ThinkingLevel = &thinkingLevel.String
+	}
+
+	return &l, nil
 }

@@ -4,9 +4,9 @@ import "time"
 
 // WebSearchMode constants
 const (
-	WebSearchModeUpstream     = "upstream"      // 上游代理（不做修改）
-	WebSearchModeBuiltinFree  = "builtin_free"  // 内置免费搜索（强制 isFreeTierRequest=true）
-	WebSearchModeLocalDDG     = "local_duckduckgo" // 本地 DuckDuckGo 搜索
+	WebSearchModeUpstream    = "upstream"         // 上游代理（不做修改）
+	WebSearchModeBuiltinFree = "builtin_free"     // 内置免费搜索（强制 isFreeTierRequest=true）
+	WebSearchModeLocalDDG    = "local_duckduckgo" // 本地 DuckDuckGo 搜索
 )
 
 type AmpSettings struct {
@@ -133,6 +133,8 @@ type RequestLog struct {
 	UserID                   string           `json:"userId"`
 	Username                 *string          `json:"username,omitempty"`
 	APIKeyID                 string           `json:"apiKeyId"`
+	APIKeyName               *string          `json:"apiKeyName,omitempty"`
+	APIKeyPrefix             *string          `json:"apiKeyPrefix,omitempty"`
 	OriginalModel            *string          `json:"originalModel,omitempty"`
 	MappedModel              *string          `json:"mappedModel,omitempty"`
 	Provider                 *string          `json:"provider,omitempty"`
@@ -175,8 +177,8 @@ type UsageSummary struct {
 	CacheCreationInputTokensSum int64  `json:"cacheCreationInputTokensSum"`
 	RequestCount                int64  `json:"requestCount"`
 	ErrorCount                  int64  `json:"errorCount"`
-	CostMicrosSum               int64  `json:"costMicrosSum"`  // 总成本（微美元）
-	CostUsdSum                  string `json:"costUsdSum"`     // 总成本（USD 展示）
+	CostMicrosSum               int64  `json:"costMicrosSum"` // 总成本（微美元）
+	CostUsdSum                  string `json:"costUsdSum"`    // 总成本（USD 展示）
 }
 
 // UsageSummaryResponse 用量统计响应
@@ -189,7 +191,7 @@ type RequestLogDetail struct {
 	RequestID              string            `json:"requestId"`
 	RequestHeaders         map[string]string `json:"requestHeaders"`
 	RequestBody            string            `json:"requestBody"`
-	TranslatedRequestBody  string            `json:"translatedRequestBody,omitempty"`  // 翻译后发送给上游的请求
+	TranslatedRequestBody  string            `json:"translatedRequestBody,omitempty"` // 翻译后发送给上游的请求
 	ResponseHeaders        map[string]string `json:"responseHeaders"`
 	ResponseBody           string            `json:"responseBody"`
 	TranslatedResponseBody string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应

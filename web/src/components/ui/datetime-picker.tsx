@@ -181,7 +181,7 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-[280px] p-0" align="start">
         <div className="p-3">
           {/* Month/Year Header */}
           <div className="flex items-center justify-between mb-2">
