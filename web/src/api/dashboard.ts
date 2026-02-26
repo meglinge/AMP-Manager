@@ -1,12 +1,6 @@
-const API_BASE = '/api'
+import { authFetch } from './client'
 
-function getAuthHeaders() {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
+const API_BASE = '/api'
 
 export interface DashboardPeriodStats {
   requestCount: number
@@ -54,9 +48,7 @@ export interface DashboardData {
 }
 
 export async function getDashboard(): Promise<DashboardData> {
-  const res = await fetch(`${API_BASE}/me/dashboard`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/me/dashboard`)
   if (!res.ok) throw new Error('获取仪表盘数据失败')
   return res.json()
 }
@@ -76,9 +68,7 @@ export interface AdminDashboardData {
 }
 
 export async function getAdminDashboard(): Promise<AdminDashboardData> {
-  const res = await fetch(`${API_BASE}/admin/dashboard`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/dashboard`)
   if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
   return res.json()
 }

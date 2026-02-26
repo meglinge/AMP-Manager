@@ -1,19 +1,13 @@
-const API_BASE = '/api'
+import { authFetch } from './client'
 
-function getAuthHeaders() {
-  const token = localStorage.getItem('token')
-  return {
-    Authorization: `Bearer ${token}`,
-  }
-}
+const API_BASE = '/api'
 
 export async function uploadDatabase(file: File): Promise<{ message: string; backupFile: string }> {
   const formData = new FormData()
   formData.append('database', file)
 
-  const res = await fetch(`${API_BASE}/admin/system/database/upload`, {
+  const res = await authFetch(`${API_BASE}/admin/system/database/upload`, {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: formData,
   })
 
@@ -26,9 +20,7 @@ export async function uploadDatabase(file: File): Promise<{ message: string; bac
 }
 
 export async function downloadDatabase(): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/system/database/download`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/database/download`)
 
   if (!res.ok) {
     throw new Error('下载失败')
@@ -52,9 +44,7 @@ export interface Backup {
 }
 
 export async function listBackups(): Promise<Backup[]> {
-  const res = await fetch(`${API_BASE}/admin/system/database/backups`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/database/backups`)
 
   if (!res.ok) {
     throw new Error('获取备份列表失败')
@@ -64,12 +54,8 @@ export async function listBackups(): Promise<Backup[]> {
 }
 
 export async function restoreBackup(filename: string): Promise<{ message: string }> {
-  const res = await fetch(`${API_BASE}/admin/system/database/restore`, {
+  const res = await authFetch(`${API_BASE}/admin/system/database/restore`, {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ filename }),
   })
 
@@ -82,9 +68,8 @@ export async function restoreBackup(filename: string): Promise<{ message: string
 }
 
 export async function deleteBackup(filename: string): Promise<{ message: string }> {
-  const res = await fetch(`${API_BASE}/admin/system/database/backups/${encodeURIComponent(filename)}`, {
+  const res = await authFetch(`${API_BASE}/admin/system/database/backups/${encodeURIComponent(filename)}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
   })
 
   if (!res.ok) {
@@ -110,9 +95,7 @@ export interface RetryConfig {
 
 // 获取重试配置
 export async function getRetryConfig(): Promise<RetryConfig> {
-  const res = await fetch(`${API_BASE}/admin/system/retry-config`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/retry-config`)
 
   if (!res.ok) {
     const data = await res.json()
@@ -124,12 +107,8 @@ export async function getRetryConfig(): Promise<RetryConfig> {
 
 // 更新重试配置
 export async function updateRetryConfig(config: RetryConfig): Promise<{ message: string; config: RetryConfig }> {
-  const res = await fetch(`${API_BASE}/admin/system/retry-config`, {
+  const res = await authFetch(`${API_BASE}/admin/system/retry-config`, {
     method: 'PUT',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(config),
   })
 
@@ -143,9 +122,7 @@ export async function updateRetryConfig(config: RetryConfig): Promise<{ message:
 
 // 获取请求详情监控状态
 export async function getRequestDetailEnabled(): Promise<{ enabled: boolean }> {
-  const res = await fetch(`${API_BASE}/admin/system/request-detail-enabled`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-enabled`)
 
   if (!res.ok) {
     const data = await res.json()
@@ -157,12 +134,8 @@ export async function getRequestDetailEnabled(): Promise<{ enabled: boolean }> {
 
 // 更新请求详情监控状态
 export async function updateRequestDetailEnabled(enabled: boolean): Promise<{ message: string; enabled: boolean }> {
-  const res = await fetch(`${API_BASE}/admin/system/request-detail-enabled`, {
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-enabled`, {
     method: 'PUT',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ enabled }),
   })
 
@@ -185,9 +158,7 @@ export interface TimeoutConfig {
 
 // 获取超时配置
 export async function getTimeoutConfig(): Promise<TimeoutConfig> {
-  const res = await fetch(`${API_BASE}/admin/system/timeout-config`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/timeout-config`)
 
   if (!res.ok) {
     const data = await res.json()
@@ -199,12 +170,8 @@ export async function getTimeoutConfig(): Promise<TimeoutConfig> {
 
 // 更新超时配置
 export async function updateTimeoutConfig(config: TimeoutConfig): Promise<{ message: string; config: TimeoutConfig }> {
-  const res = await fetch(`${API_BASE}/admin/system/timeout-config`, {
+  const res = await authFetch(`${API_BASE}/admin/system/timeout-config`, {
     method: 'PUT',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(config),
   })
 
@@ -218,9 +185,7 @@ export async function updateTimeoutConfig(config: TimeoutConfig): Promise<{ mess
 
 // 缓存 TTL 配置
 export async function getCacheTTLConfig(): Promise<{ cacheTTL: string }> {
-  const res = await fetch(`${API_BASE}/admin/system/cache-ttl`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/system/cache-ttl`)
 
   if (!res.ok) {
     const data = await res.json()
@@ -231,12 +196,8 @@ export async function getCacheTTLConfig(): Promise<{ cacheTTL: string }> {
 }
 
 export async function updateCacheTTLConfig(cacheTTL: string): Promise<{ message: string; cacheTTL: string }> {
-  const res = await fetch(`${API_BASE}/admin/system/cache-ttl`, {
+  const res = await authFetch(`${API_BASE}/admin/system/cache-ttl`, {
     method: 'PUT',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ cacheTTL }),
   })
 

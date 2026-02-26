@@ -1,3 +1,5 @@
+import { authFetch } from './client'
+
 const API_BASE = '/api'
 
 export interface AvailableModel {
@@ -13,12 +15,7 @@ export interface FetchModelsResult {
 }
 
 export async function listAvailableModels(): Promise<AvailableModel[]> {
-  const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/models`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  const res = await authFetch(`${API_BASE}/models`)
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     throw new Error(data.error || '获取模型列表失败')
@@ -28,12 +25,8 @@ export async function listAvailableModels(): Promise<AvailableModel[]> {
 }
 
 export async function fetchChannelModels(channelId: string): Promise<{ message: string; count: number }> {
-  const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/admin/channels/${channelId}/fetch-models`, {
+  const res = await authFetch(`${API_BASE}/admin/channels/${channelId}/fetch-models`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
@@ -51,12 +44,7 @@ export interface ChannelModel2 {
 }
 
 export async function getChannelModels(channelId: string): Promise<ChannelModel2[]> {
-  const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/admin/channels/${channelId}/models`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  const res = await authFetch(`${API_BASE}/admin/channels/${channelId}/models`)
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     throw new Error(data.error || '获取渠道模型失败')
@@ -66,12 +54,8 @@ export async function getChannelModels(channelId: string): Promise<ChannelModel2
 }
 
 export async function fetchAllModels(): Promise<FetchModelsResult> {
-  const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/admin/models/fetch-all`, {
+  const res = await authFetch(`${API_BASE}/admin/models/fetch-all`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))

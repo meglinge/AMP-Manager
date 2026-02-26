@@ -1,12 +1,6 @@
-const API_BASE = '/api/admin/channels'
+import { authFetch } from './client'
 
-function getAuthHeader(): HeadersInit {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-}
+const API_BASE = '/api/admin/channels'
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -65,42 +59,35 @@ export interface TestChannelResult {
 }
 
 export async function listChannels(): Promise<Channel[]> {
-  const response = await fetch(API_BASE, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(API_BASE)
   const data = await handleResponse<{ channels: Channel[] }>(response)
   return data.channels || []
 }
 
 export async function getChannel(id: string): Promise<Channel> {
-  const response = await fetch(`${API_BASE}/${id}`, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(`${API_BASE}/${id}`)
   return handleResponse<Channel>(response)
 }
 
 export async function createChannel(data: ChannelRequest): Promise<Channel> {
-  const response = await fetch(API_BASE, {
+  const response = await authFetch(API_BASE, {
     method: 'POST',
-    headers: getAuthHeader(),
     body: JSON.stringify(data),
   })
   return handleResponse<Channel>(response)
 }
 
 export async function updateChannel(id: string, data: ChannelRequest): Promise<Channel> {
-  const response = await fetch(`${API_BASE}/${id}`, {
+  const response = await authFetch(`${API_BASE}/${id}`, {
     method: 'PUT',
-    headers: getAuthHeader(),
     body: JSON.stringify(data),
   })
   return handleResponse<Channel>(response)
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/${id}`, {
+  const response = await authFetch(`${API_BASE}/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeader(),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: '删除失败' }))
@@ -109,9 +96,8 @@ export async function deleteChannel(id: string): Promise<void> {
 }
 
 export async function setChannelEnabled(id: string, enabled: boolean): Promise<void> {
-  const response = await fetch(`${API_BASE}/${id}/enabled`, {
+  const response = await authFetch(`${API_BASE}/${id}/enabled`, {
     method: 'PATCH',
-    headers: getAuthHeader(),
     body: JSON.stringify({ enabled }),
   })
   if (!response.ok) {
@@ -121,9 +107,8 @@ export async function setChannelEnabled(id: string, enabled: boolean): Promise<v
 }
 
 export async function testChannel(id: string): Promise<TestChannelResult> {
-  const response = await fetch(`${API_BASE}/${id}/test`, {
+  const response = await authFetch(`${API_BASE}/${id}/test`, {
     method: 'POST',
-    headers: getAuthHeader(),
   })
   return handleResponse<TestChannelResult>(response)
 }

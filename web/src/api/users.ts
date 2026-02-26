@@ -1,12 +1,6 @@
-const API_BASE = '/api'
+import { authFetch } from './client'
 
-function getAuthHeaders() {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
+const API_BASE = '/api'
 
 export interface UserInfo {
   id: string
@@ -21,17 +15,14 @@ export interface UserInfo {
 }
 
 export async function listUsers(): Promise<UserInfo[]> {
-  const res = await fetch(`${API_BASE}/admin/users`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/users`)
   if (!res.ok) throw new Error('获取用户列表失败')
   return res.json()
 }
 
 export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/admin`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/admin`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ isAdmin }),
   })
   if (!res.ok) {
@@ -41,9 +32,8 @@ export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<vo
 }
 
 export async function deleteUser(userId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
   })
   if (!res.ok) {
     const data = await res.json()
@@ -52,9 +42,8 @@ export async function deleteUser(userId: string): Promise<void> {
 }
 
 export async function resetUserPassword(userId: string, newPassword: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/reset-password`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/reset-password`, {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ newPassword }),
   })
   if (!res.ok) {
@@ -64,9 +53,8 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/me/password`, {
+  const res = await authFetch(`${API_BASE}/me/password`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ oldPassword, newPassword }),
   })
   if (!res.ok) {
@@ -76,9 +64,8 @@ export async function changePassword(oldPassword: string, newPassword: string): 
 }
 
 export async function setUserGroups(userId: string, groupIds: string[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/group`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/group`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ groupIds }),
   })
   if (!res.ok) {
@@ -88,9 +75,8 @@ export async function setUserGroups(userId: string, groupIds: string[]): Promise
 }
 
 export async function changeUsername(newUsername: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/me/username`, {
+  const res = await authFetch(`${API_BASE}/me/username`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ newUsername }),
   })
   if (!res.ok) {
@@ -105,17 +91,14 @@ export interface BalanceInfo {
 }
 
 export async function getMyBalance(): Promise<BalanceInfo> {
-  const res = await fetch(`${API_BASE}/me/balance`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/me/balance`)
   if (!res.ok) throw new Error('获取余额失败')
   return res.json()
 }
 
 export async function topUpUser(userId: string, amountUsd: number): Promise<BalanceInfo & { message: string }> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/topup`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/topup`, {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ amountUsd }),
   })
   if (!res.ok) {

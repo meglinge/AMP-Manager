@@ -1,12 +1,6 @@
-const API_BASE = '/api/me/amp'
+import { authFetch } from './client'
 
-function getAuthHeader(): HeadersInit {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-}
+const API_BASE = '/api/me/amp'
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -90,51 +84,43 @@ export interface BootstrapInfo {
 
 // Settings API
 export async function getAmpSettings(): Promise<AmpSettings> {
-  const response = await fetch(`${API_BASE}/settings`, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(`${API_BASE}/settings`)
   return handleResponse<AmpSettings>(response)
 }
 
 export async function updateAmpSettings(data: UpdateAmpSettingsRequest): Promise<AmpSettings> {
-  const response = await fetch(`${API_BASE}/settings`, {
+  const response = await authFetch(`${API_BASE}/settings`, {
     method: 'PUT',
-    headers: getAuthHeader(),
     body: JSON.stringify(data),
   })
   return handleResponse<AmpSettings>(response)
 }
 
 export async function testAmpConnection(): Promise<TestResult> {
-  const response = await fetch(`${API_BASE}/settings/test`, {
+  const response = await authFetch(`${API_BASE}/settings/test`, {
     method: 'POST',
-    headers: getAuthHeader(),
   })
   return handleResponse<TestResult>(response)
 }
 
 // API Key
 export async function getAPIKeys(): Promise<APIKey[]> {
-  const response = await fetch(`${API_BASE}/api-keys`, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(`${API_BASE}/api-keys`)
   const data = await handleResponse<{ apiKeys: APIKey[] }>(response)
   return data.apiKeys || []
 }
 
 export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> {
-  const response = await fetch(`${API_BASE}/api-keys`, {
+  const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
-    headers: getAuthHeader(),
     body: JSON.stringify({ name }),
   })
   return handleResponse<CreateAPIKeyResponse>(response)
 }
 
 export async function deleteAPIKey(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api-keys/${id}`, {
+  const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeader(),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: '删除失败' }))
@@ -143,17 +129,13 @@ export async function deleteAPIKey(id: string): Promise<void> {
 }
 
 export async function getAPIKey(id: string): Promise<APIKeyRevealResponse> {
-  const response = await fetch(`${API_BASE}/api-keys/${id}`, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(`${API_BASE}/api-keys/${id}`)
   return handleResponse<APIKeyRevealResponse>(response)
 }
 
 // Bootstrap API
 export async function getAmpBootstrap(): Promise<BootstrapInfo> {
-  const response = await fetch(`${API_BASE}/bootstrap`, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(`${API_BASE}/bootstrap`)
   return handleResponse<BootstrapInfo>(response)
 }
 
@@ -236,8 +218,7 @@ export async function getRequestLogs(params: RequestLogListParams = {}, signal?:
   if (params.to) searchParams.set('to', params.to)
 
   const query = searchParams.toString()
-  const response = await fetch(`${API_BASE}/request-logs${query ? `?${query}` : ''}`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${API_BASE}/request-logs${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<RequestLogListResponse>(response)
@@ -250,8 +231,7 @@ export async function getUsageSummary(params: { from?: string; to?: string; grou
   if (params.groupBy) searchParams.set('groupBy', params.groupBy)
 
   const query = searchParams.toString()
-  const response = await fetch(`${API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<UsageSummaryResponse>(response)
@@ -277,16 +257,14 @@ export async function getAdminRequestLogs(params: AdminRequestLogListParams = {}
   if (params.to) searchParams.set('to', params.to)
 
   const query = searchParams.toString()
-  const response = await fetch(`${ADMIN_API_BASE}/request-logs${query ? `?${query}` : ''}`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${ADMIN_API_BASE}/request-logs${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<RequestLogListResponse>(response)
 }
 
 export async function getAdminDistinctModels(signal?: AbortSignal): Promise<{ models: string[] }> {
-  const response = await fetch(`${ADMIN_API_BASE}/request-logs/models`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${ADMIN_API_BASE}/request-logs/models`, {
     signal,
   })
   return handleResponse<{ models: string[] }>(response)
@@ -302,8 +280,7 @@ export async function getAdminDistinctKeys(userId?: string, signal?: AbortSignal
   const searchParams = new URLSearchParams()
   if (userId) searchParams.set('userId', userId)
   const query = searchParams.toString()
-  const response = await fetch(`${ADMIN_API_BASE}/request-logs/keys${query ? `?${query}` : ''}`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${ADMIN_API_BASE}/request-logs/keys${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<{ keys: DistinctAPIKey[] }>(response)
@@ -317,8 +294,7 @@ export async function getAdminUsageSummary(params: { from?: string; to?: string;
   if (params.userId) searchParams.set('userId', params.userId)
 
   const query = searchParams.toString()
-  const response = await fetch(`${ADMIN_API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${ADMIN_API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<UsageSummaryResponse>(response)
@@ -337,8 +313,7 @@ export interface RequestLogDetail {
 }
 
 export async function getAdminRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
-  const response = await fetch(`${ADMIN_API_BASE}/request-logs/${logId}/detail`, {
-    headers: getAuthHeader(),
+  const response = await authFetch(`${ADMIN_API_BASE}/request-logs/${logId}/detail`, {
     signal,
   })
   return handleResponse<RequestLogDetail>(response)

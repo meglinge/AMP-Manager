@@ -1,12 +1,6 @@
-const API_BASE = '/api/admin/model-metadata'
+import { authFetch } from './client'
 
-function getAuthHeader(): HeadersInit {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-}
+const API_BASE = '/api/admin/model-metadata'
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -36,35 +30,30 @@ export interface ModelMetadataRequest {
 }
 
 export async function listModelMetadata(): Promise<ModelMetadata[]> {
-  const response = await fetch(API_BASE, {
-    headers: getAuthHeader(),
-  })
+  const response = await authFetch(API_BASE)
   const data = await handleResponse<{ metadata: ModelMetadata[] }>(response)
   return data.metadata || []
 }
 
 export async function createModelMetadata(data: ModelMetadataRequest): Promise<ModelMetadata> {
-  const response = await fetch(API_BASE, {
+  const response = await authFetch(API_BASE, {
     method: 'POST',
-    headers: getAuthHeader(),
     body: JSON.stringify(data),
   })
   return handleResponse<ModelMetadata>(response)
 }
 
 export async function updateModelMetadata(id: string, data: ModelMetadataRequest): Promise<ModelMetadata> {
-  const response = await fetch(`${API_BASE}/${id}`, {
+  const response = await authFetch(`${API_BASE}/${id}`, {
     method: 'PUT',
-    headers: getAuthHeader(),
     body: JSON.stringify(data),
   })
   return handleResponse<ModelMetadata>(response)
 }
 
 export async function deleteModelMetadata(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/${id}`, {
+  const response = await authFetch(`${API_BASE}/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeader(),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: '删除失败' }))

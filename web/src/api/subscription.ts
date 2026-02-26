@@ -1,12 +1,6 @@
-const API_BASE = '/api'
+import { authFetch } from './client'
 
-function getAuthHeaders() {
-  const token = localStorage.getItem('token')
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
+const API_BASE = '/api'
 
 export type LimitType = 'daily' | 'weekly' | 'monthly' | 'rolling_5h' | 'total'
 export type WindowMode = 'fixed' | 'sliding'
@@ -60,9 +54,7 @@ export interface UserSubscriptionResponse {
 
 // Plan CRUD
 export async function getPlans(): Promise<SubscriptionPlanResponse[]> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans`)
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '获取套餐列表失败')
@@ -72,9 +64,8 @@ export async function getPlans(): Promise<SubscriptionPlanResponse[]> {
 }
 
 export async function createPlan(req: SubscriptionPlanRequest): Promise<SubscriptionPlanResponse> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans`, {
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans`, {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: JSON.stringify(req),
   })
   if (!res.ok) {
@@ -85,9 +76,7 @@ export async function createPlan(req: SubscriptionPlanRequest): Promise<Subscrip
 }
 
 export async function getPlan(id: string): Promise<SubscriptionPlanResponse> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans/${id}`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans/${id}`)
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '获取套餐详情失败')
@@ -96,9 +85,8 @@ export async function getPlan(id: string): Promise<SubscriptionPlanResponse> {
 }
 
 export async function updatePlan(id: string, req: SubscriptionPlanRequest): Promise<SubscriptionPlanResponse> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans/${id}`, {
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans/${id}`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
     body: JSON.stringify(req),
   })
   if (!res.ok) {
@@ -109,9 +97,8 @@ export async function updatePlan(id: string, req: SubscriptionPlanRequest): Prom
 }
 
 export async function deletePlan(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans/${id}`, {
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
   })
   if (!res.ok) {
     const data = await res.json()
@@ -120,9 +107,8 @@ export async function deletePlan(id: string): Promise<void> {
 }
 
 export async function setPlanEnabled(id: string, enabled: boolean): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/subscriptions/plans/${id}/enabled`, {
+  const res = await authFetch(`${API_BASE}/admin/subscriptions/plans/${id}/enabled`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ enabled }),
   })
   if (!res.ok) {
@@ -133,9 +119,7 @@ export async function setPlanEnabled(id: string, enabled: boolean): Promise<void
 
 // User subscription management
 export async function getUserSubscription(userId: string): Promise<UserSubscriptionResponse | null> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/subscription`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`)
   if (!res.ok) {
     if (res.status === 404) return null
     const data = await res.json()
@@ -146,9 +130,8 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
 }
 
 export async function assignSubscription(userId: string, req: { planId: string; expiresAt?: string }): Promise<UserSubscriptionResponse> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/subscription`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`, {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: JSON.stringify(req),
   })
   if (!res.ok) {
@@ -159,9 +142,8 @@ export async function assignSubscription(userId: string, req: { planId: string; 
 }
 
 export async function cancelSubscription(userId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/subscription`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
   })
   if (!res.ok) {
     const data = await res.json()
@@ -170,9 +152,8 @@ export async function cancelSubscription(userId: string): Promise<void> {
 }
 
 export async function updateSubscriptionExpiry(userId: string, expiresAt: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/admin/users/${userId}/subscription`, {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
     body: JSON.stringify({ expiresAt }),
   })
   if (!res.ok) {

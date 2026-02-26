@@ -1,20 +1,11 @@
 import type { LimitType, WindowMode, SubscriptionStatus } from './subscription'
+import { authFetch } from './client'
 
 const API_BASE = '/api'
 
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('token')
-  if (!token) {
-    return {}
-  }
-  return {
-    Authorization: `Bearer ${token}`,
-  }
-}
-
 // 统一的 fetch + JSON 解析 helper
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
+  const res = await authFetch(url, options)
   
   let data: unknown
   let text = ''
@@ -63,23 +54,18 @@ export interface PriceStats {
 
 // 获取价格列表
 export async function listPrices(): Promise<PriceListResponse> {
-  return fetchJson<PriceListResponse>(`${API_BASE}/admin/prices`, {
-    headers: getAuthHeaders(),
-  })
+  return fetchJson<PriceListResponse>(`${API_BASE}/admin/prices`)
 }
 
 // 获取价格服务状态
 export async function getPriceStats(): Promise<PriceStats> {
-  return fetchJson<PriceStats>(`${API_BASE}/admin/prices/stats`, {
-    headers: getAuthHeaders(),
-  })
+  return fetchJson<PriceStats>(`${API_BASE}/admin/prices/stats`)
 }
 
 // 手动刷新价格
 export async function refreshPrices(): Promise<{ message: string; modelCount: number; fetchedAt: string }> {
   return fetchJson(`${API_BASE}/admin/prices/refresh`, {
     method: 'POST',
-    headers: getAuthHeaders(),
   })
 }
 
@@ -136,24 +122,16 @@ export interface UserBillingSetting {
 // --- User Billing API ---
 
 export async function getBillingState(): Promise<BillingStateResponse> {
-  return fetchJson<BillingStateResponse>(`${API_BASE}/me/billing/state`, {
-    headers: getAuthHeaders(),
-  })
+  return fetchJson<BillingStateResponse>(`${API_BASE}/me/billing/state`)
 }
 
 export async function updateBillingPriority(primarySource: 'subscription' | 'balance'): Promise<UserBillingSetting> {
   return fetchJson<UserBillingSetting>(`${API_BASE}/me/billing/priority`, {
     method: 'PUT',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ primarySource }),
   })
 }
 
 export async function getMySubscription(): Promise<{ subscription: BillingStateSubscription | null }> {
-  return fetchJson<{ subscription: BillingStateSubscription | null }>(`${API_BASE}/me/subscription`, {
-    headers: getAuthHeaders(),
-  })
+  return fetchJson<{ subscription: BillingStateSubscription | null }>(`${API_BASE}/me/subscription`)
 }

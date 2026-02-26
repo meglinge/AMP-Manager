@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
@@ -14,6 +15,9 @@ const (
 	ContextKeyUserID   = "user_id"
 	ContextKeyUsername = "username"
 	ContextKeyIsAdmin  = "is_admin"
+
+	// tokenRefreshThreshold 当 Token 签发超过此时间后，自动刷新（滑动过期）
+	tokenRefreshThreshold = 1 * time.Hour
 )
 
 func JWTAuthMiddleware() gin.HandlerFunc {
@@ -49,6 +53,14 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeyUsername, claims.Username)
+
+		// 滑动过期：Token 签发超过阈值后自动刷新
+		if claims.IssuedAt != nil && time.Since(claims.IssuedAt.Time) > tokenRefreshThreshold {
+			if newToken, err := jwtService.GenerateToken(claims.UserID, claims.Username); err == nil {
+				c.Header("X-New-Token", newToken)
+			}
+		}
+
 		c.Next()
 	}
 }

@@ -22,6 +22,16 @@ function App() {
     }
   }, [])
 
+  // 监听 Token 过期事件，自动登出
+  useEffect(() => {
+    const handleExpired = () => {
+      setUser(null)
+      setPage('login')
+    }
+    window.addEventListener('auth:expired', handleExpired)
+    return () => window.removeEventListener('auth:expired', handleExpired)
+  }, [])
+
   const handleSuccess = (username: string, token?: string, isAdmin?: boolean) => {
     if (token) {
       localStorage.setItem('token', token)
