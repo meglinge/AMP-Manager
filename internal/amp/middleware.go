@@ -303,6 +303,11 @@ func extractAPIKey(c *gin.Context) string {
 		return xApiKey
 	}
 
+	// Support Google Gemini SDK which sends API key as query parameter
+	if qKey := c.Query("key"); qKey != "" {
+		return qKey
+	}
+
 	return ""
 }
 
