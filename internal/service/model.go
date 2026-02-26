@@ -224,7 +224,57 @@ func (s *ModelService) GetModelsByChannelID(channelID string) ([]*model.ChannelM
 }
 
 func (s *ModelService) ListAllAvailableModels() ([]*model.AvailableModel, error) {
-	return s.channelModelRepo.ListAllWithChannel()
+	all, err := s.channelModelRepo.ListAllWithChannel()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*model.AvailableModel
+	for _, m := range all {
+		if m.ModelWhitelist && !modelMatchesChannelRules(m.ModelID, m.ModelsJSON) {
+			continue
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+// modelMatchesChannelRules checks if a model ID matches the channel's model rules (supports * wildcard)
+func modelMatchesChannelRules(modelID string, modelsJSON string) bool {
+	var rules []model.ChannelModel
+	if err := json.Unmarshal([]byte(modelsJSON), &rules); err != nil || len(rules) == 0 {
+		return true
+	}
+
+	modelLower := strings.ToLower(modelID)
+	for _, r := range rules {
+		if strings.EqualFold(r.Name, modelID) || strings.EqualFold(r.Alias, modelID) {
+			return true
+		}
+		nameLower := strings.ToLower(r.Name)
+		if strings.Contains(nameLower, "*") {
+			if simpleWildcardMatch(nameLower, modelLower) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func simpleWildcardMatch(pattern, text string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		return strings.Contains(text, strings.Trim(pattern, "*"))
+	}
+	if strings.HasPrefix(pattern, "*") {
+		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
+	}
+	return pattern == text
 }
 
 func (s *ModelService) FetchAllChannelsModels() (map[string]int, error) {

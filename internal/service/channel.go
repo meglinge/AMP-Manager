@@ -97,16 +97,17 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 
 	channel := &model.Channel{
-		Type:        req.Type,
-		Endpoint:    endpoint,
-		Name:        req.Name,
-		BaseURL:     strings.TrimSuffix(req.BaseURL, "/"),
-		APIKey:      req.APIKey,
-		Enabled:     req.Enabled,
-		Weight:      weight,
-		Priority:    priority,
-		ModelsJSON:  string(modelsJSON),
-		HeadersJSON: string(headersJSON),
+		Type:           req.Type,
+		Endpoint:       endpoint,
+		Name:           req.Name,
+		BaseURL:        strings.TrimSuffix(req.BaseURL, "/"),
+		APIKey:         req.APIKey,
+		Enabled:        req.Enabled,
+		Weight:         weight,
+		Priority:       priority,
+		ModelWhitelist: req.ModelWhitelist,
+		ModelsJSON:     string(modelsJSON),
+		HeadersJSON:    string(headersJSON),
 	}
 
 	if err := s.repo.Create(channel); err != nil {
@@ -197,6 +198,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Enabled = req.Enabled
 	existing.Weight = weight
 	existing.Priority = priority
+	existing.ModelWhitelist = req.ModelWhitelist
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
 
@@ -527,20 +529,21 @@ func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelRespon
 	}
 
 	return &model.ChannelResponse{
-		ID:         channel.ID,
-		Type:       channel.Type,
-		Endpoint:   channel.Endpoint,
-		Name:       channel.Name,
-		BaseURL:    channel.BaseURL,
-		APIKeySet:  channel.APIKey != "",
-		Enabled:    channel.Enabled,
-		Weight:     channel.Weight,
-		Priority:   channel.Priority,
-		GroupIDs:   groupIDs,
-		GroupNames: groupNames,
-		Models:     models,
-		Headers:    headers,
-		CreatedAt:  channel.CreatedAt,
-		UpdatedAt:  channel.UpdatedAt,
+		ID:             channel.ID,
+		Type:           channel.Type,
+		Endpoint:       channel.Endpoint,
+		Name:           channel.Name,
+		BaseURL:        channel.BaseURL,
+		APIKeySet:      channel.APIKey != "",
+		Enabled:        channel.Enabled,
+		Weight:         channel.Weight,
+		Priority:       channel.Priority,
+		ModelWhitelist: channel.ModelWhitelist,
+		GroupIDs:       groupIDs,
+		GroupNames:     groupNames,
+		Models:         models,
+		Headers:        headers,
+		CreatedAt:      channel.CreatedAt,
+		UpdatedAt:      channel.UpdatedAt,
 	}
 }

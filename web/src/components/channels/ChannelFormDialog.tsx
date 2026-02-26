@@ -261,6 +261,8 @@ export function ChannelFormDialog({
           <ModelRulesEditor
             models={formData.models}
             channelId={editingChannel?.id}
+            modelWhitelist={formData.modelWhitelist || false}
+            onModelWhitelistChange={(checked) => setFormData(prev => ({ ...prev, modelWhitelist: checked }))}
             onAdd={handleAddModel}
             onRemove={handleRemoveModel}
             onChange={handleModelChange}

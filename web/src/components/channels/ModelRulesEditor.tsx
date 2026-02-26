@@ -9,13 +9,15 @@ import { getChannelModels, ChannelModel2 } from '@/api/models'
 interface Props {
   models: ChannelModel[] | undefined
   channelId?: string
+  modelWhitelist: boolean
+  onModelWhitelistChange: (checked: boolean) => void
   onAdd: () => void
   onRemove: (index: number) => void
   onChange: (index: number, field: keyof ChannelModel, value: string) => void
   onSetModels: (models: ChannelModel[]) => void
 }
 
-export default function ModelRulesEditor({ models, channelId, onAdd, onRemove, onChange, onSetModels }: Props) {
+export default function ModelRulesEditor({ models, channelId, modelWhitelist, onModelWhitelistChange, onAdd, onRemove, onChange, onSetModels }: Props) {
   const [fetchedModels, setFetchedModels] = useState<ChannelModel2[]>([])
   const [showSelector, setShowSelector] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
@@ -63,6 +65,13 @@ export default function ModelRulesEditor({ models, channelId, onAdd, onRemove, o
       <div className="flex items-center justify-between">
         <Label>模型规则 (留空则按类型自动匹配)</Label>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <Checkbox
+              checked={modelWhitelist}
+              onCheckedChange={(checked) => onModelWhitelistChange(checked === true)}
+            />
+            <span className="text-sm">启用白名单</span>
+          </label>
           {channelId && (
             <Button
               type="button"

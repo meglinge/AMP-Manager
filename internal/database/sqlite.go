@@ -466,6 +466,10 @@ func runMigrations() error {
 			name: "add_show_balance_in_ad",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN show_balance_in_ad INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_channels_model_whitelist",
+			sql:  `ALTER TABLE channels ADD COLUMN model_whitelist INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

@@ -29,6 +29,7 @@ type Channel struct {
 	Enabled        bool            `json:"enabled"`
 	Weight         int             `json:"weight"`
 	Priority       int             `json:"priority"`
+	ModelWhitelist bool            `json:"modelWhitelist"`
 	ModelsJSON     string          `json:"-"`
 	HeadersJSON    string          `json:"-"`
 	CreatedAt      time.Time       `json:"createdAt"`
@@ -49,6 +50,7 @@ type ChannelRequest struct {
 	Enabled  bool                   `json:"enabled"`
 	Weight   int                    `json:"weight"`
 	Priority int                    `json:"priority"`
+	ModelWhitelist bool                   `json:"modelWhitelist"`
 	GroupIDs []string               `json:"groupIds"`
 	Models   []ChannelModel         `json:"models,omitempty"`
 	Headers  map[string]string      `json:"headers,omitempty"`
@@ -64,6 +66,7 @@ type ChannelResponse struct {
 	Enabled     bool               `json:"enabled"`
 	Weight      int                `json:"weight"`
 	Priority    int                `json:"priority"`
+	ModelWhitelist bool               `json:"modelWhitelist"`
 	GroupIDs    []string           `json:"groupIds"`
 	GroupNames  []string           `json:"groupNames"`
 	Models      []ChannelModel     `json:"models"`
@@ -87,8 +90,10 @@ type ChannelModel2 struct {
 }
 
 type AvailableModel struct {
-	ModelID     string      `json:"modelId"`
-	DisplayName string      `json:"displayName"`
-	ChannelType ChannelType `json:"channelType"`
-	ChannelName string      `json:"channelName"`
+	ModelID        string      `json:"modelId"`
+	DisplayName    string      `json:"displayName"`
+	ChannelType    ChannelType `json:"channelType"`
+	ChannelName    string      `json:"channelName"`
+	ModelWhitelist bool        `json:"-"`
+	ModelsJSON     string      `json:"-"`
 }

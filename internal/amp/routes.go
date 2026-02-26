@@ -171,5 +171,5 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 
 	// Models listing endpoints - no auth required
 	engine.GET("/v1beta/models", createGeminiModelsHandler())
-	engine.GET("/v1/models", modelsHandler)
+	engine.GET("/v1/models", createOpenAIModelsHandler())
 }

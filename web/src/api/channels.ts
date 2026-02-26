@@ -37,6 +37,7 @@ export interface Channel {
   groupIds: string[]
   groupNames: string[]
   models: ChannelModel[]
+  modelWhitelist: boolean
   headers: Record<string, string>
   createdAt: string
   updatedAt: string
@@ -53,6 +54,7 @@ export interface ChannelRequest {
   priority: number
   groupIds?: string[]
   models?: ChannelModel[]
+  modelWhitelist?: boolean
   headers?: Record<string, string>
 }
 

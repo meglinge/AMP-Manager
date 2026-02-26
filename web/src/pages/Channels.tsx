@@ -42,6 +42,7 @@ export default function Channels() {
     priority: 100,
     groupIds: [],
     models: [],
+    modelWhitelist: false,
     headers: {},
   })
   const [saving, setSaving] = useState(false)
@@ -82,6 +83,7 @@ export default function Channels() {
       priority: 100,
       groupIds: [],
       models: [],
+      modelWhitelist: false,
       headers: {},
     })
     setShowForm(true)
@@ -100,6 +102,7 @@ export default function Channels() {
       priority: channel.priority,
       groupIds: channel.groupIds || [],
       models: channel.models,
+      modelWhitelist: channel.modelWhitelist || false,
       headers: channel.headers,
     })
     setShowForm(true)

@@ -1,6 +1,7 @@
 package amp
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -28,18 +29,37 @@ func ModelsHandler() gin.HandlerFunc {
 	}
 }
 
-// handleOpenAIModels returns OpenAI-compatible model list
+// handleOpenAIModels returns OpenAI-compatible model list from channel_models
+// Auto-detects provider by request headers: anthropic-version → claude, otherwise → openai
 func handleOpenAIModels(c *gin.Context) {
-	models := getModelsForProvider("openai")
+	channelModelRepo := repository.NewChannelModelRepository()
+	availableModels, err := channelModelRepo.ListAllWithChannel()
+	if err != nil {
+		log.Warnf("models handler: failed to list channel models: %v", err)
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": []gin.H{}})
+		return
+	}
 
-	data := make([]gin.H, 0, len(models))
-	for _, m := range models {
+	// Detect provider from request headers
+	var filterType model.ChannelType
+	if c.GetHeader("anthropic-version") != "" {
+		filterType = model.ChannelTypeClaude
+	} else {
+		filterType = model.ChannelTypeOpenAI
+	}
+
+	data := make([]gin.H, 0)
+	for _, m := range availableModels {
+		if m.ChannelType != filterType {
+			continue
+		}
+		if m.ModelWhitelist && !modelMatchesRules(m.ModelID, m.ModelsJSON) {
+			continue
+		}
 		data = append(data, gin.H{
-			"id":                    m.ModelPattern,
-			"object":                "model",
-			"owned_by":              "openai",
-			"context_length":        m.ContextLength,
-			"max_completion_tokens": m.MaxCompletionTokens,
+			"id":       m.ModelID,
+			"object":   "model",
+			"owned_by": string(m.ChannelType),
 		})
 	}
 
@@ -49,16 +69,39 @@ func handleOpenAIModels(c *gin.Context) {
 	})
 }
 
-// handleClaudeModels returns Anthropic-compatible model list
-func handleClaudeModels(c *gin.Context) {
-	models := getModelsForProvider("anthropic")
+// createOpenAIModelsHandler returns a handler for root-level /v1/models endpoint
+func createOpenAIModelsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		handleOpenAIModels(c)
+	}
+}
 
-	data := make([]gin.H, 0, len(models))
-	for _, m := range models {
+// handleClaudeModels returns Anthropic-compatible model list from channel_models
+func handleClaudeModels(c *gin.Context) {
+	channelModelRepo := repository.NewChannelModelRepository()
+	availableModels, err := channelModelRepo.ListAllWithChannel()
+	if err != nil {
+		log.Warnf("models handler: failed to list channel models: %v", err)
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": []gin.H{}})
+		return
+	}
+
+	data := make([]gin.H, 0)
+	for _, m := range availableModels {
+		if m.ChannelType != model.ChannelTypeClaude {
+			continue
+		}
+		if m.ModelWhitelist && !modelMatchesRules(m.ModelID, m.ModelsJSON) {
+			continue
+		}
+		displayName := m.DisplayName
+		if displayName == "" {
+			displayName = m.ModelID
+		}
 		data = append(data, gin.H{
-			"id":           m.ModelPattern,
+			"id":           m.ModelID,
 			"object":       "model",
-			"display_name": m.DisplayName,
+			"display_name": displayName,
 			"owned_by":     "anthropic",
 		})
 	}
@@ -91,6 +134,9 @@ func handleGeminiModels(c *gin.Context) {
 		if m.ChannelType != model.ChannelTypeGemini {
 			continue
 		}
+		if m.ModelWhitelist && !modelMatchesRules(m.ModelID, m.ModelsJSON) {
+			continue
+		}
 		modelID := m.ModelID
 		if !strings.HasPrefix(modelID, "models/") {
 			modelID = "models/" + modelID
@@ -110,6 +156,45 @@ func handleGeminiModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"models": data,
 	})
+}
+
+// modelMatchesRules checks if a model ID matches any of the channel's model rules
+func modelMatchesRules(modelID string, modelsJSON string) bool {
+	var rules []model.ChannelModel
+	if err := json.Unmarshal([]byte(modelsJSON), &rules); err != nil || len(rules) == 0 {
+		return true // no rules = allow all
+	}
+
+	modelLower := strings.ToLower(modelID)
+	for _, r := range rules {
+		nameLower := strings.ToLower(r.Name)
+		if strings.EqualFold(r.Name, modelID) || strings.EqualFold(r.Alias, modelID) {
+			return true
+		}
+		if strings.Contains(nameLower, "*") {
+			if wildcardMatch(nameLower, modelLower) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// wildcardMatch supports simple * wildcard matching
+func wildcardMatch(pattern, text string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		return strings.Contains(text, strings.Trim(pattern, "*"))
+	}
+	if strings.HasPrefix(pattern, "*") {
+		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
+	}
+	return pattern == text
 }
 
 // modelInfo holds model metadata for handler responses
