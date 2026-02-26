@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -68,22 +69,40 @@ func handleClaudeModels(c *gin.Context) {
 	})
 }
 
-// handleGeminiModels returns Gemini-compatible model list
-func handleGeminiModels(c *gin.Context) {
-	models := getModelsForProvider("google")
+// createGeminiModelsHandler returns a handler for root-level /v1beta/models endpoint
+func createGeminiModelsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		handleGeminiModels(c)
+	}
+}
 
-	data := make([]gin.H, 0, len(models))
-	for _, m := range models {
-		modelID := m.ModelPattern
+// handleGeminiModels returns Gemini-compatible model list from channel_models
+func handleGeminiModels(c *gin.Context) {
+	channelModelRepo := repository.NewChannelModelRepository()
+	availableModels, err := channelModelRepo.ListAllWithChannel()
+	if err != nil {
+		log.Warnf("models handler: failed to list channel models: %v", err)
+		c.JSON(http.StatusOK, gin.H{"models": []gin.H{}})
+		return
+	}
+
+	data := make([]gin.H, 0)
+	for _, m := range availableModels {
+		if m.ChannelType != model.ChannelTypeGemini {
+			continue
+		}
+		modelID := m.ModelID
 		if !strings.HasPrefix(modelID, "models/") {
 			modelID = "models/" + modelID
+		}
+		displayName := m.DisplayName
+		if displayName == "" {
+			displayName = m.ModelID
 		}
 
 		data = append(data, gin.H{
 			"name":                       modelID,
-			"displayName":                m.DisplayName,
-			"inputTokenLimit":            m.ContextLength,
-			"outputTokenLimit":           m.MaxCompletionTokens,
+			"displayName":                displayName,
 			"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent"},
 		})
 	}

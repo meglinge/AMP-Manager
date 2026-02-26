@@ -303,6 +303,11 @@ func extractAPIKey(c *gin.Context) string {
 		return xApiKey
 	}
 
+	// Support Google Gemini SDK which sends API key via x-goog-api-key header
+	if googKey := c.GetHeader("x-goog-api-key"); googKey != "" {
+		return googKey
+	}
+
 	// Support Google Gemini SDK which sends API key as query parameter
 	if qKey := c.Query("key"); qKey != "" {
 		return qKey

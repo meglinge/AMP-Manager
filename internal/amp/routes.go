@@ -158,7 +158,6 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1.POST("/completions", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/messages", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/responses", createRoutingHandler(proxyHandler, channelHandler))
-	v1.GET("/models", proxyHandler)
 
 	v1beta := engine.Group("/v1beta")
 	v1beta.Use(APIKeyAuthMiddleware())
@@ -168,6 +167,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1beta.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	v1beta.POST("/models/*action", createRoutingHandler(proxyHandler, channelHandler))
-	v1beta.GET("/models", proxyHandler)
 	v1beta.GET("/models/*action", proxyHandler)
+
+	// Models listing endpoints - no auth required
+	engine.GET("/v1beta/models", createGeminiModelsHandler())
+	engine.GET("/v1/models", modelsHandler)
 }
