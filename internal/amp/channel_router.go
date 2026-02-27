@@ -886,7 +886,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 
 	// Capture response for logging
 	if trace != nil {
-		captureResponseForLogging(trace.RequestID, resp.Header, body)
+		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), body)
 	}
 
 	// Reset body with correct Content-Length
