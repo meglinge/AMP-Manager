@@ -47,13 +47,15 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 
 type ChannelService struct {
 	repo      repository.ChannelRepositoryInterface
+	groupRepo repository.GroupRepositoryInterface
 	rrCounter sync.Map // map[string]*atomic.Uint64
 }
 
 // NewChannelServiceWithRepo 使用指定的 repository 创建 ChannelService（用于依赖注入）
 func NewChannelServiceWithRepo(repo repository.ChannelRepositoryInterface) *ChannelService {
 	return &ChannelService{
-		repo: repo,
+		repo:      repo,
+		groupRepo: repository.NewGroupRepository(),
 	}
 }
 
@@ -106,6 +108,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		Weight:         weight,
 		Priority:       priority,
 		ModelWhitelist: req.ModelWhitelist,
+		SimulateCLI:    req.SimulateCLI,
 		ModelsJSON:     string(modelsJSON),
 		HeadersJSON:    string(headersJSON),
 	}
@@ -115,8 +118,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 
 	if len(req.GroupIDs) > 0 {
-		chRepo := repository.NewChannelRepository()
-		_ = chRepo.SetGroups(channel.ID, req.GroupIDs)
+		_ = s.repo.SetGroups(channel.ID, req.GroupIDs)
 	}
 
 	return s.toResponse(channel), nil
@@ -151,12 +153,7 @@ func (s *ChannelService) List() ([]*model.ChannelResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	responses := make([]*model.ChannelResponse, len(channels))
-	for i, ch := range channels {
-		responses[i] = s.toResponse(ch)
-	}
-	return responses, nil
+	return s.toResponsesBatch(channels)
 }
 
 func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.ChannelResponse, error) {
@@ -199,6 +196,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Weight = weight
 	existing.Priority = priority
 	existing.ModelWhitelist = req.ModelWhitelist
+	existing.SimulateCLI = req.SimulateCLI
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
 
@@ -210,8 +208,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 		return nil, err
 	}
 
-	chRepo := repository.NewChannelRepository()
-	_ = chRepo.SetGroups(id, req.GroupIDs)
+	_ = s.repo.SetGroups(id, req.GroupIDs)
 
 	return s.toResponse(existing), nil
 }
@@ -375,25 +372,42 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 		return nil, err
 	}
 
-	chRepo := repository.NewChannelRepository()
-
-	var candidates []*model.Channel
+	// Collect IDs of model-matching channels for batch group lookup
+	var matchingChannels []*model.Channel
 	for _, ch := range channels {
-		if !s.channelMatchesModel(ch, modelName) {
-			continue
+		if s.channelMatchesModel(ch, modelName) {
+			matchingChannels = append(matchingChannels, ch)
 		}
+	}
 
-		chGroupIDs, err := chRepo.GetGroupIDs(ch.ID)
-		if err != nil {
-			continue
+	if len(matchingChannels) == 0 {
+		return nil, nil
+	}
+
+	// Batch fetch group mappings
+	matchingIDs := make([]string, len(matchingChannels))
+	for i, ch := range matchingChannels {
+		matchingIDs[i] = ch.ID
+	}
+	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(matchingIDs)
+	fallbackToSingleLookup := batchErr != nil
+	userGroupIDSet := toStringSet(groupIDs)
+
+	// Filter by group access
+	var candidates []*model.Channel
+	for _, ch := range matchingChannels {
+		chGroupIDs := channelGroupMap[ch.ID]
+		if fallbackToSingleLookup {
+			var singleLookupErr error
+			chGroupIDs, singleLookupErr = s.repo.GetGroupIDs(ch.ID)
+			if singleLookupErr != nil {
+				continue
+			}
 		}
-
 		if len(chGroupIDs) == 0 {
 			candidates = append(candidates, ch)
-		} else if len(groupIDs) > 0 {
-			if hasOverlap(groupIDs, chGroupIDs) {
-				candidates = append(candidates, ch)
-			}
+		} else if len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, chGroupIDs) {
+			candidates = append(candidates, ch)
 		}
 	}
 
@@ -430,13 +444,17 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 	return selected, nil
 }
 
-func hasOverlap(a, b []string) bool {
-	set := make(map[string]struct{}, len(a))
-	for _, v := range a {
-		set[v] = struct{}{}
+func toStringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
 	}
-	for _, v := range b {
-		if _, ok := set[v]; ok {
+	return set
+}
+
+func hasAnyInSet(set map[string]struct{}, values []string) bool {
+	for _, value := range values {
+		if _, ok := set[value]; ok {
 			return true
 		}
 	}
@@ -503,6 +521,68 @@ func (s *ChannelService) GetChannelInternal(id string) (*model.Channel, error) {
 }
 
 func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelResponse {
+	groupIDs := []string{}
+	if gids, err := s.repo.GetGroupIDs(channel.ID); err == nil {
+		groupIDs = gids
+	}
+
+	groupMap := make(map[string]*model.Group)
+	if len(groupIDs) > 0 {
+		if groups, err := s.groupRepo.GetByIDs(groupIDs); err == nil {
+			groupMap = groups
+		}
+	}
+
+	return s.buildResponse(channel, groupIDs, groupMap)
+}
+
+func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.ChannelResponse, error) {
+	if len(channels) == 0 {
+		return []*model.ChannelResponse{}, nil
+	}
+
+	channelIDs := make([]string, len(channels))
+	for i, ch := range channels {
+		channelIDs[i] = ch.ID
+	}
+
+	channelGroupMap, err := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	if err != nil {
+		channelGroupMap = make(map[string][]string, len(channels))
+		for _, ch := range channels {
+			if gids, singleLookupErr := s.repo.GetGroupIDs(ch.ID); singleLookupErr == nil {
+				channelGroupMap[ch.ID] = gids
+			}
+		}
+	}
+
+	groupIDSet := make(map[string]struct{})
+	for _, gids := range channelGroupMap {
+		for _, gid := range gids {
+			groupIDSet[gid] = struct{}{}
+		}
+	}
+	uniqueGroupIDs := make([]string, 0, len(groupIDSet))
+	for gid := range groupIDSet {
+		uniqueGroupIDs = append(uniqueGroupIDs, gid)
+	}
+
+	groupMap := make(map[string]*model.Group)
+	if len(uniqueGroupIDs) > 0 {
+		groupMap, err = s.groupRepo.GetByIDs(uniqueGroupIDs)
+		if err != nil {
+			groupMap = make(map[string]*model.Group)
+		}
+	}
+
+	responses := make([]*model.ChannelResponse, len(channels))
+	for i, ch := range channels {
+		responses[i] = s.buildResponse(ch, channelGroupMap[ch.ID], groupMap)
+	}
+	return responses, nil
+}
+
+func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, groupMap map[string]*model.Group) *model.ChannelResponse {
 	var models []model.ChannelModel
 	_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
 	if models == nil {
@@ -517,12 +597,10 @@ func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelRespon
 
 	groupIDs := []string{}
 	groupNames := []string{}
-	chRepo := repository.NewChannelRepository()
-	if gids, err := chRepo.GetGroupIDs(channel.ID); err == nil && len(gids) > 0 {
+	if len(gids) > 0 {
 		groupIDs = gids
-		groupRepo := repository.NewGroupRepository()
 		for _, gid := range gids {
-			if g, err := groupRepo.GetByID(gid); err == nil && g != nil {
+			if g, ok := groupMap[gid]; ok && g != nil {
 				groupNames = append(groupNames, g.Name)
 			}
 		}
@@ -539,6 +617,7 @@ func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelRespon
 		Weight:         channel.Weight,
 		Priority:       channel.Priority,
 		ModelWhitelist: channel.ModelWhitelist,
+		SimulateCLI:    channel.SimulateCLI,
 		GroupIDs:       groupIDs,
 		GroupNames:     groupNames,
 		Models:         models,

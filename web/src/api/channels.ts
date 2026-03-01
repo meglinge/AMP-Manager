@@ -32,6 +32,7 @@ export interface Channel {
   groupNames: string[]
   models: ChannelModel[]
   modelWhitelist: boolean
+  simulateCli: boolean
   headers: Record<string, string>
   createdAt: string
   updatedAt: string
@@ -49,6 +50,7 @@ export interface ChannelRequest {
   groupIds?: string[]
   models?: ChannelModel[]
   modelWhitelist?: boolean
+  simulateCli?: boolean
   headers?: Record<string, string>
 }
 

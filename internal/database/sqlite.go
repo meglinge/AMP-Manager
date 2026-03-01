@@ -470,6 +470,10 @@ func runMigrations() error {
 			name: "add_channels_model_whitelist",
 			sql:  `ALTER TABLE channels ADD COLUMN model_whitelist INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_channels_simulate_cli",
+			sql:  `ALTER TABLE channels ADD COLUMN simulate_cli INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

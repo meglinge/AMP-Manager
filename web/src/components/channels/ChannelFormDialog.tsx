@@ -257,6 +257,22 @@ export function ChannelFormDialog({
             />
           </div>
 
+          {/* 模拟 Claude CLI - 仅 Claude 类型显示 */}
+          {formData.type === 'claude' && (
+            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>模拟 Claude CLI</Label>
+                <p className="text-sm text-muted-foreground">
+                  启用后将注入完整的 Claude Code CLI 指纹 headers（User-Agent、X-Stainless 等）
+                </p>
+              </div>
+              <Switch
+                checked={formData.simulateCli || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateCli: checked }))}
+              />
+            </div>
+          )}
+
           {/* 模型规则编辑器 */}
           <ModelRulesEditor
             models={formData.models}

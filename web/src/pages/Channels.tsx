@@ -43,6 +43,7 @@ export default function Channels() {
     groupIds: [],
     models: [],
     modelWhitelist: false,
+    simulateCli: false,
     headers: {},
   })
   const [saving, setSaving] = useState(false)
@@ -84,6 +85,7 @@ export default function Channels() {
       groupIds: [],
       models: [],
       modelWhitelist: false,
+      simulateCli: false,
       headers: {},
     })
     setShowForm(true)
@@ -103,6 +105,7 @@ export default function Channels() {
       groupIds: channel.groupIds || [],
       models: channel.models,
       modelWhitelist: channel.modelWhitelist || false,
+      simulateCli: channel.simulateCli || false,
       headers: channel.headers,
     })
     setShowForm(true)

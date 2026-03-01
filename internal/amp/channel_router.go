@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -530,6 +532,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
+				// Apply Claude CLI simulation if enabled for this channel
+				if channel.SimulateCLI && channel.Type == model.ChannelTypeClaude {
+					applyClaudeCLISimulation(req, true) // Claude Code requests are always streaming
+				}
+
 				// Apply custom headers from channel config
 				var headersMap map[string]string
 				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
@@ -764,6 +771,95 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 		ensureRequiredAnthropicBetas(req)
 	case model.ChannelTypeGemini:
 		req.Header.Set("x-goog-api-key", channel.APIKey)
+	}
+}
+
+// applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers
+// 参考 CLIProxyAPI/internal/runtime/executor/claude_executor.go
+func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
+	// User-Agent — Claude Code 2.1.63
+	req.Header.Set("User-Agent", "claude-cli/2.1.63 (external, cli)")
+
+	// Anthropic 专用 headers
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
+	req.Header.Set("X-App", "cli")
+
+	// Anthropic-Beta: 合并已有 betas + 所需 betas
+	requiredBetas := []string{
+		"claude-code-20250219",
+		"oauth-2025-04-20",
+		"interleaved-thinking-2025-05-14",
+		"context-management-2025-06-27",
+		"prompt-caching-scope-2026-01-05",
+	}
+	existing := req.Header.Get("Anthropic-Beta")
+	seen := make(map[string]struct{})
+	if existing != "" {
+		for _, part := range strings.Split(existing, ",") {
+			p := strings.TrimSpace(part)
+			if p != "" {
+				seen[p] = struct{}{}
+			}
+		}
+	}
+	for _, b := range requiredBetas {
+		seen[b] = struct{}{}
+	}
+	list := make([]string, 0, len(seen))
+	for k := range seen {
+		list = append(list, k)
+	}
+	sort.Strings(list)
+	req.Header.Set("Anthropic-Beta", strings.Join(list, ","))
+
+	// X-Stainless SDK 指纹 — @anthropic-ai/sdk 0.74.0 (2026-02-28)
+	req.Header.Set("X-Stainless-Retry-Count", "0")
+	req.Header.Set("X-Stainless-Runtime-Version", "v24.3.0")
+	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
+	req.Header.Set("X-Stainless-Runtime", "node")
+	req.Header.Set("X-Stainless-Lang", "js")
+	req.Header.Set("X-Stainless-Arch", mapStainlessArch())
+	req.Header.Set("X-Stainless-Os", mapStainlessOS())
+	req.Header.Set("X-Stainless-Timeout", "600")
+
+	// 连接和内容 headers
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	if isStreaming {
+		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
+}
+
+// mapStainlessOS maps runtime.GOOS to Stainless SDK OS names.
+func mapStainlessOS() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "MacOS"
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	case "freebsd":
+		return "FreeBSD"
+	default:
+		return "Other::" + runtime.GOOS
+	}
+}
+
+// mapStainlessArch maps runtime.GOARCH to Stainless SDK architecture names.
+func mapStainlessArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x64"
+	case "arm64":
+		return "arm64"
+	case "386":
+		return "x86"
+	default:
+		return "other::" + runtime.GOARCH
 	}
 }
 

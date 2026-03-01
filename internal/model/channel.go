@@ -30,6 +30,7 @@ type Channel struct {
 	Weight         int             `json:"weight"`
 	Priority       int             `json:"priority"`
 	ModelWhitelist bool            `json:"modelWhitelist"`
+	SimulateCLI    bool            `json:"simulateCli"`
 	ModelsJSON     string          `json:"-"`
 	HeadersJSON    string          `json:"-"`
 	CreatedAt      time.Time       `json:"createdAt"`
@@ -51,6 +52,7 @@ type ChannelRequest struct {
 	Weight   int                    `json:"weight"`
 	Priority int                    `json:"priority"`
 	ModelWhitelist bool                   `json:"modelWhitelist"`
+	SimulateCLI    bool                   `json:"simulateCli"`
 	GroupIDs []string               `json:"groupIds"`
 	Models   []ChannelModel         `json:"models,omitempty"`
 	Headers  map[string]string      `json:"headers,omitempty"`
@@ -67,6 +69,7 @@ type ChannelResponse struct {
 	Weight      int                `json:"weight"`
 	Priority    int                `json:"priority"`
 	ModelWhitelist bool               `json:"modelWhitelist"`
+	SimulateCLI    bool               `json:"simulateCli"`
 	GroupIDs    []string           `json:"groupIds"`
 	GroupNames  []string           `json:"groupNames"`
 	Models      []ChannelModel     `json:"models"`

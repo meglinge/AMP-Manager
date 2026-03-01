@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"ampmanager/internal/database"
@@ -20,6 +21,7 @@ type ChannelRepositoryInterface interface {
 	SetEnabled(id string, enabled bool) error
 	SetGroups(id string, groupIDs []string) error
 	GetGroupIDs(channelID string) ([]string, error)
+	GetGroupIDsByChannelIDs(channelIDs []string) (map[string][]string, error)
 }
 
 var _ ChannelRepositoryInterface = (*ChannelRepository)(nil)
@@ -38,10 +40,10 @@ func (r *ChannelRepository) Create(channel *model.Channel) error {
 	channel.UpdatedAt = now
 
 	_, err := db.Exec(
-		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, models_json, headers_json, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, simulate_cli, models_json, headers_json, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		channel.ID, channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey,
-		channel.Enabled, channel.Weight, channel.Priority, channel.ModelWhitelist, channel.ModelsJSON, channel.HeadersJSON,
+		channel.Enabled, channel.Weight, channel.Priority, channel.ModelWhitelist, channel.SimulateCLI, channel.ModelsJSON, channel.HeadersJSON,
 		channel.CreatedAt, channel.UpdatedAt,
 	)
 	return err
@@ -52,12 +54,12 @@ func (r *ChannelRepository) GetByID(id string) (*model.Channel, error) {
 	channel := &model.Channel{}
 
 	err := db.QueryRow(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, models_json, headers_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, simulate_cli, models_json, headers_json, created_at, updated_at
 		 FROM channels WHERE id = ?`,
 		id,
 	).Scan(
 		&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-		&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.ModelsJSON, &channel.HeadersJSON,
+		&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.ModelsJSON, &channel.HeadersJSON,
 		&channel.CreatedAt, &channel.UpdatedAt,
 	)
 
@@ -73,7 +75,7 @@ func (r *ChannelRepository) GetByID(id string) (*model.Channel, error) {
 func (r *ChannelRepository) List() ([]*model.Channel, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, models_json, headers_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, simulate_cli, models_json, headers_json, created_at, updated_at
 		 FROM channels ORDER BY priority ASC, created_at DESC`,
 	)
 	if err != nil {
@@ -86,7 +88,7 @@ func (r *ChannelRepository) List() ([]*model.Channel, error) {
 		channel := &model.Channel{}
 		err := rows.Scan(
 			&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.ModelsJSON, &channel.HeadersJSON,
+			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.ModelsJSON, &channel.HeadersJSON,
 			&channel.CreatedAt, &channel.UpdatedAt,
 		)
 		if err != nil {
@@ -100,7 +102,7 @@ func (r *ChannelRepository) List() ([]*model.Channel, error) {
 func (r *ChannelRepository) ListEnabled() ([]*model.Channel, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, models_json, headers_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, model_whitelist, simulate_cli, models_json, headers_json, created_at, updated_at
 		 FROM channels WHERE enabled = 1 ORDER BY priority ASC, weight DESC`,
 	)
 	if err != nil {
@@ -113,7 +115,7 @@ func (r *ChannelRepository) ListEnabled() ([]*model.Channel, error) {
 		channel := &model.Channel{}
 		err := rows.Scan(
 			&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.ModelsJSON, &channel.HeadersJSON,
+			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.ModelsJSON, &channel.HeadersJSON,
 			&channel.CreatedAt, &channel.UpdatedAt,
 		)
 		if err != nil {
@@ -129,9 +131,9 @@ func (r *ChannelRepository) Update(channel *model.Channel) error {
 	channel.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
-		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, weight = ?, priority = ?, model_whitelist = ?, models_json = ?, headers_json = ?, updated_at = ?
+		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, weight = ?, priority = ?, model_whitelist = ?, simulate_cli = ?, models_json = ?, headers_json = ?, updated_at = ?
 		 WHERE id = ?`,
-		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.Weight, channel.Priority, channel.ModelWhitelist, channel.ModelsJSON, channel.HeadersJSON, channel.UpdatedAt,
+		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.Weight, channel.Priority, channel.ModelWhitelist, channel.SimulateCLI, channel.ModelsJSON, channel.HeadersJSON, channel.UpdatedAt,
 		channel.ID,
 	)
 	return err
@@ -192,4 +194,35 @@ func (r *ChannelRepository) GetGroupIDs(channelID string) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (r *ChannelRepository) GetGroupIDsByChannelIDs(channelIDs []string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	if len(channelIDs) == 0 {
+		return result, nil
+	}
+
+	db := database.GetDB()
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(channelIDs)), ",")
+	query := `SELECT channel_id, group_id FROM channel_groups WHERE channel_id IN (` + placeholders + `)`
+
+	args := make([]interface{}, len(channelIDs))
+	for i, id := range channelIDs {
+		args[i] = id
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var channelID, groupID string
+		if err := rows.Scan(&channelID, &groupID); err != nil {
+			return nil, err
+		}
+		result[channelID] = append(result[channelID], groupID)
+	}
+	return result, rows.Err()
 }
