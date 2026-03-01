@@ -10,6 +10,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { motion, AnimatePresence } from '@/lib/motion'
+import { JsonViewer } from '@/components/JsonViewer'
 
 interface LogDetailModalProps {
   logId: string | null
@@ -129,20 +130,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
     if (!body) {
       return <p className="text-muted-foreground text-sm">无数据</p>
     }
-
-    let content: string
-    try {
-      const parsed = JSON.parse(body)
-      content = JSON.stringify(parsed, null, 2)
-    } catch {
-      content = body
-    }
-
-    return (
-      <pre className="text-xs font-mono bg-muted p-4 rounded-lg overflow-auto max-h-96 whitespace-pre-wrap">
-        {content}
-      </pre>
-    )
+    return <JsonViewer content={body} maxHeight="55vh" />
   }
 
   const getTabContent = (tab: TabValue): React.ReactNode => {
@@ -158,11 +146,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
       case 'response-body': return formatBody(detail.responseBody)
       case 'translated-response':
         return detail.translatedResponseBody
-          ? (
-            <pre className="text-xs font-mono bg-muted p-4 rounded-lg overflow-auto max-h-96 whitespace-pre-wrap">
-              {detail.translatedResponseBody}
-            </pre>
-          )
+          ? formatBody(detail.translatedResponseBody)
           : <p className="text-muted-foreground text-sm">无翻译数据（非翻译请求或流式响应未记录）</p>
     }
   }

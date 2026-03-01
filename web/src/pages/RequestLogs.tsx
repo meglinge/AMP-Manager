@@ -52,6 +52,11 @@ export default function RequestLogs({ isAdmin }: Props) {
 
   const [autoRefresh, setAutoRefresh] = useState(true)
   const wsCloseRef = useRef<(() => void) | null>(null)
+  const wsBufRef = useRef<RequestLog[]>([])
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const logsRef = useRef<RequestLog[]>([])
+  const totalRef = useRef(0)
+  const knownLogIDsRef = useRef<Set<string>>(new Set())
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
@@ -83,23 +88,57 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [isAdmin, filters.userId])
 
   useEffect(() => {
+    logsRef.current = logs
+  }, [logs])
+
+  useEffect(() => {
+    totalRef.current = total
+  }, [total])
+
+  useEffect(() => {
     loadData()
   }, [page, pageSize, filters])
 
   useEffect(() => {
     if (autoRefresh && isAdmin) {
+      const flushBuf = () => {
+        const batch = wsBufRef.current
+        wsBufRef.current = []
+        flushTimerRef.current = null
+        if (batch.length === 0) return
+
+        let next = [...logsRef.current]
+        let newCount = 0
+        for (const log of batch) {
+          const idx = next.findIndex(l => l.id === log.id)
+          if (idx >= 0) {
+            next[idx] = log
+          } else {
+            next.unshift(log)
+          }
+
+          if (!knownLogIDsRef.current.has(log.id)) {
+            knownLogIDsRef.current.add(log.id)
+            newCount++
+          }
+        }
+
+        next = next.slice(0, pageSize)
+        logsRef.current = next
+        setLogs(next)
+
+        if (newCount > 0) {
+          totalRef.current += newCount
+          setTotal(totalRef.current)
+        }
+      }
+
       const close = connectRequestLogsWS(
         (newLog) => {
-          setLogs(prev => {
-            const idx = prev.findIndex(l => l.id === newLog.id)
-            if (idx >= 0) {
-              const updated = [...prev]
-              updated[idx] = newLog
-              return updated
-            }
-            return [newLog, ...prev].slice(0, pageSize)
-          })
-          setTotal(prev => prev + 1)
+          wsBufRef.current.push(newLog)
+          if (flushTimerRef.current === null) {
+            flushTimerRef.current = setTimeout(flushBuf, 100)
+          }
         },
         () => {
           wsCloseRef.current = null
@@ -113,6 +152,11 @@ export default function RequestLogs({ isAdmin }: Props) {
       }
     }
     return () => {
+      if (flushTimerRef.current !== null) {
+        clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
+      wsBufRef.current = []
       if (wsCloseRef.current) {
         wsCloseRef.current()
         wsCloseRef.current = null
@@ -146,7 +190,13 @@ export default function RequestLogs({ isAdmin }: Props) {
         ? await getAdminRequestLogs({ ...params, userId: filters.userId || undefined, apiKeyId: filters.apiKeyId || undefined }, controller.signal)
         : await getRequestLogs(params, controller.signal)
       if (controller.signal.aborted) return
-      setLogs(result.items || [])
+
+      const items = result.items || []
+      logsRef.current = items
+      knownLogIDsRef.current = new Set(items.map(item => item.id))
+      setLogs(items)
+
+      totalRef.current = result.total
       setTotal(result.total)
     } catch (err) {
       if (controller.signal.aborted) return
@@ -249,7 +299,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                   </TableHeader>
                   <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}`}>
                     {logs.map((log) => (
-                      <motion.tr key={log.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                      <motion.tr key={log.id} variants={staggerItem} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(log.createdAt)}
                         </TableCell>

@@ -118,31 +118,54 @@ func (s *UserService) ListUsers() ([]*model.UserInfo, error) {
 		return nil, err
 	}
 
+	// 批量获取所有用户的 groupID 映射 (1 次查询替代 N 次)
+	userGroupMap, err := s.repo.GetAllUserGroupIDs()
+	if err != nil {
+		return nil, err
+	}
+
+	// 收集所有去重的 groupID
+	uniqueGroupIDs := make(map[string]struct{})
+	for _, gids := range userGroupMap {
+		for _, gid := range gids {
+			uniqueGroupIDs[gid] = struct{}{}
+		}
+	}
+	allGroupIDs := make([]string, 0, len(uniqueGroupIDs))
+	for gid := range uniqueGroupIDs {
+		allGroupIDs = append(allGroupIDs, gid)
+	}
+
+	// 批量获取所有 group 详情 (1 次查询替代 M 次)
 	groupRepo := repository.NewGroupRepository()
+	groupMap, err := groupRepo.GetByIDs(allGroupIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]*model.UserInfo, len(users))
 	for i, u := range users {
-		info := &model.UserInfo{
+		gids := userGroupMap[u.ID]
+		groupNames := make([]string, 0, len(gids))
+		for _, gid := range gids {
+			if g, ok := groupMap[gid]; ok {
+				groupNames = append(groupNames, g.Name)
+			}
+		}
+		if gids == nil {
+			gids = []string{}
+		}
+		result[i] = &model.UserInfo{
 			ID:            u.ID,
 			Username:      u.Username,
 			IsAdmin:       u.IsAdmin,
 			BalanceMicros: u.BalanceMicros,
 			BalanceUsd:    fmt.Sprintf("%.6f", float64(u.BalanceMicros)/1e6),
-			GroupIDs:      []string{},
-			GroupNames:    []string{},
+			GroupIDs:      gids,
+			GroupNames:    groupNames,
 			CreatedAt:     u.CreatedAt,
 			UpdatedAt:     u.UpdatedAt,
 		}
-		gids, err := s.repo.GetGroupIDs(u.ID)
-		if err == nil && len(gids) > 0 {
-			info.GroupIDs = gids
-			for _, gid := range gids {
-				group, err := groupRepo.GetByID(gid)
-				if err == nil && group != nil {
-					info.GroupNames = append(info.GroupNames, group.Name)
-				}
-			}
-		}
-		result[i] = info
 	}
 	return result, nil
 }

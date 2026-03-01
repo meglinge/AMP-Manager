@@ -24,6 +24,7 @@ type UserRepositoryInterface interface {
 	SetAdmin(id string, isAdmin bool) error
 	SetGroups(id string, groupIDs []string) error
 	GetGroupIDs(userID string) ([]string, error)
+	GetAllUserGroupIDs() (map[string][]string, error)
 	Delete(id string) error
 	GetBalance(userID string) (int64, error)
 	DeductBalance(userID string, amountMicros int64) error
@@ -197,6 +198,25 @@ func (r *UserRepository) GetGroupIDs(userID string) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (r *UserRepository) GetAllUserGroupIDs() (map[string][]string, error) {
+	db := database.GetDB()
+	rows, err := db.Query(`SELECT user_id, group_id FROM user_groups`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string][]string)
+	for rows.Next() {
+		var userID, groupID string
+		if err := rows.Scan(&userID, &groupID); err != nil {
+			return nil, err
+		}
+		result[userID] = append(result[userID], groupID)
+	}
+	return result, rows.Err()
 }
 
 func (r *UserRepository) Delete(id string) error {

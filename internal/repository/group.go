@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"ampmanager/internal/database"
@@ -13,6 +14,7 @@ import (
 type GroupRepositoryInterface interface {
 	Create(group *model.Group) error
 	GetByID(id string) (*model.Group, error)
+	GetByIDs(ids []string) (map[string]*model.Group, error)
 	GetByName(name string) (*model.Group, error)
 	List() ([]*model.Group, error)
 	Update(group *model.Group) error
@@ -57,6 +59,37 @@ func (r *GroupRepository) GetByID(id string) (*model.Group, error) {
 		return nil, nil
 	}
 	return group, err
+}
+
+func (r *GroupRepository) GetByIDs(ids []string) (map[string]*model.Group, error) {
+	result := make(map[string]*model.Group)
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	db := database.GetDB()
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	query := `SELECT id, name, description, rate_multiplier, created_at, updated_at FROM groups WHERE id IN (` + placeholders + `)`
+
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		group := &model.Group{}
+		if err := rows.Scan(&group.ID, &group.Name, &group.Description, &group.RateMultiplier, &group.CreatedAt, &group.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result[group.ID] = group
+	}
+	return result, rows.Err()
 }
 
 func (r *GroupRepository) GetByName(name string) (*model.Group, error) {
