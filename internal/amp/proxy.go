@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/proxy"
 )
 
 type proxyConfigKey struct{}
@@ -31,6 +32,7 @@ type ProxyConfig struct {
 	WebSearchMode      string // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool
 	ShowBalanceInAd    bool
+	Socks5Proxy        string
 	RateMultiplier     float64
 	GroupIDs           []string
 }
@@ -233,6 +235,93 @@ func InitRetryTransportConfig(configJSON string) {
 	}).Info("retry: 已加载保存的重试配置")
 }
 
+// socks5TransportCache caches per-proxy transports
+var socks5TransportCache sync.Map
+
+// getSocks5Transport returns a cached or new transport for the given SOCKS5 proxy URL
+func getSocks5Transport(proxyURL string) (*http.Transport, error) {
+	if cached, ok := socks5TransportCache.Load(proxyURL); ok {
+		return cached.(*http.Transport), nil
+	}
+
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid socks5 proxy URL: %w", err)
+	}
+
+	var auth *proxy.Auth
+	if parsed.User != nil {
+		password, _ := parsed.User.Password()
+		auth = &proxy.Auth{
+			User:     parsed.User.Username(),
+			Password: password,
+		}
+	}
+
+	dialer, err := proxy.SOCKS5("tcp", parsed.Host, auth, proxy.Direct)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socks5 dialer: %w", err)
+	}
+
+	contextDialer, ok := dialer.(proxy.ContextDialer)
+	if !ok {
+		return nil, fmt.Errorf("socks5 dialer does not support context")
+	}
+
+	cfg := GetTimeoutConfig()
+	transport := &http.Transport{
+		DialContext:           contextDialer.DialContext,
+		TLSClientConfig:      &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout:  cfg.TLSHandshakeTimeout,
+		MaxIdleConns:         100,
+		MaxIdleConnsPerHost:  10,
+		MaxConnsPerHost:      0,
+		IdleConnTimeout:      cfg.IdleConnTimeout,
+		ResponseHeaderTimeout: 0,
+		ExpectContinueTimeout: 0,
+		DisableCompression:   true,
+		DisableKeepAlives:    false,
+		ForceAttemptHTTP2:    false,
+	}
+
+	socks5TransportCache.Store(proxyURL, transport)
+	log.Infof("socks5: created new transport for proxy %s", maskProxyURL(proxyURL))
+	return transport, nil
+}
+
+// Socks5AwareTransport wraps RetryTransport and uses SOCKS5 proxy when configured
+type Socks5AwareTransport struct {
+	Base *RetryTransport
+}
+
+func (t *Socks5AwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cfg := GetProxyConfig(req.Context())
+	if cfg == nil || cfg.Socks5Proxy == "" {
+		return t.Base.RoundTrip(req)
+	}
+
+	socks5Transport, err := getSocks5Transport(cfg.Socks5Proxy)
+	if err != nil {
+		log.Errorf("socks5: failed to create transport: %v, falling back to direct", err)
+		return t.Base.RoundTrip(req)
+	}
+
+	retryTransport := NewRetryTransport(socks5Transport, t.Base.getConfig())
+	return retryTransport.RoundTrip(req)
+}
+
+// maskProxyURL masks password in proxy URL for logging
+func maskProxyURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "***"
+	}
+	if parsed.User != nil {
+		parsed.User = url.UserPassword(parsed.User.Username(), "***")
+	}
+	return parsed.String()
+}
+
 // CreateDynamicReverseProxy creates a reverse proxy for ampcode.com upstream
 // Following CLIProxyAPI pattern: does NOT filter Anthropic-Beta headers
 // Users going through ampcode.com are paying for the service and should get all features
@@ -244,8 +333,8 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 	globalRetryTransport = NewRetryTransport(streamingTransport, DefaultRetryConfig())
 
 	proxy := &httputil.ReverseProxy{
-		// 使用带重试功能的 Transport
-		Transport: globalRetryTransport,
+		// 使用 SOCKS5 感知的 Transport，自动根据用户配置选择直连或走代理
+		Transport: &Socks5AwareTransport{Base: globalRetryTransport},
 		// FlushInterval 设为 -1 确保流式响应（SSE）立即刷新到客户端
 		// 避免缓冲导致 "request ended without sending any chunks" 错误
 		FlushInterval: -1,

@@ -20,6 +20,7 @@ type AmpSettings struct {
 	WebSearchMode      string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool      `json:"native_mode"`
 	ShowBalanceInAd    bool      `json:"show_balance_in_ad"`
+	Socks5Proxy        string    `json:"socks5_proxy"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -58,6 +59,7 @@ type AmpSettingsRequest struct {
 	WebSearchMode      string         `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool           `json:"nativeMode"`
 	ShowBalanceInAd    *bool          `json:"showBalanceInAd,omitempty"`
+	Socks5Proxy        string         `json:"socks5Proxy,omitempty"`
 }
 
 type AmpSettingsResponse struct {
@@ -69,6 +71,7 @@ type AmpSettingsResponse struct {
 	WebSearchMode      string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool           `json:"nativeMode"`
 	ShowBalanceInAd    bool           `json:"showBalanceInAd"`
+	HasSocks5Proxy     bool           `json:"socks5ProxySet"`
 	CreatedAt          time.Time      `json:"createdAt,omitempty"`
 	UpdatedAt          time.Time      `json:"updatedAt,omitempty"`
 }

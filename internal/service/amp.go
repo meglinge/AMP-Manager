@@ -53,6 +53,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 			WebSearchMode:      model.WebSearchModeUpstream,
 			NativeMode:         false,
 			ShowBalanceInAd:    false,
+			HasSocks5Proxy:     false,
 		}, nil
 	}
 
@@ -73,6 +74,7 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 		WebSearchMode:      settings.WebSearchMode,
 		NativeMode:         settings.NativeMode,
 		ShowBalanceInAd:    settings.ShowBalanceInAd,
+		HasSocks5Proxy:     settings.Socks5Proxy != "",
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil
@@ -98,6 +100,13 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		settings.ShowBalanceInAd = *req.ShowBalanceInAd
 	} else if existing != nil {
 		settings.ShowBalanceInAd = existing.ShowBalanceInAd
+	}
+
+	// 处理 Socks5Proxy
+	if existing != nil && req.Socks5Proxy == "" {
+		settings.Socks5Proxy = existing.Socks5Proxy
+	} else {
+		settings.Socks5Proxy = req.Socks5Proxy
 	}
 
 	// 处理 WebSearchMode 默认值
@@ -153,6 +162,7 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 		WebSearchMode:      settings.WebSearchMode,
 		NativeMode:         settings.NativeMode,
 		ShowBalanceInAd:    settings.ShowBalanceInAd,
+		HasSocks5Proxy:     settings.Socks5Proxy != "",
 		CreatedAt:          settings.CreatedAt,
 		UpdatedAt:          settings.UpdatedAt,
 	}, nil

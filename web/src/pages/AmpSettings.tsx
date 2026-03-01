@@ -29,6 +29,7 @@ export default function AmpSettings() {
     const [nativeMode, setNativeMode] = useState(false)
     const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>('upstream')
     const [showBalanceInAd, setShowBalanceInAd] = useState(false)
+    const [socks5Proxy, setSocks5Proxy] = useState('')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [testing, setTesting] = useState(false)
@@ -70,6 +71,7 @@ export default function AmpSettings() {
                 nativeMode,
                 upstreamUrl,
                 ...(upstreamApiKey ? { upstreamApiKey } : {}),
+                ...(socks5Proxy ? { socks5Proxy } : {}),
                 forceModelMappings,
                 modelMappings,
                 webSearchMode,
@@ -77,6 +79,7 @@ export default function AmpSettings() {
             })
             setSettings(data)
             setUpstreamApiKey('')
+            setSocks5Proxy('')
             setSuccess('设置已保存')
         } catch (err) {
             setError(err instanceof Error ? err.message : '保存失败')
@@ -197,6 +200,26 @@ export default function AmpSettings() {
                                         {settings?.apiKeySet ? '已设置' : '未设置'}
                                     </Badge>
                                 </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="socks5Proxy">SOCKS5 代理</Label>
+                                <div className="flex items-center gap-3">
+                                    <Input
+                                        id="socks5Proxy"
+                                        type="password"
+                                        value={socks5Proxy}
+                                        onChange={(e) => setSocks5Proxy(e.target.value)}
+                                        placeholder={settings?.socks5ProxySet ? '••••••••（已设置，留空保持不变）' : 'socks5://user:pass@host:port'}
+                                        className="flex-1"
+                                    />
+                                    <Badge variant={settings?.socks5ProxySet ? 'default' : 'secondary'}>
+                                        {settings?.socks5ProxySet ? '已设置' : '未设置'}
+                                    </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    设置 SOCKS5 代理后，所有到 ampcode.com 的请求将通过此代理转发。格式：socks5://用户名:密码@主机:端口
+                                </p>
                             </div>
 
                             <Separator />

@@ -267,6 +267,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			WebSearchMode:      settings.WebSearchMode,
 			NativeMode:         settings.NativeMode,
 			ShowBalanceInAd:    settings.ShowBalanceInAd,
+			Socks5Proxy:        settings.Socks5Proxy,
 		}
 
 		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)

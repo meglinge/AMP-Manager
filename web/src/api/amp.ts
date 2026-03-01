@@ -31,6 +31,7 @@ export interface AmpSettings {
   nativeMode: boolean
   webSearchMode?: WebSearchMode
   showBalanceInAd?: boolean
+  socks5ProxySet?: boolean
 }
 
 export interface UpdateAmpSettingsRequest {
@@ -42,6 +43,7 @@ export interface UpdateAmpSettingsRequest {
   nativeMode?: boolean
   webSearchMode?: WebSearchMode
   showBalanceInAd?: boolean
+  socks5Proxy?: string
 }
 
 export interface TestResult {

@@ -474,6 +474,10 @@ func runMigrations() error {
 			name: "add_channels_simulate_cli",
 			sql:  `ALTER TABLE channels ADD COLUMN simulate_cli INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_socks5_proxy",
+			sql:  `ALTER TABLE user_amp_settings ADD COLUMN socks5_proxy TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 
 	for _, m := range migrations {
