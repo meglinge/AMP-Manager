@@ -349,7 +349,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		var convertedBody []byte
 		clientWantsStream := false
 		isStreaming := false
-		if c.Request.Body != nil && c.Request.ContentLength > 0 {
+		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
+		// We still need to buffer the body so /v1/responses SSE retry can replay it.
+		if c.Request.Body != nil {
 			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
 			c.Request.Body.Close()
 			if err != nil {
