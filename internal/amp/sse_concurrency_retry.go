@@ -10,8 +10,12 @@ import (
 )
 
 const (
-	sseConcurrencyRetryMax     = 3
+	sseConcurrencyRetryMax = 3
+)
+
+var (
 	sseConcurrencyRetryBaseWait = 2 * time.Second
+	sseConcurrencyRetrySleep    = time.Sleep
 )
 
 // isSSERetryableError checks if an SSE event frame contains a retryable upstream error.
@@ -25,6 +29,10 @@ const (
 //     data: {"error":{"code":"stream_read_error",...},"type":"error"}
 func isSSERetryableError(frame []byte) bool {
 	eventName, payload, _ := parseSSEEvent(frame)
+	return isRetryableErrorPayload(eventName, payload)
+}
+
+func isRetryableErrorPayload(eventName string, payload []byte) bool {
 	if len(payload) == 0 {
 		return false
 	}
@@ -32,8 +40,8 @@ func isSSERetryableError(frame []byte) bool {
 	// Pattern 1: event: error + rate_limit_error with concurrency limit
 	if eventName == "error" {
 		errType := gjson.GetBytes(payload, "error.type").String()
-		errMsg := gjson.GetBytes(payload, "error.message").String()
-		if errType == "rate_limit_error" && strings.Contains(errMsg, "Concurrency limit exceeded") {
+		errMsg := strings.ToLower(gjson.GetBytes(payload, "error.message").String())
+		if errType == "rate_limit_error" && strings.Contains(errMsg, "concurrency limit exceeded") {
 			return true
 		}
 	}
@@ -131,8 +139,19 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 
 		frame := w.buf[:idx+delimLen]
 		rest := w.buf[idx+delimLen:]
+		eventName, payload, done := parseSSEEvent(frame)
 
-		if isSSERetryableError(frame) {
+		if len(payload) == 0 && !done {
+			// Keep-alive/comment frame (e.g. ":\n\n"). Forward it but keep retry
+			// detection active for subsequent data frames.
+			w.pending = append(w.pending, frame...)
+			w.buf = rest
+			n := copy(p, w.pending)
+			w.pending = w.pending[n:]
+			return n, nil
+		}
+
+		if isRetryableErrorPayload(eventName, payload) {
 			w.retries++
 			log.Warnf("sse-concurrency-retry: detected retryable SSE error in frame (attempt %d), frame=%s", w.retries, string(frame))
 			if w.retries > sseConcurrencyRetryMax {
@@ -146,7 +165,7 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 
 			wait := sseConcurrencyRetryBaseWait * time.Duration(w.retries)
 			log.Warnf("sse-concurrency-retry: concurrency limit hit, retry %d/%d after %v", w.retries, sseConcurrencyRetryMax, wait)
-			time.Sleep(wait)
+			sseConcurrencyRetrySleep(wait)
 
 			// Discard all buffered data and close old upstream.
 			w.upstream.Close()
@@ -167,8 +186,8 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 			continue
 		}
 
-		// Not a concurrency error — this is real data, start forwarding.
-		log.Debugf("sse-concurrency-retry: first frame is not retryable, passing through (len=%d)", len(frame))
+		// Not a retryable error — this is real stream data (or [DONE]), start forwarding.
+		log.Debugf("sse-concurrency-retry: first data frame is not retryable, passing through (len=%d)", len(frame))
 		w.started = true
 		n := copy(p, w.buf)
 		w.buf = w.buf[n:]

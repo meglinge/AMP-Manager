@@ -1,0 +1,67 @@
+package amp
+
+import (
+	"io"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestSSEConcurrencyRetryWrapper_RetriesAfterKeepAliveFrames(t *testing.T) {
+	oldWait := sseConcurrencyRetryBaseWait
+	oldSleep := sseConcurrencyRetrySleep
+	sseConcurrencyRetryBaseWait = 0
+	sseConcurrencyRetrySleep = func(time.Duration) {}
+	defer func() {
+		sseConcurrencyRetryBaseWait = oldWait
+		sseConcurrencyRetrySleep = oldSleep
+	}()
+
+	firstStream := strings.Join([]string{
+		":",
+		"",
+		":",
+		"",
+		"event: error",
+		"data: {\"error\":{\"message\":\"Concurrency limit exceeded for account, please retry later\",\"type\":\"rate_limit_error\"}}",
+		"",
+		"",
+	}, "\n")
+
+	secondStream := strings.Join([]string{
+		"event: response.output_text.delta",
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}",
+		"",
+		"",
+	}, "\n")
+
+	retryCalls := 0
+	wrapped := NewSSEConcurrencyRetryWrapper(io.NopCloser(strings.NewReader(firstStream)), func() (io.ReadCloser, error) {
+		retryCalls++
+		return io.NopCloser(strings.NewReader(secondStream)), nil
+	})
+
+	out, err := io.ReadAll(wrapped)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	if retryCalls != 1 {
+		t.Fatalf("expected retry to be called once, got %d", retryCalls)
+	}
+
+	outStr := string(out)
+	if strings.Contains(outStr, "Concurrency limit exceeded") {
+		t.Fatalf("expected retryable error frame to be swallowed, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "response.output_text.delta") {
+		t.Fatalf("expected retried stream data, got: %s", outStr)
+	}
+}
+
+func TestIsSSERetryableError_CaseInsensitiveConcurrencyMessage(t *testing.T) {
+	frame := []byte("event: error\ndata: {\"error\":{\"message\":\"concurrency limit exceeded for account\",\"type\":\"rate_limit_error\"}}\n\n")
+	if !isSSERetryableError(frame) {
+		t.Fatalf("expected frame to be retryable")
+	}
+}
