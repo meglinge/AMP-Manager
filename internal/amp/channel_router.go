@@ -559,6 +559,27 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 				providerInfo, _ := GetProviderInfo(resp.Request.Context())
 
+				// /v1/responses: wrap with concurrency-limit retry before any further processing
+				if isStreaming && strings.Contains(resp.Request.URL.Path, "/v1/responses") {
+					if ti := GetTranslationInfo(resp.Request.Context()); ti != nil && len(ti.ConvertedBody) > 0 {
+						retryReq := resp.Request.Clone(resp.Request.Context())
+						resp.Body = NewSSEConcurrencyRetryWrapper(resp.Body, func() (io.ReadCloser, error) {
+							clone := retryReq.Clone(retryReq.Context())
+							clone.Body = io.NopCloser(bytes.NewReader(ti.ConvertedBody))
+							clone.ContentLength = int64(len(ti.ConvertedBody))
+							retryResp, err := sharedChannelTransport.RoundTrip(clone)
+							if err != nil {
+								return nil, err
+							}
+							if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
+								retryResp.Body.Close()
+								return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
+							}
+							return retryResp.Body, nil
+						})
+					}
+				}
+
 				// /v1/responses: if client requested non-stream but upstream responded with SSE,
 				// aggregate the SSE into a single JSON response.
 				if isStreaming && strings.Contains(resp.Request.URL.Path, "/v1/responses") {
