@@ -77,12 +77,13 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 		}
 	}
 
-	// tool_choice.name
+	// tool_choice.name — must match whatever prefix was applied to the corresponding tool
 	if tc, ok := rootObj["tool_choice"].(map[string]any); ok {
 		if tp, _ := tc["type"].(string); tp == "tool" {
 			if name, ok := tc["name"].(string); ok && name != "" {
-				if newName, did := prefixName(name); did {
-					tc["name"] = newName
+				prefixed := claudeShimPrefix + name
+				if _, wasPrefixed := reverse[prefixed]; wasPrefixed {
+					tc["name"] = prefixed
 					changed = true
 				}
 			}
