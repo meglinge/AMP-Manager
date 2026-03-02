@@ -134,6 +134,7 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 
 		if isSSERetryableError(frame) {
 			w.retries++
+			log.Warnf("sse-concurrency-retry: detected retryable SSE error in frame (attempt %d), frame=%s", w.retries, string(frame))
 			if w.retries > sseConcurrencyRetryMax {
 				log.Warnf("sse-concurrency-retry: max retries (%d) exhausted, forwarding error to client", sseConcurrencyRetryMax)
 				w.started = true
@@ -167,6 +168,7 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 		}
 
 		// Not a concurrency error — this is real data, start forwarding.
+		log.Debugf("sse-concurrency-retry: first frame is not retryable, passing through (len=%d)", len(frame))
 		w.started = true
 		n := copy(p, w.buf)
 		w.buf = w.buf[n:]
@@ -178,12 +180,10 @@ func (w *SSEConcurrencyRetryWrapper) Close() error {
 	return w.upstream.Close()
 }
 
-// isRetryableResponseBody reads the response body and checks if it contains
-// a retryable error (concurrency limit exceeded or rate_limit_error).
-// The body is consumed and cannot be read again after this call.
-func isRetryableResponseBody(body io.ReadCloser) bool {
-	data, err := io.ReadAll(io.LimitReader(body, 8*1024))
-	if err != nil || len(data) == 0 {
+// isRetryableBytes checks if a response body (as bytes) contains
+// a retryable error (concurrency limit exceeded, rate_limit_error, or stream_read_error).
+func isRetryableBytes(data []byte) bool {
+	if len(data) == 0 {
 		return false
 	}
 	s := string(data)

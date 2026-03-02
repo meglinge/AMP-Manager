@@ -563,9 +563,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// /v1/responses: retry on concurrency-limit / retryable errors.
 				// This handles BOTH:
 				//   a) HTTP 200 + SSE stream starting with event: error (handled by SSEConcurrencyRetryWrapper)
-				//   b) HTTP 429/5xx with JSON error body (handled here directly)
+				//   b) HTTP 429/5xx with JSON/SSE error body (handled here directly)
 				isResponsesPath := strings.Contains(resp.Request.URL.Path, "/v1/responses")
 				if isResponsesPath {
+					log.Debugf("sse-retry: /v1/responses detected, status=%d, streaming=%v, content-type=%s",
+						resp.StatusCode, isStreaming, resp.Header.Get("Content-Type"))
 					if ti := GetTranslationInfo(resp.Request.Context()); ti != nil && len(ti.ConvertedBody) > 0 {
 						retryReq := resp.Request.Clone(resp.Request.Context())
 						makeRetryRequest := func() (*http.Response, error) {
@@ -575,21 +577,21 @@ func ChannelProxyHandler() gin.HandlerFunc {
 							return sharedChannelTransport.RoundTrip(clone)
 						}
 
-						// Case (b): non-2xx status with retryable error — retry at HTTP level
+						// Case (b): non-2xx status — peek body to check if retryable
 						if resp.StatusCode == 429 || resp.StatusCode >= 500 {
-							if isRetryableResponseBody(resp.Body) {
-								resp.Body.Close()
+							bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+							resp.Body.Close()
+							if readErr == nil && isRetryableBytes(bodyBytes) {
+								log.Warnf("sse-retry: HTTP %d with retryable error body, starting retries", resp.StatusCode)
 								for attempt := 1; attempt <= sseConcurrencyRetryMax; attempt++ {
 									wait := sseConcurrencyRetryBaseWait * time.Duration(attempt)
-									log.Warnf("sse-concurrency-retry: HTTP %d retryable error, retry %d/%d after %v",
-										resp.StatusCode, attempt, sseConcurrencyRetryMax, wait)
+									log.Warnf("sse-retry: attempt %d/%d after %v", attempt, sseConcurrencyRetryMax, wait)
 									time.Sleep(wait)
 									retryResp, err := makeRetryRequest()
 									if err != nil {
-										log.Errorf("sse-concurrency-retry: retry request failed: %v", err)
+										log.Errorf("sse-retry: request failed: %v", err)
 										continue
 									}
-									// Replace resp fields in-place
 									resp.StatusCode = retryResp.StatusCode
 									resp.Status = retryResp.Status
 									resp.Header = retryResp.Header
@@ -598,21 +600,27 @@ func ChannelProxyHandler() gin.HandlerFunc {
 									resp.TransferEncoding = retryResp.TransferEncoding
 									isStreaming = strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 									if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+										log.Infof("sse-retry: attempt %d succeeded with status %d", attempt, resp.StatusCode)
 										break
 									}
-									if resp.StatusCode == 429 || resp.StatusCode >= 500 {
-										if isRetryableResponseBody(resp.Body) {
-											resp.Body.Close()
-											continue
-										}
+									// Still error? Read body and check if retryable for next iteration
+									bodyBytes, readErr = io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+									resp.Body.Close()
+									if readErr != nil || !isRetryableBytes(bodyBytes) {
+										// Not retryable, reconstruct body and stop
+										resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+										break
 									}
-									break
 								}
+							} else {
+								// Not retryable, reconstruct body so downstream can read it
+								resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 							}
 						}
 
 						// Case (a): SSE stream — wrap with retry for in-stream errors
 						if isStreaming {
+							log.Debugf("sse-retry: wrapping SSE stream with concurrency retry wrapper")
 							resp.Body = NewSSEConcurrencyRetryWrapper(resp.Body, func() (io.ReadCloser, error) {
 								retryResp, err := makeRetryRequest()
 								if err != nil {
@@ -625,6 +633,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 								return retryResp.Body, nil
 							})
 						}
+					} else {
+						log.Debugf("sse-retry: no ConvertedBody available, cannot retry")
 					}
 				}
 
