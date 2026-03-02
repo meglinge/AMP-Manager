@@ -65,3 +65,53 @@ func TestIsSSERetryableError_CaseInsensitiveConcurrencyMessage(t *testing.T) {
 		t.Fatalf("expected frame to be retryable")
 	}
 }
+
+func TestSSEConcurrencyRetryWrapper_RetriesOnStreamReadErrorAfterKeepAlive(t *testing.T) {
+	oldWait := sseConcurrencyRetryBaseWait
+	oldSleep := sseConcurrencyRetrySleep
+	sseConcurrencyRetryBaseWait = 0
+	sseConcurrencyRetrySleep = func(time.Duration) {}
+	defer func() {
+		sseConcurrencyRetryBaseWait = oldWait
+		sseConcurrencyRetrySleep = oldSleep
+	}()
+
+	firstStream := strings.Join([]string{
+		":",
+		"",
+		":",
+		"",
+		"data: {\"error\":{\"code\":\"stream_read_error\",\"message\":\"stream_read_error\",\"type\":\"upstream_error\"},\"sequence_number\":0,\"type\":\"error\"}",
+		"",
+		"",
+	}, "\n")
+
+	secondStream := strings.Join([]string{
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}",
+		"",
+		"",
+	}, "\n")
+
+	retryCalls := 0
+	wrapped := NewSSEConcurrencyRetryWrapper(io.NopCloser(strings.NewReader(firstStream)), func() (io.ReadCloser, error) {
+		retryCalls++
+		return io.NopCloser(strings.NewReader(secondStream)), nil
+	})
+
+	out, err := io.ReadAll(wrapped)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	if retryCalls != 1 {
+		t.Fatalf("expected retry to be called once, got %d", retryCalls)
+	}
+
+	outStr := string(out)
+	if strings.Contains(outStr, "stream_read_error") {
+		t.Fatalf("expected stream_read_error frame to be swallowed, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "response.output_text.delta") {
+		t.Fatalf("expected retried stream data, got: %s", outStr)
+	}
+}

@@ -36,6 +36,7 @@ func isRetryableErrorPayload(eventName string, payload []byte) bool {
 	if len(payload) == 0 {
 		return false
 	}
+	topType := strings.ToLower(gjson.GetBytes(payload, "type").String())
 
 	// Pattern 1: event: error + rate_limit_error with concurrency limit
 	if eventName == "error" {
@@ -46,10 +47,11 @@ func isRetryableErrorPayload(eventName string, payload []byte) bool {
 		}
 	}
 
-	// Pattern 2: top-level "type":"error" with stream_read_error code
-	if gjson.GetBytes(payload, "type").String() == "error" {
-		errCode := gjson.GetBytes(payload, "error.code").String()
-		if errCode == "stream_read_error" {
+	// Pattern 2: stream_read_error (code/message), usually with top-level type:"error".
+	errCode := strings.ToLower(gjson.GetBytes(payload, "error.code").String())
+	errMsg := strings.ToLower(gjson.GetBytes(payload, "error.message").String())
+	if errCode == "stream_read_error" || strings.Contains(errMsg, "stream_read_error") {
+		if topType == "" || topType == "error" || eventName == "error" {
 			return true
 		}
 	}
@@ -208,15 +210,16 @@ func isRetryableBytes(data []byte) bool {
 	s := string(data)
 
 	// Check JSON error body: {"error":{"message":"Concurrency limit exceeded...","type":"rate_limit_error"}}
-	errType := gjson.Get(s, "error.type").String()
-	errMsg := gjson.Get(s, "error.message").String()
-	if errType == "rate_limit_error" && strings.Contains(errMsg, "Concurrency limit exceeded") {
+	errType := strings.ToLower(gjson.Get(s, "error.type").String())
+	errMsg := strings.ToLower(gjson.Get(s, "error.message").String())
+	if errType == "rate_limit_error" && strings.Contains(errMsg, "concurrency limit exceeded") {
 		return true
 	}
 
 	// Also match generic upstream_error / stream_read_error
-	errCode := gjson.Get(s, "error.code").String()
-	if errCode == "stream_read_error" {
+	errCode := strings.ToLower(gjson.Get(s, "error.code").String())
+	errMsg = strings.ToLower(gjson.Get(s, "error.message").String())
+	if errCode == "stream_read_error" || strings.Contains(errMsg, "stream_read_error") {
 		return true
 	}
 
