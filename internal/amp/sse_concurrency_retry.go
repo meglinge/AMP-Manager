@@ -177,3 +177,29 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 func (w *SSEConcurrencyRetryWrapper) Close() error {
 	return w.upstream.Close()
 }
+
+// isRetryableResponseBody reads the response body and checks if it contains
+// a retryable error (concurrency limit exceeded or rate_limit_error).
+// The body is consumed and cannot be read again after this call.
+func isRetryableResponseBody(body io.ReadCloser) bool {
+	data, err := io.ReadAll(io.LimitReader(body, 8*1024))
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	s := string(data)
+
+	// Check JSON error body: {"error":{"message":"Concurrency limit exceeded...","type":"rate_limit_error"}}
+	errType := gjson.Get(s, "error.type").String()
+	errMsg := gjson.Get(s, "error.message").String()
+	if errType == "rate_limit_error" && strings.Contains(errMsg, "Concurrency limit exceeded") {
+		return true
+	}
+
+	// Also match generic upstream_error / stream_read_error
+	errCode := gjson.Get(s, "error.code").String()
+	if errCode == "stream_read_error" {
+		return true
+	}
+
+	return false
+}

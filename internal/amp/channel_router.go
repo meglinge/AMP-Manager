@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
@@ -559,24 +560,71 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 				providerInfo, _ := GetProviderInfo(resp.Request.Context())
 
-				// /v1/responses: wrap with concurrency-limit retry before any further processing
-				if isStreaming && strings.Contains(resp.Request.URL.Path, "/v1/responses") {
+				// /v1/responses: retry on concurrency-limit / retryable errors.
+				// This handles BOTH:
+				//   a) HTTP 200 + SSE stream starting with event: error (handled by SSEConcurrencyRetryWrapper)
+				//   b) HTTP 429/5xx with JSON error body (handled here directly)
+				isResponsesPath := strings.Contains(resp.Request.URL.Path, "/v1/responses")
+				if isResponsesPath {
 					if ti := GetTranslationInfo(resp.Request.Context()); ti != nil && len(ti.ConvertedBody) > 0 {
 						retryReq := resp.Request.Clone(resp.Request.Context())
-						resp.Body = NewSSEConcurrencyRetryWrapper(resp.Body, func() (io.ReadCloser, error) {
+						makeRetryRequest := func() (*http.Response, error) {
 							clone := retryReq.Clone(retryReq.Context())
 							clone.Body = io.NopCloser(bytes.NewReader(ti.ConvertedBody))
 							clone.ContentLength = int64(len(ti.ConvertedBody))
-							retryResp, err := sharedChannelTransport.RoundTrip(clone)
-							if err != nil {
-								return nil, err
+							return sharedChannelTransport.RoundTrip(clone)
+						}
+
+						// Case (b): non-2xx status with retryable error — retry at HTTP level
+						if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+							if isRetryableResponseBody(resp.Body) {
+								resp.Body.Close()
+								for attempt := 1; attempt <= sseConcurrencyRetryMax; attempt++ {
+									wait := sseConcurrencyRetryBaseWait * time.Duration(attempt)
+									log.Warnf("sse-concurrency-retry: HTTP %d retryable error, retry %d/%d after %v",
+										resp.StatusCode, attempt, sseConcurrencyRetryMax, wait)
+									time.Sleep(wait)
+									retryResp, err := makeRetryRequest()
+									if err != nil {
+										log.Errorf("sse-concurrency-retry: retry request failed: %v", err)
+										continue
+									}
+									// Replace resp fields in-place
+									resp.StatusCode = retryResp.StatusCode
+									resp.Status = retryResp.Status
+									resp.Header = retryResp.Header
+									resp.Body = retryResp.Body
+									resp.ContentLength = retryResp.ContentLength
+									resp.TransferEncoding = retryResp.TransferEncoding
+									isStreaming = strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+									if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+										break
+									}
+									if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+										if isRetryableResponseBody(resp.Body) {
+											resp.Body.Close()
+											continue
+										}
+									}
+									break
+								}
 							}
-							if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
-								retryResp.Body.Close()
-								return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
-							}
-							return retryResp.Body, nil
-						})
+						}
+
+						// Case (a): SSE stream — wrap with retry for in-stream errors
+						if isStreaming {
+							resp.Body = NewSSEConcurrencyRetryWrapper(resp.Body, func() (io.ReadCloser, error) {
+								retryResp, err := makeRetryRequest()
+								if err != nil {
+									return nil, err
+								}
+								if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
+									retryResp.Body.Close()
+									return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
+								}
+								return retryResp.Body, nil
+							})
+						}
 					}
 				}
 
