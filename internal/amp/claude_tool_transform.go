@@ -77,7 +77,19 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 		}
 	}
 
-	// messages[].content[].(tool_use|tool_result).name
+	// tool_choice.name
+	if tc, ok := rootObj["tool_choice"].(map[string]any); ok {
+		if tp, _ := tc["type"].(string); tp == "tool" {
+			if name, ok := tc["name"].(string); ok && name != "" {
+				if newName, did := prefixName(name); did {
+					tc["name"] = newName
+					changed = true
+				}
+			}
+		}
+	}
+
+	// messages[].content[].(tool_use|tool_result|tool_reference)
 	if messages, ok := rootObj["messages"].([]any); ok {
 		for _, m := range messages {
 			msgObj, ok := m.(map[string]any)
@@ -94,16 +106,44 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 					continue
 				}
 				t, _ := itemObj["type"].(string)
-				if t != "tool_use" && t != "tool_result" {
-					continue
+				switch t {
+				case "tool_use", "tool_result":
+					name, ok := itemObj["name"].(string)
+					if !ok || name == "" {
+						break
+					}
+					if newName, did := prefixName(name); did {
+						itemObj["name"] = newName
+						changed = true
+					}
+				case "tool_reference":
+					toolName, ok := itemObj["tool_name"].(string)
+					if !ok || toolName == "" {
+						break
+					}
+					if newName, did := prefixName(toolName); did {
+						itemObj["tool_name"] = newName
+						changed = true
+					}
 				}
-				name, ok := itemObj["name"].(string)
-				if !ok || name == "" {
-					continue
-				}
-				if newName, did := prefixName(name); did {
-					itemObj["name"] = newName
-					changed = true
+				// Handle nested tool_reference inside tool_result.content[]
+				if t == "tool_result" {
+					if nested, ok := itemObj["content"].([]any); ok {
+						for _, ni := range nested {
+							niObj, ok := ni.(map[string]any)
+							if !ok {
+								continue
+							}
+							if nt, _ := niObj["type"].(string); nt == "tool_reference" {
+								if tn, ok := niObj["tool_name"].(string); ok && tn != "" {
+									if newName, did := prefixName(tn); did {
+										niObj["tool_name"] = newName
+										changed = true
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -140,11 +180,17 @@ func UnprefixClaudeToolNamesWithMap(body []byte, reverse ClaudeToolNameMap) ([]b
 	walk = func(v any) {
 		switch node := v.(type) {
 		case map[string]any:
-			// If this is a tool_use/tool_result object, try rewrite its name.
 			if t, _ := node["type"].(string); t == "tool_use" || t == "tool_result" {
 				if name, ok := node["name"].(string); ok {
 					if orig, ok := reverse[name]; ok {
 						node["name"] = orig
+						changed = true
+					}
+				}
+			} else if t == "tool_reference" {
+				if toolName, ok := node["tool_name"].(string); ok {
+					if orig, ok := reverse[toolName]; ok {
+						node["tool_name"] = orig
 						changed = true
 					}
 				}
