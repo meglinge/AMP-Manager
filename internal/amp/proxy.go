@@ -457,39 +457,6 @@ func modifyResponse(resp *http.Response) error {
 
 	// 根据响应类型选择处理管道
 	if isStreamingResponse(resp) {
-		// /v1/responses: retry when SSE stream starts with retryable error frames
-		// (e.g. concurrency limit / stream_read_error), even if there are keep-alive
-		// comment frames before the first data frame.
-		if strings.Contains(resp.Request.URL.Path, "/v1/responses") {
-			retryReq := resp.Request.Clone(resp.Request.Context())
-			resp.Body = NewSSEConcurrencyRetryWrapper(resp.Body, func() (io.ReadCloser, error) {
-				clone := retryReq.Clone(retryReq.Context())
-				if clone.GetBody != nil {
-					body, err := clone.GetBody()
-					if err != nil {
-						return nil, err
-					}
-					clone.Body = body
-				}
-
-				var transport http.RoundTripper = http.DefaultTransport
-				if rt := GetRetryTransport(); rt != nil {
-					transport = &Socks5AwareTransport{Base: rt}
-				}
-
-				retryResp, err := transport.RoundTrip(clone)
-				if err != nil {
-					return nil, err
-				}
-				if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
-					retryResp.Body.Close()
-					return nil, fmt.Errorf("retry returned status %d", retryResp.StatusCode)
-				}
-				return retryResp.Body, nil
-			})
-			log.Debugf("sse-retry: amp upstream /v1/responses stream wrapped")
-		}
-
 		// Claude/Anthropic: unprefix only names we prefixed on the way out
 		if rctx.Provider.Provider == ProviderAnthropic {
 			if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
