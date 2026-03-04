@@ -85,11 +85,12 @@ func (s *UserService) Login(req *model.LoginRequest) (*model.User, string, error
 func (s *UserService) EnsureAdmin() error {
 	cfg := config.Get()
 
-	exists, err := s.repo.ExistsByUsername(cfg.AdminUsername)
+	// 只在系统没有任何用户时才初始化管理员（首次部署）
+	_, userCount, err := s.repo.GetTotalBalanceAndUserCount()
 	if err != nil {
 		return err
 	}
-	if exists {
+	if userCount > 0 {
 		return nil
 	}
 
@@ -108,7 +109,7 @@ func (s *UserService) EnsureAdmin() error {
 		return err
 	}
 
-	log.Printf("管理员账户已创建: %s", cfg.AdminUsername)
+	log.Printf("管理员账户已初始化: %s（首次部署）", cfg.AdminUsername)
 	return nil
 }
 
