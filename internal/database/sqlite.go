@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,6 +84,11 @@ func GetDB() *sql.DB {
 	return db
 }
 
+// GetPath returns the database file path.
+func GetPath() string {
+	return dbPath
+}
+
 func createTables() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS groups (
@@ -92,7 +98,6 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -102,7 +107,6 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
 	CREATE TABLE IF NOT EXISTS user_amp_settings (
 		id TEXT PRIMARY KEY,
@@ -116,7 +120,6 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_amp_settings_user_id ON user_amp_settings(user_id);
 
 	CREATE TABLE IF NOT EXISTS user_api_keys (
 		id TEXT PRIMARY KEY,
@@ -131,8 +134,8 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON user_api_keys(user_id);
-	CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON user_api_keys(key_hash);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_user_created ON user_api_keys(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_user_active ON user_api_keys(user_id, revoked_at);
 
 	CREATE TABLE IF NOT EXISTS channels (
 		id TEXT PRIMARY KEY,
@@ -150,7 +153,8 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_channels_type_enabled ON channels(type, enabled);
-	CREATE INDEX IF NOT EXISTS idx_channels_enabled ON channels(enabled);
+	CREATE INDEX IF NOT EXISTS idx_channels_enabled_priority ON channels(enabled, priority ASC, weight DESC);
+	CREATE INDEX IF NOT EXISTS idx_channels_priority_created ON channels(priority ASC, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS user_groups (
 		user_id TEXT NOT NULL,
@@ -159,7 +163,6 @@ func createTables() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id);
 	CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id);
 
 	CREATE TABLE IF NOT EXISTS channel_groups (
@@ -169,7 +172,6 @@ func createTables() error {
 		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
 		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_channel_groups_channel ON channel_groups(channel_id);
 	CREATE INDEX IF NOT EXISTS idx_channel_groups_group ON channel_groups(group_id);
 
 	CREATE TABLE IF NOT EXISTS channel_models (
@@ -180,7 +182,6 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_channel_models_channel ON channel_models(channel_id);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_models_unique ON channel_models(channel_id, model_id);
 
 	CREATE TABLE IF NOT EXISTS model_metadata (
@@ -194,12 +195,13 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_model_metadata_pattern ON model_metadata(model_pattern);
-	CREATE INDEX IF NOT EXISTS idx_model_metadata_provider ON model_metadata(provider);
+	CREATE INDEX IF NOT EXISTS idx_model_metadata_provider_pattern ON model_metadata(provider, model_pattern);
 
 	CREATE TABLE IF NOT EXISTS request_logs (
 		id TEXT PRIMARY KEY,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME,
+		status TEXT NOT NULL DEFAULT 'success',
 		user_id TEXT NOT NULL,
 		api_key_id TEXT NOT NULL,
 		original_model TEXT,
@@ -222,12 +224,20 @@ func createTables() error {
 		cost_usd TEXT,
 		pricing_model TEXT,
 		thinking_level TEXT,
-		response_text TEXT
+		response_text TEXT,
+		rate_multiplier REAL,
+		charged_subscription_micros INTEGER NOT NULL DEFAULT 0,
+		charged_balance_micros INTEGER NOT NULL DEFAULT 0,
+		billing_status TEXT NOT NULL DEFAULT 'none'
 	);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_user_time ON request_logs(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model_time ON request_logs(mapped_model, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_original_model_time ON request_logs(original_model, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_status_code_time ON request_logs(status_code, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_streaming_time ON request_logs(is_streaming, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model));
 
 	CREATE TABLE IF NOT EXISTS model_prices (
 		id TEXT PRIMARY KEY,
@@ -238,7 +248,6 @@ func createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_model_prices_model ON model_prices(model);
 	CREATE INDEX IF NOT EXISTS idx_model_prices_provider ON model_prices(provider);
 
 	CREATE TABLE IF NOT EXISTS system_config (
@@ -277,7 +286,6 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_plan_limits_plan ON subscription_plan_limits(plan_id);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_limits_unique ON subscription_plan_limits(plan_id, limit_type);
 
 	CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -292,8 +300,8 @@ func createTables() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
 	);
-	CREATE INDEX IF NOT EXISTS idx_user_subs_user ON user_subscriptions(user_id);
-	CREATE INDEX IF NOT EXISTS idx_user_subs_plan ON user_subscriptions(plan_id);
+	CREATE INDEX IF NOT EXISTS idx_user_subs_user_created ON user_subscriptions(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_user_subs_plan_status ON user_subscriptions(plan_id, status);
 	CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subs_active_unique ON user_subscriptions(user_id) WHERE status = 'active';
 
@@ -319,9 +327,9 @@ func createTables() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE
 	);
-	CREATE INDEX IF NOT EXISTS idx_billing_events_user ON billing_events(user_id);
-	CREATE INDEX IF NOT EXISTS idx_billing_events_sub ON billing_events(user_subscription_id);
-	CREATE INDEX IF NOT EXISTS idx_billing_events_request ON billing_events(request_log_id);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_usage_window ON billing_events(user_subscription_id, source, created_at);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_user_created ON billing_events(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type) WHERE request_log_id IS NOT NULL;
 	`
 	_, err := db.Exec(schema)
@@ -329,6 +337,10 @@ func createTables() error {
 }
 
 func runMigrations() error {
+	if err := ensureSchemaMigrationsTable(); err != nil {
+		return fmt.Errorf("ensure schema_migrations table failed: %w", err)
+	}
+
 	migrations := []struct {
 		name string
 		sql  string
@@ -397,17 +409,9 @@ func runMigrations() error {
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN native_mode INTEGER NOT NULL DEFAULT 0`,
 		},
 		{
-			name: "add_user_group_id",
-			sql:  `ALTER TABLE users ADD COLUMN group_id TEXT NOT NULL DEFAULT ''`,
-		},
-		{
-			name: "add_channel_group_id",
-			sql:  `ALTER TABLE channels ADD COLUMN group_id TEXT NOT NULL DEFAULT ''`,
-		},
-		{
 			name: "create_user_groups_table",
 			sql: `CREATE TABLE IF NOT EXISTS user_groups (
-				user_id TEXT NOT NULL,
+					user_id TEXT NOT NULL,
 				group_id TEXT NOT NULL,
 				PRIMARY KEY (user_id, group_id),
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -478,16 +482,113 @@ func runMigrations() error {
 			name: "add_socks5_proxy",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN socks5_proxy TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			name: "add_request_detail_retention_default",
+			sql:  `INSERT OR IGNORE INTO system_config (key, value, updated_at) VALUES ('request_detail_retention_days', '30', CURRENT_TIMESTAMP)`,
+		},
+		{
+			name: "rename_retention_to_archive_days",
+			sql: `UPDATE system_config SET key = 'request_detail_archive_days' WHERE key = 'request_detail_retention_days'
+				AND NOT EXISTS (SELECT 1 FROM system_config WHERE key = 'request_detail_archive_days')`,
+		},
+		{
+			name: "add_request_logs_status_time_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_status_time ON request_logs(status, created_at DESC)`,
+		},
+		{
+			name: "add_request_logs_status_code_time_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_status_code_time ON request_logs(status_code, created_at DESC)`,
+		},
+		{
+			name: "add_request_logs_streaming_time_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_streaming_time ON request_logs(is_streaming, created_at DESC)`,
+		},
+		{
+			name: "add_request_logs_effective_model_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model))`,
+		},
+		{
+			name: "add_api_keys_user_created_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_api_keys_user_created ON user_api_keys(user_id, created_at DESC)`,
+		},
+		{
+			name: "add_api_keys_user_active_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_api_keys_user_active ON user_api_keys(user_id, revoked_at)`,
+		},
+		{
+			name: "add_channels_priority_created_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_channels_priority_created ON channels(priority ASC, created_at DESC)`,
+		},
+		{
+			name: "add_model_metadata_provider_pattern_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_model_metadata_provider_pattern ON model_metadata(provider, model_pattern)`,
+		},
+		{
+			name: "add_user_subs_user_created_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_user_subs_user_created ON user_subscriptions(user_id, created_at DESC)`,
+		},
+		{
+			name: "add_user_subs_plan_status_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_user_subs_plan_status ON user_subscriptions(plan_id, status)`,
+		},
+		{
+			name: "add_billing_events_user_created_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_events_user_created ON billing_events(user_id, created_at DESC)`,
+		},
+		{
+			name: "add_billing_events_request_created_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC)`,
+		},
+		{
+			name: "drop_legacy_users_group_id",
+			sql:  `ALTER TABLE users DROP COLUMN group_id`,
+		},
+		{
+			name: "drop_legacy_channels_group_id",
+			sql:  `ALTER TABLE channels DROP COLUMN group_id`,
+		},
+		{
+			name: "drop_redundant_indexes",
+			sql: `
+					DROP INDEX IF EXISTS idx_groups_name;
+					DROP INDEX IF EXISTS idx_users_username;
+					DROP INDEX IF EXISTS idx_amp_settings_user_id;
+					DROP INDEX IF EXISTS idx_api_keys_hash;
+					DROP INDEX IF EXISTS idx_api_keys_user_id;
+					DROP INDEX IF EXISTS idx_channels_enabled;
+					DROP INDEX IF EXISTS idx_user_groups_user;
+					DROP INDEX IF EXISTS idx_channel_groups_channel;
+					DROP INDEX IF EXISTS idx_channel_models_channel;
+					DROP INDEX IF EXISTS idx_model_metadata_pattern;
+					DROP INDEX IF EXISTS idx_model_metadata_provider;
+					DROP INDEX IF EXISTS idx_request_logs_status;
+					DROP INDEX IF EXISTS idx_model_prices_model;
+					DROP INDEX IF EXISTS idx_plan_limits_plan;
+					DROP INDEX IF EXISTS idx_user_subs_user;
+					DROP INDEX IF EXISTS idx_user_subs_plan;
+					DROP INDEX IF EXISTS idx_billing_events_user;
+					DROP INDEX IF EXISTS idx_billing_events_sub;
+					DROP INDEX IF EXISTS idx_billing_events_request;
+				`,
+		},
 	}
 
 	for _, m := range migrations {
-		_, err := db.Exec(m.sql)
+		applied, err := isMigrationApplied(m.name)
 		if err != nil {
-			// ALTER TABLE 和 INSERT 迁移可能因为已存在而失败，这是正常的
-			// 只有 CREATE INDEX IF NOT EXISTS 类型的迁移失败才是真正的错误
-			if m.name == "add_original_model_index" || m.name == "add_channels_enabled_priority_index" || m.name == "add_request_logs_status_index" || m.name == "create_user_groups_indexes" || m.name == "create_channel_groups_indexes" || m.name == "add_billing_events_usage_window_index" {
-				return fmt.Errorf("migration '%s' failed: %w", m.name, err)
-			}
+			return fmt.Errorf("check migration '%s' failed: %w", m.name, err)
+		}
+		if applied {
+			continue
+		}
+
+		_, err = db.Exec(m.sql)
+		if err != nil && !shouldIgnoreMigrationError(m.name, err) {
+			return fmt.Errorf("migration '%s' failed: %w", m.name, err)
+		}
+
+		if err := markMigrationApplied(m.name); err != nil {
+			return fmt.Errorf("mark migration '%s' applied failed: %w", m.name, err)
 		}
 	}
 
@@ -496,6 +597,57 @@ func runMigrations() error {
 	}
 
 	return nil
+}
+
+func ensureSchemaMigrationsTable() error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			name TEXT PRIMARY KEY,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	return err
+}
+
+func isMigrationApplied(name string) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func markMigrationApplied(name string) error {
+	_, err := db.Exec(`INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func shouldIgnoreMigrationError(name string, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	if strings.Contains(msg, "duplicate column name") ||
+		strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "unique constraint failed") {
+		return true
+	}
+
+	if name == "migrate_proxy_tokens" &&
+		(strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column")) {
+		return true
+	}
+
+	if name == "drop_legacy_users_group_id" || name == "drop_legacy_channels_group_id" {
+		if strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot drop") || strings.Contains(msg, "syntax error") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // migrateTimestampsToUTC 将数据库中所有带时区偏移的 RFC3339 时间戳转换为 UTC

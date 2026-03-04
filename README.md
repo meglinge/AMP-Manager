@@ -46,7 +46,7 @@
 - **仪表盘** — 实时费用统计、热门模型排行、每日趋势图、多 Provider 缓存命中率分析
 - **使用量监控** — 请求日志（WebSocket 实时推送）、Token 用量、成本分析，多维度聚合
 - **价格管理** — 自动同步 LiteLLM 价格库（6 小时周期 + ETag 缓存），支持手动定价
-- **系统设置** — 重试策略、超时配置、缓存 TTL、请求详情开关、数据库备份/恢复
+- **系统设置** — 重试策略、超时配置、缓存 TTL、请求详情开关/归档策略、数据库备份/恢复
 - **数据加密** — AES-256-GCM 加密存储上游 API Key，自动检测加密状态
 
 ## 架构概览
@@ -294,7 +294,7 @@ export AMP_API_KEY="your-api-key"
 | `user_amp_settings` | 用户代理配置 | upstream_url, model_mappings_json, web_search_mode, native_mode |
 | `user_api_keys` | API 密钥 | key_hash, api_key (加密), prefix, expires_at, revoked_at |
 | `request_logs` | 请求日志 | model, tokens, cost_micros, latency_ms, billing_status |
-| `request_log_details` | 请求详情 | request_headers, request_body, response_headers, response_body |
+| `request_log_details` | 请求详情（超期自动归档到独立库，数据永不删除） | request_headers, request_body, response_headers, response_body |
 | `subscription_plans` | 订阅计划 | name, enabled |
 | `subscription_plan_limits` | 计划限额 | limit_type, window_mode, limit_micros |
 | `user_subscriptions` | 用户订阅 | plan_id, starts_at, expires_at, status |
@@ -386,7 +386,7 @@ AMPManager/
 │   ├── billing/             # 计费模块：价格存储、成本计算器、LiteLLM 同步
 │   ├── config/              # 配置管理：环境变量加载与安全校验
 │   ├── crypto/              # 加密工具：AES-256-GCM
-│   ├── database/            # SQLite：建表、25+ 增量迁移、WAL 模式
+│   ├── database/            # SQLite：建表、版本化迁移、索引优化、WAL 模式
 │   ├── handler/             # HTTP 处理器：管理员/用户/认证 API
 │   ├── middleware/          # 通用中间件：JWT 认证、IP 限流、CORS
 │   ├── model/               # 数据模型：16+ 表定义
@@ -438,7 +438,7 @@ AMPManager/
 | 订阅计划 | CRUD 计划，多维度限额（日/周/月/滚动5h/总量 × 固定/滑动窗口） | 管理员 |
 | 模型元数据 | CRUD 模型元数据（模式匹配、上下文长度、最大 Token） | 管理员 |
 | 价格管理 | LiteLLM 价格表，搜索/筛选/手动刷新 | 管理员 |
-| 系统设置 | 数据库备份/恢复、重试策略、请求监控开关、缓存 TTL、超时配置 | 管理员 |
+| 系统设置 | 数据库备份/恢复、重试策略、请求监控开关/归档策略、缓存 TTL、超时配置 | 管理员 |
 
 ## 默认账户
 
