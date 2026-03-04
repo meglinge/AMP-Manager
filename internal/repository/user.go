@@ -238,8 +238,8 @@ func (r *UserRepository) GetBalance(userID string) (int64, error) {
 func (r *UserRepository) DeductBalance(userID string, amountMicros int64) error {
 	db := database.GetDB()
 	result, err := db.Exec(
-		`UPDATE users SET balance_micros = balance_micros - ?, updated_at = ? WHERE id = ?`,
-		amountMicros, time.Now().UTC(), userID,
+		`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
+		amountMicros, amountMicros, time.Now().UTC(), userID,
 	)
 	if err != nil {
 		return err

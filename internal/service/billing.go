@@ -206,13 +206,8 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 		}
 	}
 
-	if remaining > 0 {
-		if sub != nil {
-			chargedSubscription += remaining
-		} else {
-			chargedBalance += remaining
-		}
-	}
+	// If remaining > 0, funds were insufficient. Do NOT force-charge — this would cause negative balance.
+	// The overuse amount is recorded in billing_status but not charged.
 
 	now := time.Now().UTC()
 
@@ -227,8 +222,8 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 			return fmt.Errorf("billing: insert balance event: %w", err)
 		}
 		if _, err := tx.Exec(
-			`UPDATE users SET balance_micros = balance_micros - ?, updated_at = ? WHERE id = ?`,
-			chargedBalance, now.Format(time.RFC3339), userID,
+			`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
+			chargedBalance, chargedBalance, now.Format(time.RFC3339), userID,
 		); err != nil {
 			return fmt.Errorf("billing: deduct balance: %w", err)
 		}

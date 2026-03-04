@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ampmanager/internal/repository"
+	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -425,6 +426,46 @@ type responseLogWriter struct {
 func (w *responseLogWriter) Write(b []byte) (int, error) {
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
+}
+
+// BillingCheckMiddleware checks if user has sufficient balance/subscription before model invocations.
+// Blocks requests with 403 if balance and subscription quota are both exhausted.
+func BillingCheckMiddleware() gin.HandlerFunc {
+	billingSvc := service.NewBillingService()
+	return func(c *gin.Context) {
+		// Only check for model invocation requests (the ones that cost money)
+		if !IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
+		cfg := GetProxyConfig(c.Request.Context())
+		if cfg == nil {
+			c.Next()
+			return
+		}
+
+		// RateMultiplier == 0 means free, skip billing check
+		if cfg.RateMultiplier == 0 {
+			c.Next()
+			return
+		}
+
+		canStart, err := billingSvc.CanStartRequest(cfg.UserID)
+		if err != nil {
+			log.Errorf("billing check: failed for user %s: %v", cfg.UserID, err)
+			c.Next()
+			return
+		}
+
+		if !canStart {
+			log.Warnf("billing check: insufficient funds for user %s", cfg.UserID)
+			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "余额和订阅额度均不足，请充值后再使用"))
+			return
+		}
+
+		c.Next()
+	}
 }
 
 // ForceFreeTierMiddleware forces webSearch2 and extractWebPageContent requests to use free tier
