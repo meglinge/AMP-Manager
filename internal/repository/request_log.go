@@ -224,7 +224,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 // GetUsageSummary 获取用量统计
 // userID 为 nil 或空字符串时查询所有用户
-func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Time, groupBy string) ([]model.UsageSummary, error) {
+func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Time, groupBy string, modelFilter string) ([]model.UsageSummary, error) {
 	db := database.GetDB()
 
 	var groupColumn string
@@ -247,6 +247,11 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 	if userID != nil && *userID != "" {
 		conditions = append(conditions, "user_id = ?")
 		args = append(args, *userID)
+	}
+
+	if modelFilter != "" {
+		conditions = append(conditions, "(mapped_model = ? OR original_model = ?)")
+		args = append(args, modelFilter, modelFilter)
 	}
 
 	if from != nil {
@@ -320,6 +325,36 @@ func (r *RequestLogRepository) GetDistinctModels() ([]string, error) {
 	`
 
 	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var models []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		models = append(models, m)
+	}
+
+	return models, rows.Err()
+}
+
+// GetDistinctModelsByUser 获取指定用户使用过的模型列表
+func (r *RequestLogRepository) GetDistinctModelsByUser(userID string) ([]string, error) {
+	db := database.GetDB()
+
+	query := `
+		SELECT DISTINCT COALESCE(mapped_model, original_model) as model
+		FROM request_logs
+		WHERE user_id = ? AND (mapped_model IS NOT NULL OR original_model IS NOT NULL)
+		ORDER BY model
+		LIMIT 100
+	`
+
+	rows, err := db.Query(query, userID)
 	if err != nil {
 		return nil, err
 	}

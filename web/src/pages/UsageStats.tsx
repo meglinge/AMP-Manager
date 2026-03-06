@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { getUsageSummary, getAdminUsageSummary, getAdminDistinctModels, UsageSummary } from '@/api/amp'
+import { getUsageSummary, getAdminUsageSummary, getAdminDistinctModels, getDistinctModels, UsageSummary } from '@/api/amp'
 import { listUsers, UserInfo } from '@/api/users'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -66,6 +66,10 @@ export default function UsageStats({ isAdmin }: Props) {
           setModels(modelsRes.models || [])
         })
         .catch(console.error)
+    } else {
+      getDistinctModels()
+        .then(res => setModels(res.models || []))
+        .catch(console.error)
     }
   }, [isAdmin])
 
@@ -102,6 +106,7 @@ export default function UsageStats({ isAdmin }: Props) {
     try {
       const params = {
         groupBy: summaryGroupBy,
+        model: filters.model || undefined,
         from: filters.from ? localToISO(filters.from) : undefined,
         to: filters.to ? localToISO(filters.to) : undefined,
       }

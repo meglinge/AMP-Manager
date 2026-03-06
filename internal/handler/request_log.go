@@ -107,6 +107,18 @@ func (h *RequestLogHandler) GetRequestLog(c *gin.Context) {
 	c.JSON(http.StatusOK, log)
 }
 
+// GetDistinctModels 获取当前用户使用过的模型列表
+func (h *RequestLogHandler) GetDistinctModels(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	models, err := h.logService.GetDistinctModelsByUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取模型列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
 // GetUsageSummary 获取用量统计
 func (h *RequestLogHandler) GetUsageSummary(c *gin.Context) {
 	userID := middleware.GetUserID(c)
@@ -136,7 +148,9 @@ func (h *RequestLogHandler) GetUsageSummary(c *gin.Context) {
 		return
 	}
 
-	result, err := h.logService.GetUsageSummary(userID, from, to, groupBy)
+	modelFilter := c.Query("model")
+
+	result, err := h.logService.GetUsageSummary(userID, from, to, groupBy, modelFilter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计失败"})
 		return
@@ -263,7 +277,9 @@ func (h *RequestLogHandler) AdminGetUsageSummary(c *gin.Context) {
 		userID = &uid
 	}
 
-	result, err := h.logService.GetUsageSummaryAdmin(userID, from, to, groupBy)
+	modelFilter := c.Query("model")
+
+	result, err := h.logService.GetUsageSummaryAdmin(userID, from, to, groupBy, modelFilter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计失败"})
 		return

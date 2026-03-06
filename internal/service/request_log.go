@@ -58,8 +58,8 @@ func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLo
 }
 
 // GetUsageSummary 获取用量统计（用户自身）
-func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, groupBy string) (*model.UsageSummaryResponse, error) {
-	summaries, err := s.repo.GetUsageSummary(&userID, from, to, groupBy)
+func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, groupBy string, modelFilter string) (*model.UsageSummaryResponse, error) {
+	summaries, err := s.repo.GetUsageSummary(&userID, from, to, groupBy, modelFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +70,8 @@ func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, 
 }
 
 // GetUsageSummaryAdmin 获取用量统计（管理员，查看所有用户）
-func (s *RequestLogService) GetUsageSummaryAdmin(userID *string, from, to *time.Time, groupBy string) (*model.UsageSummaryResponse, error) {
-	summaries, err := s.repo.GetUsageSummary(userID, from, to, groupBy)
+func (s *RequestLogService) GetUsageSummaryAdmin(userID *string, from, to *time.Time, groupBy string, modelFilter string) (*model.UsageSummaryResponse, error) {
+	summaries, err := s.repo.GetUsageSummary(userID, from, to, groupBy, modelFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +111,11 @@ func (s *RequestLogService) ListAdmin(params ListRequestLogsParams) (*model.Requ
 // GetDistinctModels 获取使用过的模型列表（管理员用）
 func (s *RequestLogService) GetDistinctModels() ([]string, error) {
 	return s.repo.GetDistinctModels()
+}
+
+// GetDistinctModelsByUser 获取指定用户使用过的模型列表
+func (s *RequestLogService) GetDistinctModelsByUser(userID string) ([]string, error) {
+	return s.repo.GetDistinctModelsByUser(userID)
 }
 
 // GetDistinctAPIKeys 获取使用过的 API Key 列表（管理员用）

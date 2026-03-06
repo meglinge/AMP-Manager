@@ -226,17 +226,25 @@ export async function getRequestLogs(params: RequestLogListParams = {}, signal?:
   return handleResponse<RequestLogListResponse>(response)
 }
 
-export async function getUsageSummary(params: { from?: string; to?: string; groupBy?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
+export async function getUsageSummary(params: { from?: string; to?: string; groupBy?: string; model?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
   const searchParams = new URLSearchParams()
   if (params.from) searchParams.set('from', params.from)
   if (params.to) searchParams.set('to', params.to)
   if (params.groupBy) searchParams.set('groupBy', params.groupBy)
+  if (params.model) searchParams.set('model', params.model)
 
   const query = searchParams.toString()
   const response = await authFetch(`${API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
     signal,
   })
   return handleResponse<UsageSummaryResponse>(response)
+}
+
+export async function getDistinctModels(signal?: AbortSignal): Promise<{ models: string[] }> {
+  const response = await authFetch(`${API_BASE}/request-logs/models`, {
+    signal,
+  })
+  return handleResponse<{ models: string[] }>(response)
 }
 
 // Admin API for request logs
@@ -288,12 +296,13 @@ export async function getAdminDistinctKeys(userId?: string, signal?: AbortSignal
   return handleResponse<{ keys: DistinctAPIKey[] }>(response)
 }
 
-export async function getAdminUsageSummary(params: { from?: string; to?: string; groupBy?: string; userId?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
+export async function getAdminUsageSummary(params: { from?: string; to?: string; groupBy?: string; userId?: string; model?: string } = {}, signal?: AbortSignal): Promise<UsageSummaryResponse> {
   const searchParams = new URLSearchParams()
   if (params.from) searchParams.set('from', params.from)
   if (params.to) searchParams.set('to', params.to)
   if (params.groupBy) searchParams.set('groupBy', params.groupBy)
   if (params.userId) searchParams.set('userId', params.userId)
+  if (params.model) searchParams.set('model', params.model)
 
   const query = searchParams.toString()
   const response = await authFetch(`${ADMIN_API_BASE}/usage/summary${query ? `?${query}` : ''}`, {
