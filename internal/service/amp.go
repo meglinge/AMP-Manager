@@ -47,7 +47,6 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 		return &model.AmpSettingsResponse{
 			UpstreamURL:        "https://ampcode.com",
 			ModelMappings:      []model.ModelMapping{},
-			ForceModelMappings: false,
 			Enabled:            false,
 			HasAPIKey:          false,
 			WebSearchMode:      model.WebSearchModeUpstream,
@@ -66,17 +65,16 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 	}
 
 	return &model.AmpSettingsResponse{
-		UpstreamURL:        settings.UpstreamURL,
-		ModelMappings:      mappings,
-		ForceModelMappings: settings.ForceModelMappings,
-		Enabled:            settings.Enabled,
-		HasAPIKey:          settings.UpstreamAPIKey != "",
-		WebSearchMode:      settings.WebSearchMode,
-		NativeMode:         settings.NativeMode,
-		ShowBalanceInAd:    settings.ShowBalanceInAd,
-		HasSocks5Proxy:     settings.Socks5Proxy != "",
-		CreatedAt:          settings.CreatedAt,
-		UpdatedAt:          settings.UpdatedAt,
+		UpstreamURL:     settings.UpstreamURL,
+		ModelMappings:   mappings,
+		Enabled:         settings.Enabled,
+		HasAPIKey:       settings.UpstreamAPIKey != "",
+		WebSearchMode:   settings.WebSearchMode,
+		NativeMode:      settings.NativeMode,
+		ShowBalanceInAd: settings.ShowBalanceInAd,
+		HasSocks5Proxy:  settings.Socks5Proxy != "",
+		CreatedAt:       settings.CreatedAt,
+		UpdatedAt:       settings.UpdatedAt,
 	}, nil
 }
 
@@ -87,10 +85,9 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 	}
 
 	settings := &model.AmpSettings{
-		UserID:             userID,
-		UpstreamURL:        req.UpstreamURL,
-		ForceModelMappings: req.ForceModelMappings,
-		Enabled:            req.Enabled,
+		UserID:      userID,
+		UpstreamURL: req.UpstreamURL,
+		Enabled:     req.Enabled,
 		WebSearchMode:      req.WebSearchMode,
 		NativeMode:         req.NativeMode,
 	}
@@ -154,17 +151,16 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 	}
 
 	return &model.AmpSettingsResponse{
-		UpstreamURL:        settings.UpstreamURL,
-		ModelMappings:      mappings,
-		ForceModelMappings: settings.ForceModelMappings,
-		Enabled:            settings.Enabled,
-		HasAPIKey:          settings.UpstreamAPIKey != "",
-		WebSearchMode:      settings.WebSearchMode,
-		NativeMode:         settings.NativeMode,
-		ShowBalanceInAd:    settings.ShowBalanceInAd,
-		HasSocks5Proxy:     settings.Socks5Proxy != "",
-		CreatedAt:          settings.CreatedAt,
-		UpdatedAt:          settings.UpdatedAt,
+		UpstreamURL:     settings.UpstreamURL,
+		ModelMappings:   mappings,
+		Enabled:         settings.Enabled,
+		HasAPIKey:       settings.UpstreamAPIKey != "",
+		WebSearchMode:   settings.WebSearchMode,
+		NativeMode:      settings.NativeMode,
+		ShowBalanceInAd: settings.ShowBalanceInAd,
+		HasSocks5Proxy:  settings.Socks5Proxy != "",
+		CreatedAt:       settings.CreatedAt,
+		UpdatedAt:       settings.UpdatedAt,
 	}, nil
 }
 

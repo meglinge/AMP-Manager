@@ -248,8 +248,8 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if settings == nil || !settings.Enabled {
-			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not enabled for this user"))
+		if settings == nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not configured for this user"))
 			return
 		}
 
@@ -259,16 +259,16 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		}
 
 		proxyCfg := &ProxyConfig{
-			UserID:             apiKeyRecord.UserID,
-			APIKeyID:           apiKeyRecord.ID,
-			UpstreamURL:        settings.UpstreamURL,
-			UpstreamAPIKey:     settings.UpstreamAPIKey,
-			ModelMappingsJSON:  settings.ModelMappingsJSON,
-			ForceModelMappings: settings.ForceModelMappings,
-			WebSearchMode:      settings.WebSearchMode,
-			NativeMode:         settings.NativeMode,
-			ShowBalanceInAd:    settings.ShowBalanceInAd,
-			Socks5Proxy:        settings.Socks5Proxy,
+			UserID:            apiKeyRecord.UserID,
+			APIKeyID:          apiKeyRecord.ID,
+			UpstreamURL:       settings.UpstreamURL,
+			UpstreamAPIKey:    settings.UpstreamAPIKey,
+			ModelMappingsJSON: settings.ModelMappingsJSON,
+			Enabled:           settings.Enabled,
+			WebSearchMode:     settings.WebSearchMode,
+			NativeMode:        settings.NativeMode,
+			ShowBalanceInAd:   settings.ShowBalanceInAd,
+			Socks5Proxy:       settings.Socks5Proxy,
 		}
 
 		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)
@@ -694,10 +694,27 @@ func IsNativeMode(c *gin.Context) bool {
 	return cfg != nil && cfg.NativeMode
 }
 
+// IsProxyDisabled checks if AMP proxy enhancements are disabled (pure passthrough except model mapping)
+func IsProxyDisabled(c *gin.Context) bool {
+	cfg := GetProxyConfig(c.Request.Context())
+	return cfg != nil && !cfg.Enabled
+}
+
 // NativeModeSkipMiddleware wraps a middleware and skips it when native mode is enabled
 func NativeModeSkipMiddleware(inner gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if IsNativeMode(c) {
+			c.Next()
+			return
+		}
+		inner(c)
+	}
+}
+
+// ProxyDisabledSkipMiddleware wraps a middleware and skips it when AMP proxy is disabled or native mode is enabled
+func ProxyDisabledSkipMiddleware(inner gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if IsNativeMode(c) || IsProxyDisabled(c) {
 			c.Next()
 			return
 		}

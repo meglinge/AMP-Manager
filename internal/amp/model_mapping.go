@@ -90,6 +90,7 @@ type MappingResult struct {
 	ThinkingLevel   string
 	PseudoNonStream bool
 	AuditKeywords   []string
+	FastMode        bool
 	Applied         bool
 }
 
@@ -149,8 +150,8 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Apply mapping
-		result := applyMapping(modelName, mappings)
+		// Apply mapping (pass header getter for AMP-only check)
+		result := applyMappingWithHeaders(modelName, mappings, c.GetHeader)
 
 		if !result.Applied {
 			if bodyBytes != nil {
@@ -220,6 +221,11 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)
 					c.Set(ThinkingLevelContextKey, thinkingLevel)
 					log.Infof("model mapping: applied thinking level '%s'", thinkingLevel)
+				}
+
+				if result.FastMode {
+					payload["service_tier"] = "priority"
+					log.Infof("model mapping: applied fast mode (service_tier=priority)")
 				}
 
 				newBody, err := json.Marshal(payload)
@@ -328,9 +334,24 @@ func replaceModelInSegment(segment, oldModel, newModel string) string {
 }
 
 func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult {
+	return applyMappingWithHeaders(modelName, mappings, nil)
+}
+
+func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, header func(string) string) MappingResult {
 	for _, m := range mappings {
 		if m.From == "" {
 			continue
+		}
+
+		// If ampOnly is set, skip this mapping when request is not from AMP
+		if m.AmpOnly {
+			isAmp := false
+			if header != nil {
+				isAmp = header("X-Amp-Feature") == "amp.chat"
+			}
+			if !isAmp {
+				continue
+			}
 		}
 
 		matched := false
@@ -359,6 +380,7 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 				ThinkingLevel:   m.ThinkingLevel,
 				PseudoNonStream: m.PseudoNonStream,
 				AuditKeywords:   m.AuditKeywords,
+				FastMode:        m.FastMode,
 				Applied:         true,
 			}
 		}

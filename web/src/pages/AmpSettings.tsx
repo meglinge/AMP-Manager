@@ -24,7 +24,6 @@ export default function AmpSettings() {
     const [enabled, setEnabled] = useState(true)
     const [upstreamUrl, setUpstreamUrl] = useState('')
     const [upstreamApiKey, setUpstreamApiKey] = useState('')
-    const [forceModelMappings, setForceModelMappings] = useState(false)
     const [modelMappings, setModelMappings] = useState<ModelMapping[]>([])
     const [nativeMode, setNativeMode] = useState(false)
     const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>('upstream')
@@ -47,7 +46,6 @@ export default function AmpSettings() {
             setSettings(data)
             setEnabled(data.enabled)
             setUpstreamUrl(data.upstreamUrl)
-            setForceModelMappings(data.forceModelMappings)
             setModelMappings(data.modelMappings || [])
             setNativeMode(data.nativeMode)
             setWebSearchMode(data.webSearchMode || 'upstream')
@@ -72,7 +70,6 @@ export default function AmpSettings() {
                 upstreamUrl,
                 ...(upstreamApiKey ? { upstreamApiKey } : {}),
                 ...(socks5Proxy ? { socks5Proxy } : {}),
-                forceModelMappings,
                 modelMappings,
                 webSearchMode,
                 showBalanceInAd,
@@ -138,7 +135,7 @@ export default function AmpSettings() {
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <Label htmlFor="enabled">启用代理</Label>
-                                <p className="text-sm text-muted-foreground">开启后将启用 Amp 代理服务</p>
+                                <p className="text-sm text-muted-foreground">开启后启用 AMP 增强功能（模型映射、渠道路由等），关闭则纯透传到上游</p>
                             </div>
                             <Switch
                                 id="enabled"
@@ -223,18 +220,6 @@ export default function AmpSettings() {
                             </div>
 
                             <Separator />
-
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="forceModelMappings">Force Model Mappings</Label>
-                                    <p className="text-sm text-muted-foreground">强制使用模型映射规则</p>
-                                </div>
-                                <Switch
-                                    id="forceModelMappings"
-                                    checked={forceModelMappings}
-                                    onCheckedChange={setForceModelMappings}
-                                />
-                            </div>
 
                             <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
 

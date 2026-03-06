@@ -20,12 +20,13 @@ export interface ModelMapping {
   thinkingLevel?: 'low' | 'medium' | 'high' | 'xhigh' | ''
   pseudoNonStream?: boolean
   auditKeywords?: string[]
+  ampOnly?: boolean
+  fastMode?: boolean
 }
 
 export interface AmpSettings {
   upstreamUrl: string
   apiKeySet: boolean
-  forceModelMappings: boolean
   modelMappings: ModelMapping[]
   enabled: boolean
   nativeMode: boolean
@@ -37,7 +38,6 @@ export interface AmpSettings {
 export interface UpdateAmpSettingsRequest {
   upstreamUrl?: string
   upstreamApiKey?: string
-  forceModelMappings?: boolean
   modelMappings?: ModelMapping[]
   enabled?: boolean
   nativeMode?: boolean

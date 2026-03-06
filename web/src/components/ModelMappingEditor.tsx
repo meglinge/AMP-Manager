@@ -93,7 +93,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
   }
 
   const handleAdd = () => {
-    onChange([...mappings, { from: '', to: '', regex: false, thinkingLevel: '', pseudoNonStream: false, auditKeywords: [] }])
+    onChange([...mappings, { from: '', to: '', regex: false, thinkingLevel: '', pseudoNonStream: false, auditKeywords: [], ampOnly: false, fastMode: false }])
   }
 
   const handleRemove = (index: number) => {
@@ -148,6 +148,8 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                 <TableHead>To</TableHead>
                 <TableHead className="text-center">思维强度</TableHead>
                 <TableHead className="text-center">伪非流</TableHead>
+                <TableHead className="text-center">仅AMP</TableHead>
+                <TableHead className="text-center">Fast</TableHead>
                 <TableHead className="text-center">Regex</TableHead>
                 <TableHead className="text-center">操作</TableHead>
               </TableRow>
@@ -255,6 +257,18 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                   </TableCell>
                   <TableCell className="text-center">
                     <Checkbox
+                      checked={mapping.ampOnly || false}
+                      onCheckedChange={(checked) => handleChange(index, 'ampOnly', !!checked)}
+                    />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Checkbox
+                      checked={mapping.fastMode || false}
+                      onCheckedChange={(checked) => handleChange(index, 'fastMode', !!checked)}
+                    />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Checkbox
                       checked={mapping.regex}
                       onCheckedChange={(checked) => handleChange(index, 'regex', !!checked)}
                     />
@@ -273,7 +287,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                 </TableRow>
                 {mapping.pseudoNonStream && (
                   <TableRow key={`${index}-audit`}>
-                    <TableCell colSpan={6} className="pt-0">
+                    <TableCell colSpan={8} className="pt-0">
                       <div className="flex items-start gap-2 pb-2">
                         <Label className="text-xs text-muted-foreground whitespace-nowrap pt-2">审计关键词:</Label>
                         <Textarea
@@ -307,6 +321,8 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
             <li><strong>To:</strong> 映射到的目标模型（可从列表选择或手动输入）</li>
             <li><strong>思维强度:</strong> 设置模型的推理/思考强度 (low/medium/high/xhigh)</li>
             <li><strong>伪非流:</strong> 以流式请求上游，但完整接收后才返回给客户端（用于响应审查）</li>
+            <li><strong>仅AMP:</strong> 仅当请求来自 AMP 客户端时才应用此映射（检测 X-Amp-Feature 请求头）</li>
+            <li><strong>Fast:</strong> 为 GPT 模型启用快速模式，设置 service_tier 为 priority</li>
             <li><strong>审计关键词:</strong> 伪非流启用时，额外检测的自定义关键词（每行一个，留空使用默认列表）</li>
             <li><strong>Regex:</strong> 是否将 From 字段作为正则表达式匹配</li>
           </ul>

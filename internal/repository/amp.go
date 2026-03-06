@@ -23,12 +23,12 @@ func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, 
 	var webSearchMode sql.NullString
 	err := db.QueryRow(
 		`SELECT id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
-		        force_model_mappings, enabled, web_search_mode, native_mode, show_balance_in_ad, socks5_proxy, created_at, updated_at 
+		        enabled, web_search_mode, native_mode, show_balance_in_ad, socks5_proxy, created_at, updated_at 
 		 FROM user_amp_settings WHERE user_id = ?`,
 		userID,
 	).Scan(
 		&settings.ID, &settings.UserID, &settings.UpstreamURL, &settings.UpstreamAPIKey,
-		&settings.ModelMappingsJSON, &settings.ForceModelMappings, &settings.Enabled,
+		&settings.ModelMappingsJSON, &settings.Enabled,
 		&webSearchMode, &settings.NativeMode, &settings.ShowBalanceInAd, &settings.Socks5Proxy, &settings.CreatedAt, &settings.UpdatedAt,
 	)
 
@@ -63,10 +63,10 @@ func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
 		_, err = db.Exec(
 			`INSERT INTO user_amp_settings 
 			 (id, user_id, upstream_url, upstream_api_key, model_mappings_json, 
-			  force_model_mappings, enabled, web_search_mode, native_mode, show_balance_in_ad, socks5_proxy, created_at, updated_at) 
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  enabled, web_search_mode, native_mode, show_balance_in_ad, socks5_proxy, created_at, updated_at) 
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			settings.ID, settings.UserID, settings.UpstreamURL, settings.UpstreamAPIKey,
-			settings.ModelMappingsJSON, settings.ForceModelMappings, settings.Enabled,
+			settings.ModelMappingsJSON, settings.Enabled,
 			settings.WebSearchMode, settings.NativeMode, settings.ShowBalanceInAd, settings.Socks5Proxy, settings.CreatedAt, settings.UpdatedAt,
 		)
 	} else {
@@ -75,10 +75,10 @@ func (r *AmpSettingsRepository) Upsert(settings *model.AmpSettings) error {
 		_, err = db.Exec(
 			`UPDATE user_amp_settings 
 			 SET upstream_url = ?, upstream_api_key = ?, model_mappings_json = ?, 
-			     force_model_mappings = ?, enabled = ?, web_search_mode = ?, native_mode = ?, show_balance_in_ad = ?, socks5_proxy = ?, updated_at = ? 
+			     enabled = ?, web_search_mode = ?, native_mode = ?, show_balance_in_ad = ?, socks5_proxy = ?, updated_at = ? 
 			 WHERE user_id = ?`,
 			settings.UpstreamURL, settings.UpstreamAPIKey, settings.ModelMappingsJSON,
-			settings.ForceModelMappings, settings.Enabled, settings.WebSearchMode,
+			settings.Enabled, settings.WebSearchMode,
 			settings.NativeMode, settings.ShowBalanceInAd, settings.Socks5Proxy, settings.UpdatedAt, settings.UserID,
 		)
 	}

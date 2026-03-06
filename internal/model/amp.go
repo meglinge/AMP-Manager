@@ -14,9 +14,8 @@ type AmpSettings struct {
 	UserID             string    `json:"user_id"`
 	UpstreamURL        string    `json:"upstream_url"`
 	UpstreamAPIKey     string    `json:"-"`
-	ModelMappingsJSON  string    `json:"-"`
-	ForceModelMappings bool      `json:"force_model_mappings"`
-	Enabled            bool      `json:"enabled"`
+	ModelMappingsJSON string `json:"-"`
+	Enabled           bool   `json:"enabled"`
 	WebSearchMode      string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool      `json:"native_mode"`
 	ShowBalanceInAd    bool      `json:"show_balance_in_ad"`
@@ -32,6 +31,8 @@ type ModelMapping struct {
 	ThinkingLevel   string   `json:"thinkingLevel,omitempty"`
 	PseudoNonStream bool     `json:"pseudoNonStream,omitempty"`
 	AuditKeywords   []string `json:"auditKeywords,omitempty"`
+	AmpOnly         bool     `json:"ampOnly,omitempty"`
+	FastMode        bool     `json:"fastMode,omitempty"`
 }
 
 type UserAPIKey struct {
@@ -53,9 +54,8 @@ type UserAPIKey struct {
 type AmpSettingsRequest struct {
 	UpstreamURL        string         `json:"upstreamUrl"`
 	UpstreamAPIKey     string         `json:"upstreamApiKey,omitempty"`
-	ModelMappings      []ModelMapping `json:"modelMappings,omitempty"`
-	ForceModelMappings bool           `json:"forceModelMappings"`
-	Enabled            bool           `json:"enabled"`
+	ModelMappings []ModelMapping `json:"modelMappings,omitempty"`
+	Enabled       bool           `json:"enabled"`
 	WebSearchMode      string         `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool           `json:"nativeMode"`
 	ShowBalanceInAd    *bool          `json:"showBalanceInAd,omitempty"`
@@ -64,9 +64,8 @@ type AmpSettingsRequest struct {
 
 type AmpSettingsResponse struct {
 	UpstreamURL        string         `json:"upstreamUrl"`
-	ModelMappings      []ModelMapping `json:"modelMappings"`
-	ForceModelMappings bool           `json:"forceModelMappings"`
-	Enabled            bool           `json:"enabled"`
+	ModelMappings []ModelMapping `json:"modelMappings"`
+	Enabled       bool           `json:"enabled"`
 	HasAPIKey          bool           `json:"apiKeySet"`
 	WebSearchMode      string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
 	NativeMode         bool           `json:"nativeMode"`

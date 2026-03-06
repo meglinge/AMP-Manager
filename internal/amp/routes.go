@@ -142,8 +142,8 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	api.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
-	api.Any("/internal", NativeModeSkipMiddleware(BalanceAdMiddleware()), NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
-	api.Any("/internal/*path", NativeModeSkipMiddleware(BalanceAdMiddleware()), NativeModeSkipMiddleware(DebugInternalAPIMiddleware()), NativeModeSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
+	api.Any("/internal", ProxyDisabledSkipMiddleware(BalanceAdMiddleware()), ProxyDisabledSkipMiddleware(DebugInternalAPIMiddleware()), ProxyDisabledSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
+	api.Any("/internal/*path", ProxyDisabledSkipMiddleware(BalanceAdMiddleware()), ProxyDisabledSkipMiddleware(DebugInternalAPIMiddleware()), ProxyDisabledSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
 
 	api.Any("/provider/:provider/*path", createProviderHandler(proxyHandler, channelHandler, modelsHandler))
 
