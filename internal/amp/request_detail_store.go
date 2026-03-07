@@ -796,5 +796,7 @@ func sanitizeBodyForStorage(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	return string(bytes.ToValidUTF8(body, []byte("\uFFFD")))
+	cleaned := bytes.ToValidUTF8(body, []byte("\uFFFD"))
+	cleaned = bytes.ReplaceAll(cleaned, []byte{0}, []byte{})
+	return string(cleaned)
 }

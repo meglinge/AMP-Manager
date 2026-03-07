@@ -237,14 +237,23 @@ func normalizeMigrationRow(values []any) []any {
 	for index, value := range values {
 		switch typed := value.(type) {
 		case []byte:
-			normalized[index] = string(bytes.ToValidUTF8(typed, []byte("\uFFFD")))
+			normalized[index] = sanitizeTextForPostgres(typed)
 		case string:
-			normalized[index] = string(bytes.ToValidUTF8([]byte(typed), []byte("\uFFFD")))
+			normalized[index] = sanitizeTextForPostgres([]byte(typed))
 		default:
 			normalized[index] = typed
 		}
 	}
 	return normalized
+}
+
+func sanitizeTextForPostgres(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	cleaned := bytes.ToValidUTF8(raw, []byte("\uFFFD"))
+	cleaned = bytes.ReplaceAll(cleaned, []byte{0}, []byte{})
+	return string(cleaned)
 }
 
 func migrateArchiveDataBetween(sourceOptions, targetOptions Options, sourceMainDB, targetMainDB *sql.DB, clearTarget bool) error {
