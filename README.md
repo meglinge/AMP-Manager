@@ -142,6 +142,20 @@ docker-compose up -d
 
 访问 `http://localhost:16823` 即可使用。
 
+如果你要在 Docker Compose 下直接使用 PostgreSQL：
+
+```bash
+DB_TYPE=postgres
+DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+docker-compose up -d
+```
+
+说明：
+
+1. `postgres` 是 compose 内部服务名。
+2. 容器内连接 PostgreSQL 时应使用 `postgres:5432`，不要写 `localhost:5432`。
+3. 当前 `docker-compose.yml` 已为 `ampmanager` 配置 `depends_on + healthcheck`，会等待 PostgreSQL 就绪后再启动应用。
+
 ### 二进制部署
 
 从 [GitHub Releases](https://github.com/meglinge/AMP-Manager/releases) 下载对应平台的预编译二进制：

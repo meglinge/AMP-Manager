@@ -3,6 +3,9 @@ services:
     image: ghcr.io/meglinge/amp-manager:latest
     container_name: ampmanager
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "16823:16823"
     volumes:
@@ -11,7 +14,7 @@ services:
       - SERVER_PORT=16823
       - DB_TYPE=${DB_TYPE:-sqlite}
       - SQLITE_PATH=${SQLITE_PATH:-/app/data/data.db}
-      - DATABASE_URL=${DATABASE_URL:-}
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ampmanager}?sslmode=disable}
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
 
@@ -19,10 +22,6 @@ services:
     image: postgres:16-alpine
     container_name: ampmanager-postgres
     restart: unless-stopped
-    profiles:
-      - postgres
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me}
