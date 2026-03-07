@@ -2,7 +2,48 @@ import { authFetch } from './client'
 
 const API_BASE = '/api'
 
-export async function uploadDatabase(file: File): Promise<{ message: string; backupFile: string }> {
+export interface DatabaseInfo {
+  currentType: 'sqlite' | 'postgres'
+  supportsFileBackups: boolean
+  sqlitePath: string
+  databaseURLMasked: string
+  archiveMode: string
+}
+
+export interface DatabaseMigrationTask {
+  error?: string
+  finishedAt?: string
+  id: string
+  logs: string[]
+  message: string
+  operation: string
+  progress: number
+  startedAt: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  sourceType: 'sqlite' | 'postgres'
+  targetType: 'sqlite' | 'postgres'
+}
+
+export interface StartDatabaseMigrationRequest {
+  clearTarget: boolean
+  targetDatabaseUrl: string
+  targetSqlitePath: string
+  targetType: 'sqlite' | 'postgres'
+  withArchive: boolean
+}
+
+export async function getDatabaseInfo(): Promise<DatabaseInfo> {
+  const res = await authFetch(`${API_BASE}/admin/system/database-info`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取数据库信息失败')
+  }
+
+  return res.json()
+}
+
+export async function uploadDatabase(file: File): Promise<{ message: string; backupFile?: string }> {
   const formData = new FormData()
   formData.append('database', file)
 
@@ -23,18 +64,47 @@ export async function downloadDatabase(): Promise<void> {
   const res = await authFetch(`${API_BASE}/admin/system/database/download`)
 
   if (!res.ok) {
-    throw new Error('下载失败')
+    const data = await res.json()
+    throw new Error(data.error || '下载失败')
   }
 
   const blob = await res.blob()
   const url = window.URL.createObjectURL(blob)
+  const contentDisposition = res.headers.get('content-disposition') || ''
+  const filenameMatch = contentDisposition.match(/filename=([^;]+)/i)
+  const filename = filenameMatch?.[1]?.replace(/^"|"$/g, '') || `ampmanager_${new Date().toISOString().slice(0, 10)}.db`
   const a = document.createElement('a')
   a.href = url
-  a.download = `ampmanager_${new Date().toISOString().slice(0, 10)}.db`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   window.URL.revokeObjectURL(url)
   document.body.removeChild(a)
+}
+
+export async function startDatabaseMigration(payload: StartDatabaseMigrationRequest): Promise<DatabaseMigrationTask> {
+  const res = await authFetch(`${API_BASE}/admin/system/database/migrate`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '启动数据库迁移失败')
+  }
+
+  return res.json()
+}
+
+export async function getDatabaseMigrationTask(taskID: string): Promise<DatabaseMigrationTask> {
+  const res = await authFetch(`${API_BASE}/admin/system/database/migrate/${encodeURIComponent(taskID)}`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取数据库迁移进度失败')
+  }
+
+  return res.json()
 }
 
 export interface Backup {

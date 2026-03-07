@@ -34,7 +34,7 @@ func main() {
 		log.Fatalf("Security check failed: %v", err)
 	}
 
-	if err := database.Init("./data/data.db"); err != nil {
+	if err := database.InitWithOptions(cfg.DatabaseOptions()); err != nil {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}
 	defer database.Close()

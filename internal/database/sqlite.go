@@ -13,42 +13,56 @@ import (
 )
 
 var (
-	db     *sql.DB
-	dbPath string
-	mu     sync.RWMutex
-	inited bool
+	db        *sql.DB
+	dbPath    string
+	dbType    DBType
+	dbOptions Options
+	mu        sync.RWMutex
+	inited    bool
 )
 
 func Init(path string) error {
-	mu.Lock()
-	defer mu.Unlock()
-	return initDB(path)
+	return InitWithOptions(Options{Type: DBTypeSQLite, SQLitePath: path})
 }
 
-func initDB(path string) error {
-	dir := filepath.Dir(path)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return err
-		}
+func OpenWithOptions(options Options) (*sql.DB, error) {
+	normalized, err := options.Normalize()
+	if err != nil {
+		return nil, err
 	}
 
-	dsn := path + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
-	newDB, err := sql.Open("sqlite", dsn)
+	databaseHandle, _, err := openDB(normalized)
+	if err != nil {
+		return nil, err
+	}
+	return databaseHandle, nil
+}
+
+func InitWithOptions(options Options) error {
+	normalized, err := options.Normalize()
 	if err != nil {
 		return err
 	}
-	if err = newDB.Ping(); err != nil {
-		newDB.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	return initDB(normalized)
+}
+
+func initDB(options Options) error {
+	newDB, resolvedPath, err := openDB(options)
+	if err != nil {
 		return err
 	}
 
-	newDB.SetMaxOpenConns(10)
-	newDB.SetMaxIdleConns(5)
-	newDB.SetConnMaxLifetime(time.Hour)
+	if existing := db; existing != nil {
+		_ = existing.Close()
+	}
 
 	db = newDB
-	dbPath = path
+	dbPath = resolvedPath
+	dbType = options.Type
+	dbOptions = options
 	inited = true
 
 	if err := createTables(); err != nil {
@@ -57,12 +71,134 @@ func initDB(path string) error {
 	return runMigrations()
 }
 
+func openDB(options Options) (*sql.DB, string, error) {
+	switch options.Type {
+	case DBTypeSQLite:
+		return openSQLiteDB(options.SQLitePath)
+	case DBTypePostgres:
+		return openPostgresDB(options.DatabaseURL)
+	default:
+		return nil, "", fmt.Errorf("unsupported DB_TYPE: %s", options.Type)
+	}
+}
+
+func openSQLiteDB(path string) (*sql.DB, string, error) {
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, "", err
+		}
+	}
+
+	dsn := path + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	newDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, "", err
+	}
+	if err = newDB.Ping(); err != nil {
+		newDB.Close()
+		return nil, "", err
+	}
+
+	newDB.SetMaxOpenConns(10)
+	newDB.SetMaxIdleConns(5)
+	newDB.SetConnMaxLifetime(time.Hour)
+
+	return newDB, path, nil
+}
+
+func openPostgresDB(dsn string) (*sql.DB, string, error) {
+	connector, err := openPostgresConnector(ensurePostgresTimezone(dsn))
+	if err != nil {
+		return nil, "", err
+	}
+
+	newDB := sql.OpenDB(connector)
+	if err := newDB.Ping(); err != nil {
+		newDB.Close()
+		return nil, "", err
+	}
+
+	newDB.SetMaxOpenConns(15)
+	newDB.SetMaxIdleConns(5)
+	newDB.SetConnMaxLifetime(time.Hour)
+
+	return newDB, "", nil
+}
+
+func ensurePostgresTimezone(dsn string) string {
+	if strings.Contains(strings.ToLower(dsn), "timezone=") {
+		return dsn
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "timezone=UTC"
+}
+
+func GetType() DBType {
+	mu.RLock()
+	defer mu.RUnlock()
+	return dbType
+}
+
+func GetOptions() Options {
+	mu.RLock()
+	defer mu.RUnlock()
+	return dbOptions
+}
+
+func IsSQLite() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return dbType == DBTypeSQLite
+}
+
+func IsPostgres() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return dbType == DBTypePostgres
+}
+
+func SupportsFileBackups() bool {
+	return IsSQLite()
+}
+
+func DayBucketExpr(column string) string {
+	if IsPostgres() {
+		return fmt.Sprintf("TO_CHAR(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD')", column)
+	}
+	return fmt.Sprintf("substr(%s, 1, 10)", column)
+}
+
+func Rebind(query string) string {
+	if IsPostgres() {
+		return rewritePlaceholders(query)
+	}
+	return query
+}
+
+func PlaceholderList(count int) string {
+	placeholders := make([]string, count)
+	for index := 0; index < count; index++ {
+		if IsPostgres() {
+			placeholders[index] = fmt.Sprintf("$%d", index+1)
+		} else {
+			placeholders[index] = "?"
+		}
+	}
+	return strings.Join(placeholders, ",")
+}
+
 // CloseAndRelease 关闭数据库连接并释放所有文件句柄，以便替换数据库文件
 func CloseAndRelease() error {
 	mu.Lock()
 	defer mu.Unlock()
 	if db != nil {
-		_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+		if dbType == DBTypeSQLite {
+			_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+		}
 		err := db.Close()
 		db = nil
 		return err
@@ -74,18 +210,22 @@ func CloseAndRelease() error {
 func Reopen() error {
 	mu.Lock()
 	defer mu.Unlock()
-	if dbPath == "" {
+	if !inited {
 		return fmt.Errorf("database path not set, call Init first")
 	}
-	return initDB(dbPath)
+	return initDB(dbOptions)
 }
 
 func GetDB() *sql.DB {
+	mu.RLock()
+	defer mu.RUnlock()
 	return db
 }
 
 // GetPath returns the database file path.
 func GetPath() string {
+	mu.RLock()
+	defer mu.RUnlock()
 	return dbPath
 }
 
@@ -260,10 +400,12 @@ func createTables() error {
 		request_id TEXT PRIMARY KEY,
 		request_headers TEXT,
 		request_body TEXT,
+		translated_request_body TEXT,
 		response_headers TEXT,
 		response_body TEXT,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
+			translated_response_body TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
 	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS subscription_plans (
@@ -332,8 +474,24 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type) WHERE request_log_id IS NOT NULL;
 	`
-	_, err := db.Exec(schema)
-	return err
+	if dbType == DBTypePostgres {
+		schema = strings.ReplaceAll(schema, "DATETIME", "TIMESTAMPTZ")
+		schema += `
+		CREATE TABLE IF NOT EXISTS request_log_details_archive (
+			request_id TEXT PRIMARY KEY,
+			request_headers TEXT,
+			request_body TEXT,
+			translated_request_body TEXT,
+			response_headers TEXT,
+			response_body TEXT,
+			translated_response_body TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_request_log_details_archive_created ON request_log_details_archive(created_at DESC);
+		`
+	}
+
+	return execStatements(db, schema)
 }
 
 func runMigrations() error {
@@ -379,6 +537,14 @@ func runMigrations() error {
 		{
 			name: "add_request_logs_response_text",
 			sql:  `ALTER TABLE request_logs ADD COLUMN response_text TEXT`,
+		},
+		{
+			name: "add_request_log_details_translated_request_body",
+			sql:  `ALTER TABLE request_log_details ADD COLUMN translated_request_body TEXT`,
+		},
+		{
+			name: "add_request_log_details_translated_response_body",
+			sql:  `ALTER TABLE request_log_details ADD COLUMN translated_response_body TEXT`,
 		},
 		{
 			name: "add_channels_enabled_priority_index",
@@ -582,7 +748,7 @@ func runMigrations() error {
 			continue
 		}
 
-		_, err = db.Exec(m.sql)
+		err = execStatements(db, adaptMigrationSQL(m.name, m.sql))
 		if err != nil && !shouldIgnoreMigrationError(m.name, err) {
 			return fmt.Errorf("migration '%s' failed: %w", m.name, err)
 		}
@@ -592,20 +758,62 @@ func runMigrations() error {
 		}
 	}
 
-	if err := migrateTimestampsToUTC(db); err != nil {
-		return fmt.Errorf("migrate timestamps to UTC failed: %w", err)
+	if dbType == DBTypeSQLite {
+		if err := migrateTimestampsToUTC(db); err != nil {
+			return fmt.Errorf("migrate timestamps to UTC failed: %w", err)
+		}
 	}
 
 	return nil
 }
 
+func adaptMigrationSQL(name string, sqlText string) string {
+	adapted := sqlText
+	if dbType == DBTypePostgres {
+		adapted = strings.ReplaceAll(adapted, "DATETIME", "TIMESTAMPTZ")
+	}
+
+	switch name {
+	case "add_request_detail_retention_default":
+		adapted = `INSERT INTO system_config (key, value, updated_at) VALUES ('request_detail_retention_days', '30', CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING`
+	}
+
+	return adapted
+}
+
+func execStatements(databaseHandle *sql.DB, sqlText string) error {
+	for _, statement := range splitStatements(sqlText) {
+		if _, err := databaseHandle.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitStatements(sqlText string) []string {
+	parts := strings.Split(sqlText, ";")
+	statements := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		statements = append(statements, trimmed)
+	}
+	return statements
+}
+
 func ensureSchemaMigrationsTable() error {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			name TEXT PRIMARY KEY,
-			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
+	columnType := "DATETIME"
+	if dbType == DBTypePostgres {
+		columnType = "TIMESTAMPTZ"
+	}
+	_, err := db.Exec(fmt.Sprintf(`
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                        name TEXT PRIMARY KEY,
+                        applied_at %s NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+	`, columnType))
 	return err
 }
 
@@ -619,7 +827,7 @@ func isMigrationApplied(name string) (bool, error) {
 }
 
 func markMigrationApplied(name string) error {
-	_, err := db.Exec(`INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, time.Now().UTC().Format(time.RFC3339))
+	_, err := db.Exec(`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?) ON CONFLICT (name) DO NOTHING`, name, time.Now().UTC())
 	return err
 }
 
@@ -632,17 +840,18 @@ func shouldIgnoreMigrationError(name string, err error) bool {
 
 	if strings.Contains(msg, "duplicate column name") ||
 		strings.Contains(msg, "already exists") ||
-		strings.Contains(msg, "unique constraint failed") {
+		strings.Contains(msg, "unique constraint failed") ||
+		strings.Contains(msg, "duplicate key value") {
 		return true
 	}
 
 	if name == "migrate_proxy_tokens" &&
-		(strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column")) {
+		(strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column") || strings.Contains(msg, "does not exist")) {
 		return true
 	}
 
 	if name == "drop_legacy_users_group_id" || name == "drop_legacy_channels_group_id" {
-		if strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot drop") || strings.Contains(msg, "syntax error") {
+		if strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot drop") || strings.Contains(msg, "syntax error") || strings.Contains(msg, "does not exist") {
 			return true
 		}
 	}
@@ -736,7 +945,7 @@ func migrateTimestampsToUTC(db *sql.DB) error {
 		}
 	}
 
-	_, err = db.Exec(`INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('migration_timestamps_utc', '1', ?)`, time.Now().UTC())
+	_, err = db.Exec(`INSERT INTO system_config (key, value, updated_at) VALUES ('migration_timestamps_utc', '1', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, time.Now().UTC())
 	return err
 }
 

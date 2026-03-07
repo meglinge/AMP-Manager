@@ -1,6 +1,7 @@
 package config
 
 import (
+	"ampmanager/internal/database"
 	"fmt"
 	"os"
 	"strconv"
@@ -14,6 +15,9 @@ type Config struct {
 	JWTSecret     string
 	JWTIssuer     string
 	JWTAudience   string
+	DBType        string
+	DatabaseURL   string
+	SQLitePath    string
 
 	// CORS 配置
 	CORSAllowedOrigins string
@@ -34,6 +38,20 @@ var insecureDefaults = map[string]string{
 }
 
 func Load() *Config {
+	runtimeOptions, hasRuntimeOptions, runtimeErr := loadRuntimeDatabaseOptions()
+	if runtimeErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load runtime database config: %v\n", runtimeErr)
+	}
+
+	defaultDBType := string(database.DBTypeSQLite)
+	defaultSQLitePath := "./data/data.db"
+	defaultDatabaseURL := ""
+	if hasRuntimeOptions {
+		defaultDBType = string(runtimeOptions.Type)
+		defaultSQLitePath = runtimeOptions.SQLitePath
+		defaultDatabaseURL = runtimeOptions.DatabaseURL
+	}
+
 	cfg = &Config{
 		AdminUsername:      getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:      getEnv("ADMIN_PASSWORD", "admin123"),
@@ -41,6 +59,9 @@ func Load() *Config {
 		JWTSecret:          getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
 		JWTIssuer:          getEnv("JWT_ISSUER", "ampmanager"),
 		JWTAudience:        getEnv("JWT_AUDIENCE", "ampmanager-users"),
+		DBType:             getEnv("DB_TYPE", defaultDBType),
+		DatabaseURL:        getEnv("DATABASE_URL", defaultDatabaseURL),
+		SQLitePath:         getEnv("SQLITE_PATH", defaultSQLitePath),
 		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
 		RateLimitAuthRPS:   getEnvFloat("RATE_LIMIT_AUTH_RPS", 5),
 		RateLimitProxyRPS:  getEnvFloat("RATE_LIMIT_PROXY_RPS", 100),
@@ -88,6 +109,14 @@ func (c *Config) GetEncryptionKey() []byte {
 		return nil
 	}
 	return []byte(c.DataEncryptionKey)
+}
+
+func (c *Config) DatabaseOptions() database.Options {
+	return database.Options{
+		Type:        database.DBType(c.DBType),
+		DatabaseURL: c.DatabaseURL,
+		SQLitePath:  c.SQLitePath,
+	}
 }
 
 func getEnv(key, defaultValue string) string {

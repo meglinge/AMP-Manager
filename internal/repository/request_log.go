@@ -63,11 +63,11 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	}
 	if params.From != nil {
 		conditions = append(conditions, "r.created_at >= ?")
-		args = append(args, params.From.UTC().Format(time.RFC3339))
+		args = append(args, params.From.UTC())
 	}
 	if params.To != nil {
 		conditions = append(conditions, "r.created_at <= ?")
-		args = append(args, params.To.UTC().Format(time.RFC3339))
+		args = append(args, params.To.UTC())
 	}
 
 	whereClause := strings.Join(conditions, " AND ")
@@ -90,6 +90,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		params.PageSize = 100
 	}
 	offset := (params.Page - 1) * params.PageSize
+	detailJoin := "LEFT JOIN request_log_details d ON r.id = d.request_id"
+	outputPreviewExpr := "COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200))"
+	if database.IsPostgres() {
+		detailJoin += "\n                LEFT JOIN request_log_details_archive da ON r.id = da.request_id"
+		outputPreviewExpr = "COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200), SUBSTR(da.response_body, 1, 200))"
+	}
 
 	// 查询数据
 	query := fmt.Sprintf(`
@@ -97,16 +103,16 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       COALESCE(SUBSTR(r.response_text, 1, 200), SUBSTR(d.response_body, 1, 200)) as output_preview
+		       %s as output_preview
 		FROM request_logs r
-		LEFT JOIN users u ON r.user_id = u.id
+                LEFT JOIN users u ON r.user_id = u.id
 		LEFT JOIN user_api_keys k ON r.api_key_id = k.id
-		LEFT JOIN request_log_details d ON r.id = d.request_id
+		%s
 		LEFT JOIN channels c ON r.channel_id = c.id
 		WHERE %s
 		ORDER BY r.created_at DESC
-                LIMIT ? OFFSET ?
-	`, whereClause)
+		LIMIT ? OFFSET ?
+	`, outputPreviewExpr, detailJoin, whereClause)
 
 	args = append(args, params.PageSize, offset)
 	rows, err := db.Query(query, args...)
@@ -230,7 +236,7 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 	var groupColumn string
 	switch groupBy {
 	case "day":
-		groupColumn = "substr(created_at, 1, 10)"
+		groupColumn = database.DayBucketExpr("created_at")
 	case "model":
 		groupColumn = "COALESCE(mapped_model, original_model, 'unknown')"
 	case "apiKey":
@@ -238,7 +244,7 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 	case "user":
 		groupColumn = "user_id"
 	default:
-		groupColumn = "date(created_at)"
+		groupColumn = database.DayBucketExpr("created_at")
 	}
 
 	conditions := []string{"1=1"}
@@ -256,11 +262,11 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 
 	if from != nil {
 		conditions = append(conditions, "created_at >= ?")
-		args = append(args, from.UTC().Format(time.RFC3339))
+		args = append(args, from.UTC())
 	}
 	if to != nil {
 		conditions = append(conditions, "created_at <= ?")
-		args = append(args, to.UTC().Format(time.RFC3339))
+		args = append(args, to.UTC())
 	}
 
 	whereClause := strings.Join(conditions, " AND ")
@@ -470,7 +476,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 			       COALESCE(SUM(cost_micros), 0),
 			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE user_id = ? AND created_at >= ?
-		`, userID, from.UTC().Format(time.RFC3339)).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
+		`, userID, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
 		return s, err
 	}
 
@@ -496,7 +502,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		GROUP BY model
 		ORDER BY cnt DESC
 		LIMIT 5
-	`, userID, monthStart.Format(time.RFC3339))
+	`, userID, monthStart.UTC())
 	if err != nil {
 		return
 	}
@@ -512,15 +518,15 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		return
 	}
 
-	rows2, err := db.Query(`
-		SELECT substr(created_at, 1, 10) as day,
+	rows2, err := db.Query(fmt.Sprintf(`
+		SELECT %s as day,
 		       COALESCE(SUM(cost_micros), 0) as cost,
 		       COUNT(*) as cnt
 		FROM request_logs
 		WHERE user_id = ? AND created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, userID, todayStart.AddDate(0, 0, -13).Format(time.RFC3339))
+	`, database.DayBucketExpr("created_at")), userID, todayStart.AddDate(0, 0, -13).UTC())
 	if err != nil {
 		return
 	}
@@ -541,31 +547,33 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 	db := database.GetDB()
 	monthStart := time.Now().UTC().AddDate(0, 0, -30)
 
+	providerExpr := `CASE
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%%' THEN 'Claude'
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%%' THEN 'OpenAI'
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%%' THEN 'Gemini'
+						ELSE 'Other'
+				END`
+
 	query := `
 		SELECT provider, total_input, cache_read, cache_creation, req_count FROM (
-			SELECT 
-				CASE
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%' THEN 'Claude'
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%' 
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%' THEN 'OpenAI'
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%' THEN 'Gemini'
-					ELSE 'Other'
-				END as provider,
+			SELECT
+				` + providerExpr + ` as provider,
 				COALESCE(SUM(input_tokens), 0) as total_input,
 				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read,
 				COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation,
 				COUNT(*) as req_count
 			FROM request_logs
 			WHERE user_id = ? AND created_at >= ?
-			GROUP BY provider
+			GROUP BY ` + providerExpr + `
 		) WHERE provider IN ('Claude', 'OpenAI', 'Gemini')
 		ORDER BY req_count DESC
 	`
 
-	rows, err := db.Query(query, userID, monthStart.Format(time.RFC3339))
+	rows, err := db.Query(query, userID, monthStart.UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -603,7 +611,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 			       COALESCE(SUM(cost_micros), 0),
 			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE created_at >= ?
-		`, from.UTC().Format(time.RFC3339)).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
+		`, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
 		return s, err
 	}
 
@@ -629,7 +637,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 		GROUP BY model
 		ORDER BY cnt DESC
 		LIMIT 10
-	`, monthStart.Format(time.RFC3339))
+	`, monthStart.UTC())
 	if err != nil {
 		return
 	}
@@ -645,15 +653,15 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 		return
 	}
 
-	rows2, err := db.Query(`
-		SELECT substr(created_at, 1, 10) as day,
+	rows2, err := db.Query(fmt.Sprintf(`
+		SELECT %s as day,
 		       COALESCE(SUM(cost_micros), 0) as cost,
 		       COUNT(*) as cnt
 		FROM request_logs
 		WHERE created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, todayStart.AddDate(0, 0, -13).Format(time.RFC3339))
+	`, database.DayBucketExpr("created_at")), todayStart.AddDate(0, 0, -13).UTC())
 	if err != nil {
 		return
 	}
@@ -674,31 +682,33 @@ func (r *RequestLogRepository) GetAdminCacheHitRateByProvider() ([]DashboardCach
 	db := database.GetDB()
 	monthStart := time.Now().UTC().AddDate(0, 0, -30)
 
+	providerExpr := `CASE
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%%' THEN 'Claude'
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%%'
+						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%%' THEN 'OpenAI'
+						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%%' THEN 'Gemini'
+						ELSE 'Other'
+				END`
+
 	query := `
 		SELECT provider, total_input, cache_read, cache_creation, req_count FROM (
-			SELECT 
-				CASE
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%' THEN 'Claude'
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%' 
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%'
-					  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%' THEN 'OpenAI'
-					WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%' THEN 'Gemini'
-					ELSE 'Other'
-				END as provider,
+			SELECT
+				` + providerExpr + ` as provider,
 				COALESCE(SUM(input_tokens), 0) as total_input,
 				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read,
 				COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation,
 				COUNT(*) as req_count
 			FROM request_logs
 			WHERE created_at >= ?
-			GROUP BY provider
+			GROUP BY ` + providerExpr + `
 		) WHERE provider IN ('Claude', 'OpenAI', 'Gemini')
 		ORDER BY req_count DESC
 	`
 
-	rows, err := db.Query(query, monthStart.Format(time.RFC3339))
+	rows, err := db.Query(query, monthStart.UTC())
 	if err != nil {
 		return nil, err
 	}

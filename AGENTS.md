@@ -37,6 +37,8 @@ pnpm run dev
   - 正确: `e:\MegAiTools\AMPManager\web`
   - 错误: `e:\MegAiTools\AMPManager\e:\MegAiTools\AMPManager\web`
 - **前端目录**: `web/`，在此目录下运行 `pnpm run build` 等命令
+- **本地 PostgreSQL**: 开发环境默认使用 `docker-compose.dev.yml` 启动 PostgreSQL，端口 `5432`，用户名 `postgres`，密码 `mysecretpassword`，数据库 `ampmanager`
+- **开发脚本**: `dev.ps1` / `dev.sh` 会同时启动 PostgreSQL、Vite 热更新和 Air 热更新
 
 ## 备注
 - 这是一个新项目，请随着代码库的发展更新此文件

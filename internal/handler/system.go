@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -30,10 +32,101 @@ type SystemHandler struct {
 	configRepo *repository.SystemConfigRepository
 }
 
+func ensureSQLiteDatabaseFiles(c *gin.Context) bool {
+	if database.SupportsFileBackups() {
+		return true
+	}
+
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error": "当前使用的是 PostgreSQL，文件级数据库备份/恢复不可用，请改用 dbtool 迁移命令",
+	})
+	return false
+}
+
 func NewSystemHandler() *SystemHandler {
 	return &SystemHandler{
 		configRepo: repository.NewSystemConfigRepository(),
 	}
+}
+
+func maskDatabaseURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	re := regexp.MustCompile(`://([^:/?#]+):([^@/?#]+)@`)
+	return re.ReplaceAllString(raw, `://$1:******@`)
+}
+
+func (h *SystemHandler) GetDatabaseInfo(c *gin.Context) {
+	options := database.GetOptions()
+	sqlitePath := options.SQLitePath
+	if sqlitePath == "" {
+		sqlitePath = "./data/data.db"
+	}
+	databaseURL := options.DatabaseURL
+
+	archiveMode := "独立 SQLite 归档库"
+	if database.IsPostgres() {
+		archiveMode = "同库归档表 request_log_details_archive"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"currentType":         database.GetType(),
+		"supportsFileBackups": database.SupportsFileBackups(),
+		"sqlitePath":          sqlitePath,
+		"databaseURLMasked":   maskDatabaseURL(databaseURL),
+		"archiveMode":         archiveMode,
+	})
+}
+
+func (h *SystemHandler) StartDatabaseMigration(c *gin.Context) {
+	var req struct {
+		ClearTarget       bool   `json:"clearTarget"`
+		TargetDatabaseURL string `json:"targetDatabaseUrl"`
+		TargetSQLitePath  string `json:"targetSqlitePath"`
+		TargetType        string `json:"targetType"`
+		WithArchive       bool   `json:"withArchive"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	sourceOptions := database.GetOptions()
+	targetOptions := database.Options{
+		Type:        database.DBType(req.TargetType),
+		DatabaseURL: strings.TrimSpace(req.TargetDatabaseURL),
+		SQLitePath:  strings.TrimSpace(req.TargetSQLitePath),
+	}
+	normalizedTarget, err := targetOptions.Normalize()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if sourceOptions.Type == normalizedTarget.Type {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "当前只支持 SQLite 与 PostgreSQL 之间互相切换"})
+		return
+	}
+
+	task, err := globalDatabaseTaskManager.createTask("database_migration", sourceOptions.Type, normalizedTarget.Type)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+
+	go runDatabaseMigrationTask(task.ID, sourceOptions, normalizedTarget, req.ClearTarget, req.WithArchive)
+	c.JSON(http.StatusAccepted, task)
+}
+
+func (h *SystemHandler) GetDatabaseMigrationTask(c *gin.Context) {
+	taskID := c.Param("taskID")
+	task, exists := globalDatabaseTaskManager.getTask(taskID)
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, task)
 }
 
 // GetRetryConfig 获取重试配置
@@ -142,6 +235,15 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 }
 
 func (h *SystemHandler) UploadDatabase(c *gin.Context) {
+	if database.IsPostgres() {
+		h.uploadPostgresDump(c)
+		return
+	}
+
+	if !ensureSQLiteDatabaseFiles(c) {
+		return
+	}
+
 	file, err := c.FormFile("database")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择数据库文件"})
@@ -232,7 +334,71 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	})
 }
 
+func (h *SystemHandler) uploadPostgresDump(c *gin.Context) {
+	file, err := c.FormFile("database")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择 PostgreSQL dump 文件"})
+		return
+	}
+
+	if ext := strings.ToLower(filepath.Ext(file.Filename)); ext != ".sql" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "PostgreSQL 仅支持上传 .sql dump 文件"})
+		return
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法读取上传文件"})
+		return
+	}
+	defer src.Close()
+
+	dumpContent, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 dump 文件失败"})
+		return
+	}
+
+	currentOptions := database.GetOptions()
+	if err := database.CloseAndRelease(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "关闭数据库连接失败: " + err.Error()})
+		return
+	}
+
+	reopenOnError := func() {
+		_ = database.InitWithOptions(currentOptions)
+		amp.ReinitLogWriter(database.GetDB())
+		amp.ReinitRequestDetailStore(database.GetDB())
+		amp.ReinitPendingCleaner(database.GetDB())
+	}
+
+	if err := database.RestorePostgresDatabase(context.Background(), currentOptions, bytes.ToValidUTF8(dumpContent, []byte(""))); err != nil {
+		reopenOnError()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "导入 PostgreSQL dump 失败: " + err.Error()})
+		return
+	}
+
+	if err := database.InitWithOptions(currentOptions); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新连接 PostgreSQL 失败: " + err.Error()})
+		return
+	}
+	amp.ReinitLogWriter(database.GetDB())
+	amp.ReinitRequestDetailStore(database.GetDB())
+	amp.ReinitPendingCleaner(database.GetDB())
+
+	c.JSON(http.StatusOK, gin.H{"message": "PostgreSQL dump 导入成功"})
+}
+
 func (h *SystemHandler) DownloadDatabase(c *gin.Context) {
+	if database.IsPostgres() {
+		h.downloadPostgresDump(c)
+		return
+	}
+
+	if !ensureSQLiteDatabaseFiles(c) {
+		return
+	}
+
 	dbPath := "./data/data.db"
 
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
@@ -242,7 +408,7 @@ func (h *SystemHandler) DownloadDatabase(c *gin.Context) {
 
 	// 执行 checkpoint 确保所有 WAL 数据写入主数据库文件
 	db := database.GetDB()
-	if db != nil {
+	if db != nil && database.IsSQLite() {
 		_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	}
 
@@ -252,7 +418,23 @@ func (h *SystemHandler) DownloadDatabase(c *gin.Context) {
 	c.File(dbPath)
 }
 
+func (h *SystemHandler) downloadPostgresDump(c *gin.Context) {
+	dumpContent, err := database.DumpPostgresDatabase(context.Background(), database.GetOptions())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出 PostgreSQL dump 失败: " + err.Error()})
+		return
+	}
+
+	filename := "ampmanager_" + time.Now().Format("20060102150405") + ".sql"
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Data(http.StatusOK, "application/sql", dumpContent)
+}
+
 func (h *SystemHandler) ListBackups(c *gin.Context) {
+	if !ensureSQLiteDatabaseFiles(c) {
+		return
+	}
+
 	files, err := filepath.Glob("./data/data.db.backup.*")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取备份列表失败"})
@@ -276,6 +458,10 @@ func (h *SystemHandler) ListBackups(c *gin.Context) {
 }
 
 func (h *SystemHandler) RestoreBackup(c *gin.Context) {
+	if !ensureSQLiteDatabaseFiles(c) {
+		return
+	}
+
 	var req struct {
 		Filename string `json:"filename"`
 	}
@@ -378,6 +564,10 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 }
 
 func (h *SystemHandler) DeleteBackup(c *gin.Context) {
+	if !ensureSQLiteDatabaseFiles(c) {
+		return
+	}
+
 	filename := c.Param("filename")
 
 	// 严格校验文件名格式，防止路径穿越

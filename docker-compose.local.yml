@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ampmanager-local-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: ampmanager
+    volumes:
+      - ampmanager_local_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ampmanager"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ampmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ampmanager-local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "16823:16823"
+    volumes:
+      - ./data:/app/data
+    environment:
+      SERVER_PORT: "16823"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-key-at-least-32chars!}
+      JWT_ISSUER: ${JWT_ISSUER:-ampmanager}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-ampmanager-users}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ALLOW_INSECURE_DEFAULTS: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      RATE_LIMIT_AUTH_RPS: "50"
+      RATE_LIMIT_PROXY_RPS: "1000"
+      DB_TYPE: postgres
+      DATABASE_URL: postgres://postgres:mysecretpassword@postgres:5432/ampmanager?sslmode=disable
+      SQLITE_PATH: /app/data/data.db
+
+volumes:
+  ampmanager_local_postgres_data:

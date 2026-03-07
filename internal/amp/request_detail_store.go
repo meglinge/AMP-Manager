@@ -1,9 +1,12 @@
 package amp
 
 import (
+	"ampmanager/internal/database"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -16,13 +19,13 @@ import (
 )
 
 const (
-	DefaultDetailTTL      = 5 * time.Minute
-	DetailCleanupInterval = 30 * time.Second
+	DefaultDetailTTL        = 5 * time.Minute
+	DetailCleanupInterval   = 30 * time.Second
 	DetailDBArchiveInterval = 1 * time.Hour
-	DefaultArchiveDays    = 30
-	ArchiveBatchSize      = 200 // 每批归档行数，避免大事务
-	MaxBodySize           = 1 * 1024 * 1024 // 1MB max body size to store
-	MaxDetailEntries      = 10000           // 内存中最多保存的条目数
+	DefaultArchiveDays      = 30
+	ArchiveBatchSize        = 200             // 每批归档行数，避免大事务
+	MaxBodySize             = 1 * 1024 * 1024 // 1MB max body size to store
+	MaxDetailEntries        = 10000           // 内存中最多保存的条目数
 
 	requestDetailArchiveKey = "request_detail_archive_days"
 )
@@ -43,15 +46,18 @@ type RequestDetail struct {
 
 // RequestDetailStore stores request details in memory with TTL
 type RequestDetailStore struct {
-	mu              sync.RWMutex
-	details         map[string]*RequestDetail
-	db              *sql.DB
-	archiveDB       *sql.DB
-	ttl             time.Duration
-	archiveDays     int
-	lastArchiveAt   time.Time
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
+	mu               sync.RWMutex
+	details          map[string]*RequestDetail
+	db               *sql.DB
+	archiveDB        *sql.DB
+	hotTableName     string
+	archiveTableName string
+	ownsArchiveDB    bool
+	ttl              time.Duration
+	archiveDays      int
+	lastArchiveAt    time.Time
+	stopChan         chan struct{}
+	wg               sync.WaitGroup
 }
 
 var (
@@ -95,11 +101,12 @@ func StopRequestDetailStore() {
 // NewRequestDetailStore creates a new request detail store
 func NewRequestDetailStore(db *sql.DB, ttl time.Duration) *RequestDetailStore {
 	s := &RequestDetailStore{
-		details:     make(map[string]*RequestDetail),
-		db:          db,
-		ttl:         ttl,
-		archiveDays: DefaultArchiveDays,
-		stopChan:    make(chan struct{}),
+		details:      make(map[string]*RequestDetail),
+		db:           db,
+		hotTableName: "request_log_details",
+		ttl:          ttl,
+		archiveDays:  DefaultArchiveDays,
+		stopChan:     make(chan struct{}),
 	}
 	s.archiveDays = s.loadArchiveDays()
 	s.archiveDB = s.openArchiveDB()
@@ -114,12 +121,39 @@ func (s *RequestDetailStore) openArchiveDB() *sql.DB {
 	if s.db == nil {
 		return nil
 	}
+	if database.IsPostgres() {
+		s.archiveTableName = "request_log_details_archive"
+		s.ownsArchiveDB = false
+		_, err := s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS request_log_details_archive (
+				request_id TEXT PRIMARY KEY,
+				request_headers TEXT,
+				request_body TEXT,
+				translated_request_body TEXT,
+				response_headers TEXT,
+				response_body TEXT,
+				translated_response_body TEXT,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)
+		`)
+		if err != nil {
+			log.Warnf("request detail store: failed to ensure postgres archive table: %v", err)
+			return nil
+		}
+		_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_log_details_archive_created ON request_log_details_archive(created_at DESC)`)
+		if err != nil {
+			log.Warnf("request detail store: failed to ensure postgres archive index: %v", err)
+			return nil
+		}
+		return s.db
+	}
 
 	// 使用 database.GetPath() 获取主库路径，归档库放在同级目录
 	mainPath := getMainDBPath()
 	if mainPath == "" {
 		return nil
 	}
+	s.archiveTableName = "request_log_details"
 
 	archivePath := filepath.Join(filepath.Dir(mainPath), "data_details_archive.db")
 	dsn := archivePath + "?_pragma=foreign_keys(OFF)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
@@ -144,18 +178,23 @@ func (s *RequestDetailStore) openArchiveDB() *sql.DB {
 			request_id TEXT PRIMARY KEY,
 			request_headers TEXT,
 			request_body TEXT,
+			translated_request_body TEXT,
 			response_headers TEXT,
 			response_body TEXT,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_archive_details_created ON request_log_details(created_at DESC);
-	`)
+				translated_response_body TEXT,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_archive_details_created ON request_log_details(created_at DESC);
+		`)
 	if err != nil {
 		log.Warnf("request detail store: failed to create archive table: %v", err)
 		adb.Close()
 		return nil
 	}
+	_, _ = adb.Exec(`ALTER TABLE request_log_details ADD COLUMN translated_request_body TEXT`)
+	_, _ = adb.Exec(`ALTER TABLE request_log_details ADD COLUMN translated_response_body TEXT`)
 
+	s.ownsArchiveDB = true
 	log.Info("request detail store: archive db ready")
 	return adb
 }
@@ -382,35 +421,38 @@ func (s *RequestDetailStore) Get(requestID string) *RequestDetail {
 	s.mu.RUnlock()
 
 	// 先查热库
-	if d := s.getFromDB(s.db, requestID); d != nil {
+	if d := s.getFromDB(s.db, s.hotTableName, requestID); d != nil {
 		return d
 	}
 	// 再查归档库
 	if s.archiveDB != nil {
-		return s.getFromDB(s.archiveDB, requestID)
+		return s.getFromDB(s.archiveDB, s.archiveTableName, requestID)
 	}
 	return nil
 }
 
 // getFromDB retrieves request detail from a given database connection
-func (s *RequestDetailStore) getFromDB(db *sql.DB, requestID string) *RequestDetail {
+func (s *RequestDetailStore) getFromDB(db *sql.DB, tableName, requestID string) *RequestDetail {
 	if db == nil {
 		return nil
 	}
 
 	var detail RequestDetail
-	var requestHeaders, requestBody, responseHeaders, responseBody sql.NullString
+	var requestHeaders, requestBody, translatedRequestBody, responseHeaders, responseBody, translatedResponseBody sql.NullString
 
-	err := db.QueryRow(`
-		SELECT request_id, request_headers, request_body, response_headers, response_body, created_at
-		FROM request_log_details
+	query := fmt.Sprintf(`
+		SELECT request_id, request_headers, request_body, translated_request_body, response_headers, response_body, translated_response_body, created_at
+		FROM %s
 		WHERE request_id = ?
-	`, requestID).Scan(
+	`, tableName)
+	err := db.QueryRow(query, requestID).Scan(
 		&detail.RequestID,
 		&requestHeaders,
 		&requestBody,
+		&translatedRequestBody,
 		&responseHeaders,
 		&responseBody,
+		&translatedResponseBody,
 		&detail.CreatedAt,
 	)
 
@@ -430,8 +472,14 @@ func (s *RequestDetailStore) getFromDB(db *sql.DB, requestID string) *RequestDet
 	if requestBody.Valid {
 		detail.RequestBody = []byte(requestBody.String)
 	}
+	if translatedRequestBody.Valid {
+		detail.TranslatedRequestBody = []byte(translatedRequestBody.String)
+	}
 	if responseBody.Valid {
 		detail.ResponseBody = []byte(responseBody.String)
+	}
+	if translatedResponseBody.Valid {
+		detail.TranslatedResponseBody = []byte(translatedResponseBody.String)
 	}
 	detail.LastUpdatedAt = detail.CreatedAt
 	detail.Persisted = true
@@ -447,18 +495,33 @@ func (s *RequestDetailStore) persistToDB(detail *RequestDetail) error {
 
 	requestHeadersJSON := headersToJSON(detail.RequestHeaders)
 	responseHeadersJSON := headersToJSON(detail.ResponseHeaders)
+	requestBody := sanitizeBodyForStorage(detail.RequestBody)
+	translatedRequestBody := sanitizeBodyForStorage(detail.TranslatedRequestBody)
+	responseBody := sanitizeBodyForStorage(detail.ResponseBody)
+	translatedResponseBody := sanitizeBodyForStorage(detail.TranslatedResponseBody)
 
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO request_log_details 
-		(request_id, request_headers, request_body, response_headers, response_body, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
+	query := fmt.Sprintf(`
+		INSERT INTO %s
+		(request_id, request_headers, request_body, translated_request_body, response_headers, response_body, translated_response_body, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (request_id) DO UPDATE SET
+			request_headers = excluded.request_headers,
+			request_body = excluded.request_body,
+			translated_request_body = excluded.translated_request_body,
+			response_headers = excluded.response_headers,
+			response_body = excluded.response_body,
+			translated_response_body = excluded.translated_response_body,
+			created_at = excluded.created_at
+	`, s.hotTableName)
+	_, err := s.db.Exec(query,
 		detail.RequestID,
 		requestHeadersJSON,
-		string(detail.RequestBody),
+		requestBody,
+		translatedRequestBody,
 		responseHeadersJSON,
-		string(detail.ResponseBody),
-		detail.CreatedAt.Format(time.RFC3339),
+		responseBody,
+		translatedResponseBody,
+		detail.CreatedAt.UTC(),
 	)
 
 	if err != nil {
@@ -547,14 +610,12 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 	}
 
 	s.lastArchiveAt = now
-	cutoff := now.AddDate(0, 0, -s.archiveDays).Format(time.RFC3339)
+	cutoff := now.AddDate(0, 0, -s.archiveDays).UTC()
 
 	// 查找需要归档的行（分批处理）
-	rows, err := s.db.Query(
-		`SELECT request_id, request_headers, request_body, response_headers, response_body, created_at
-		 FROM request_log_details WHERE created_at < ? ORDER BY created_at LIMIT ?`,
-		cutoff, ArchiveBatchSize,
-	)
+	query := fmt.Sprintf(`SELECT request_id, request_headers, request_body, translated_request_body, response_headers, response_body, translated_response_body, created_at
+		 FROM %s WHERE created_at < ? ORDER BY created_at LIMIT ?`, s.hotTableName)
+	rows, err := s.db.Query(query, cutoff, ArchiveBatchSize)
 	if err != nil {
 		log.Warnf("request detail store: archive query failed: %v", err)
 		return
@@ -562,17 +623,19 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 	defer rows.Close()
 
 	type row struct {
-		requestID       string
-		requestHeaders  sql.NullString
-		requestBody     sql.NullString
-		responseHeaders sql.NullString
-		responseBody    sql.NullString
-		createdAt       string
+		requestID              string
+		requestHeaders         sql.NullString
+		requestBody            sql.NullString
+		translatedRequestBody  sql.NullString
+		responseHeaders        sql.NullString
+		responseBody           sql.NullString
+		translatedResponseBody sql.NullString
+		createdAt              time.Time
 	}
 	var batch []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.requestID, &r.requestHeaders, &r.requestBody, &r.responseHeaders, &r.responseBody, &r.createdAt); err != nil {
+		if err := rows.Scan(&r.requestID, &r.requestHeaders, &r.requestBody, &r.translatedRequestBody, &r.responseHeaders, &r.responseBody, &r.translatedResponseBody, &r.createdAt); err != nil {
 			log.Warnf("request detail store: archive scan failed: %v", err)
 			return
 		}
@@ -595,9 +658,11 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 		return
 	}
 
-	stmt, err := archiveTx.Prepare(`INSERT OR IGNORE INTO request_log_details
-		(request_id, request_headers, request_body, response_headers, response_body, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`)
+	archiveInsertSQL := fmt.Sprintf(`INSERT INTO %s
+		(request_id, request_headers, request_body, translated_request_body, response_headers, response_body, translated_response_body, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (request_id) DO NOTHING`, s.archiveTableName)
+	stmt, err := archiveTx.Prepare(archiveInsertSQL)
 	if err != nil {
 		archiveTx.Rollback()
 		log.Warnf("request detail store: archive prepare failed: %v", err)
@@ -606,7 +671,7 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 	defer stmt.Close()
 
 	for _, r := range batch {
-		_, err := stmt.Exec(r.requestID, r.requestHeaders, r.requestBody, r.responseHeaders, r.responseBody, r.createdAt)
+		_, err := stmt.Exec(r.requestID, r.requestHeaders, r.requestBody, r.translatedRequestBody, r.responseHeaders, r.responseBody, r.translatedResponseBody, r.createdAt)
 		if err != nil {
 			archiveTx.Rollback()
 			log.Warnf("request detail store: archive insert failed: %v", err)
@@ -624,7 +689,8 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 	for _, r := range batch {
 		// 逐条验证归档库中确实存在
 		var exists int
-		if err := s.archiveDB.QueryRow(`SELECT 1 FROM request_log_details WHERE request_id = ?`, r.requestID).Scan(&exists); err != nil {
+		verifySQL := fmt.Sprintf(`SELECT 1 FROM %s WHERE request_id = ?`, s.archiveTableName)
+		if err := s.archiveDB.QueryRow(verifySQL, r.requestID).Scan(&exists); err != nil {
 			log.Warnf("request detail store: archive verify failed for %s, skipping delete: %v", r.requestID, err)
 			return // 任何一条验证失败就停止删除，保证安全
 		}
@@ -638,7 +704,8 @@ func (s *RequestDetailStore) archiveOldDetails(now time.Time) {
 		return
 	}
 
-	delStmt, err := hotTx.Prepare(`DELETE FROM request_log_details WHERE request_id = ?`)
+	deleteSQL := fmt.Sprintf(`DELETE FROM %s WHERE request_id = ?`, s.hotTableName)
+	delStmt, err := hotTx.Prepare(deleteSQL)
 	if err != nil {
 		hotTx.Rollback()
 		log.Warnf("request detail store: hot delete prepare failed: %v", err)
@@ -689,7 +756,7 @@ func (s *RequestDetailStore) persistAll() {
 func (s *RequestDetailStore) Stop() {
 	close(s.stopChan)
 	s.wg.Wait()
-	if s.archiveDB != nil {
+	if s.ownsArchiveDB && s.archiveDB != nil {
 		s.archiveDB.Close()
 	}
 }
@@ -723,4 +790,11 @@ func parseHeadersJSON(jsonStr string) http.Header {
 		headers[k] = v
 	}
 	return headers
+}
+
+func sanitizeBodyForStorage(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	return string(bytes.ToValidUTF8(body, []byte("\uFFFD")))
 }

@@ -157,6 +157,9 @@ func Setup() *gin.Engine {
 				system.GET("/database/backups", systemHandler.ListBackups)
 				system.POST("/database/restore", systemHandler.RestoreBackup)
 				system.DELETE("/database/backups/:filename", systemHandler.DeleteBackup)
+				system.GET("/database-info", systemHandler.GetDatabaseInfo)
+				system.POST("/database/migrate", systemHandler.StartDatabaseMigration)
+				system.GET("/database/migrate/:taskID", systemHandler.GetDatabaseMigrationTask)
 
 				// 重试配置
 				system.GET("/retry-config", systemHandler.GetRetryConfig)
@@ -173,7 +176,7 @@ func Setup() *gin.Engine {
 				// 缓存 TTL 配置
 				system.GET("/cache-ttl", systemHandler.GetCacheTTLConfig)
 				system.PUT("/cache-ttl", systemHandler.UpdateCacheTTLConfig)
-				}
+			}
 
 			users := admin.Group("/users")
 			{

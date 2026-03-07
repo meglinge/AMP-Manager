@@ -99,7 +99,7 @@
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.24 · Gin · SQLite (modernc, 纯 Go) · JWT (golang-jwt/v5) |
+| 后端 | Go 1.24 · Gin · SQLite (modernc) / PostgreSQL (pgx stdlib) · JWT (golang-jwt/v5) |
 | 前端 | React 19 · Vite 6 · TypeScript · Tailwind CSS · shadcn/ui · Recharts · Motion |
 | 部署 | Docker 多架构 (amd64/arm64) · Docker Compose |
 | CI/CD | GitHub Actions — Docker 镜像发布 + 5 平台二进制发布 |
@@ -111,6 +111,7 @@
 |---|---|
 | `gin-gonic/gin` | HTTP 框架 |
 | `modernc.org/sqlite` | 纯 Go SQLite 驱动 |
+| `github.com/jackc/pgx/v5/stdlib` | PostgreSQL `database/sql` 驱动 |
 | `golang-jwt/jwt/v5` | JWT 认证 |
 | `golang.org/x/crypto` | bcrypt 密码哈希 |
 | `shopspring/decimal` | 精确十进制运算 (计费) |
@@ -173,6 +174,9 @@ chmod +x manage.sh
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
+| `DB_TYPE` | 数据库类型，支持 `sqlite` / `postgres` | `sqlite` |
+| `SQLITE_PATH` | SQLite 数据库文件路径 | `./data/data.db` |
+| `DATABASE_URL` | PostgreSQL 连接串（`DB_TYPE=postgres` 时必填） | 空 |
 | `ADMIN_USERNAME` | 管理员用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理员密码（**生产必须修改**） | `admin123` |
 | `SERVER_PORT` | 服务端口 | `16823` |
@@ -186,6 +190,23 @@ chmod +x manage.sh
 | `ALLOW_INSECURE_DEFAULTS` | 跳过安全校验（仅开发用） | `false` |
 
 > ⚠️ 生产环境**必须**修改 `ADMIN_PASSWORD` 和 `JWT_SECRET`，否则服务将拒绝启动。
+
+## 数据库迁移
+
+项目现在支持在 SQLite 与 PostgreSQL 之间切换运行，并提供双向数据迁移工具。
+
+```bash
+# SQLite -> PostgreSQL
+go run ./cmd/dbtool migrate --source-type sqlite --source ./data/data.db --target-type postgres --target postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable
+
+# PostgreSQL -> SQLite
+go run ./cmd/dbtool migrate --source-type postgres --source postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable --target-type sqlite --target ./data/data.db
+```
+
+- 默认会清空目标数据库中的业务表后再导入，可用 `--clear-target=false` 关闭。
+- 默认会同时迁移请求详情归档数据，可用 `--with-archive=false` 跳过。
+- SQLite 模式仍保留文件级备份/恢复；PostgreSQL 模式请使用 `dbtool migrate` 做导出导入。
+- 管理后台已内置同样的迁移能力；CLI 现在只是可选入口。
 
 ## 客户端配置
 
@@ -294,7 +315,8 @@ export AMP_API_KEY="your-api-key"
 | `user_amp_settings` | 用户代理配置 | upstream_url, model_mappings_json, web_search_mode, native_mode |
 | `user_api_keys` | API 密钥 | key_hash, api_key (加密), prefix, expires_at, revoked_at |
 | `request_logs` | 请求日志 | model, tokens, cost_micros, latency_ms, billing_status |
-| `request_log_details` | 请求详情（超期自动归档到独立库，数据永不删除） | request_headers, request_body, response_headers, response_body |
+| `request_log_details` | 请求详情热数据 | request_headers, request_body, response_headers, response_body |
+| `request_log_details_archive` | 请求详情归档（SQLite 为独立归档库，PostgreSQL 为同库归档表） | request_headers, request_body, response_headers, response_body |
 | `subscription_plans` | 订阅计划 | name, enabled |
 | `subscription_plan_limits` | 计划限额 | limit_type, window_mode, limit_micros |
 | `user_subscriptions` | 用户订阅 | plan_id, starts_at, expires_at, status |
@@ -308,12 +330,39 @@ export AMP_API_KEY="your-api-key"
 
 ## 本地开发
 
+### 一键启动（推荐）
+
+```powershell
+# Windows
+.\dev.ps1
+```
+
+```bash
+# Linux / macOS
+./dev.sh
+```
+
+脚本会自动完成三件事：
+
+1. 使用 `docker-compose.dev.yml` 启动本地 PostgreSQL。
+2. 启动 Vite 前端热更新（`http://localhost:5274`）。
+3. 启动 Air 后端热更新（`http://localhost:16823`）。
+
+开发模式下，数据库选择会持久化到 `data/config.json`：
+
+1. 文件不存在时，默认使用本地 PostgreSQL。
+2. 你在管理后台切换到 SQLite 或 PostgreSQL 后，下一次 `dev.ps1` / `dev.sh` 启动会自动沿用。
+
 ### 后端
 
 ```bash
 # 设置环境变量跳过安全检查
 export ALLOW_INSECURE_DEFAULTS=true  # Linux/macOS
 $env:ALLOW_INSECURE_DEFAULTS="true"  # Windows PowerShell
+
+# 切换到 PostgreSQL 运行
+export DB_TYPE=postgres
+export DATABASE_URL="postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable"
 
 go run ./cmd/server
 # 服务启动在 http://localhost:16823
@@ -333,6 +382,12 @@ pnpm install
 pnpm dev
 # 开发服务器启动在 http://localhost:5274
 # API 请求自动代理到 http://localhost:16823
+```
+
+### 单独启动 PostgreSQL
+
+```bash
+docker compose -f docker-compose.dev.yml up -d postgres
 ```
 
 ### 构建
@@ -386,7 +441,7 @@ AMPManager/
 │   ├── billing/             # 计费模块：价格存储、成本计算器、LiteLLM 同步
 │   ├── config/              # 配置管理：环境变量加载与安全校验
 │   ├── crypto/              # 加密工具：AES-256-GCM
-│   ├── database/            # SQLite：建表、版本化迁移、索引优化、WAL 模式
+│   ├── database/            # SQLite/PostgreSQL：建表、版本化迁移、方言适配、连接封装
 │   ├── handler/             # HTTP 处理器：管理员/用户/认证 API
 │   ├── middleware/          # 通用中间件：JWT 认证、IP 限流、CORS
 │   ├── model/               # 数据模型：16+ 表定义
@@ -409,10 +464,10 @@ AMPManager/
 │           ├── RequestLogs.tsx#    请求日志 (WebSocket 实时)
 │           └── ...           #     更多：分组、订阅计划、系统设置等
 ├── CLIProxyAPI/             # 参考实现 (只读)
-├── data/                    # SQLite 数据库文件 (运行时自动创建)
+├── data/                    # SQLite 数据库与归档文件 (运行时自动创建)
 ├── .github/workflows/       # CI/CD (Docker 镜像 + 二进制发布)
 ├── docker-compose.yml       # 生产 Docker Compose
-├── docker-compose.dev.yml   # 开发 Docker Compose (本地构建)
+├── docker-compose.dev.yml   # 开发 PostgreSQL Docker Compose
 ├── Dockerfile               # 3 阶段多架构构建
 ├── build.ps1 / build.sh     # 一键构建脚本
 ├── dev.ps1 / dev.sh         # 一键开发脚本

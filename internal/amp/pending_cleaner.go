@@ -64,7 +64,7 @@ func (c *PendingCleaner) cleanup() {
 			error_type = 'timeout_cleanup',
 			updated_at = CURRENT_TIMESTAMP
 		WHERE status = 'pending' AND created_at < ?
-	`, cutoff.Format(time.RFC3339))
+	`, cutoff.UTC())
 
 	if err != nil {
 		log.Errorf("pending cleaner: cleanup failed: %v", err)

@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import {
+  getDatabaseInfo,
+  DatabaseInfo,
+  getDatabaseMigrationTask,
+  DatabaseMigrationTask,
+  startDatabaseMigration,
+  StartDatabaseMigrationRequest,
   uploadDatabase,
   downloadDatabase,
   listBackups,
@@ -33,6 +39,9 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 type SettingsTab = 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
 
@@ -48,6 +57,15 @@ export default function SystemSettings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('database')
 
   const [backups, setBackups] = useState<Backup[]>([])
+  const [databaseInfo, setDatabaseInfo] = useState<DatabaseInfo | null>(null)
+  const [databaseInfoLoading, setDatabaseInfoLoading] = useState(false)
+  const [migrationTask, setMigrationTask] = useState<DatabaseMigrationTask | null>(null)
+  const [migrationStarting, setMigrationStarting] = useState(false)
+  const [migrationTargetType, setMigrationTargetType] = useState<'sqlite' | 'postgres'>('postgres')
+  const [migrationTargetSqlitePath, setMigrationTargetSqlitePath] = useState('./data/data.db')
+  const [migrationTargetDatabaseUrl, setMigrationTargetDatabaseUrl] = useState('postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable')
+  const [migrationClearTarget, setMigrationClearTarget] = useState(true)
+  const [migrationWithArchive, setMigrationWithArchive] = useState(true)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -61,12 +79,31 @@ export default function SystemSettings() {
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
 
   useEffect(() => {
-    fetchBackups()
+    fetchDatabaseInfo()
     fetchRetryConfig()
     fetchRequestDetailEnabled()
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
   }, [])
+
+  const fetchDatabaseInfo = async () => {
+    setDatabaseInfoLoading(true)
+    try {
+      const data = await getDatabaseInfo()
+      setDatabaseInfo(data)
+      setMigrationTargetType(data.currentType === 'sqlite' ? 'postgres' : 'sqlite')
+      setMigrationTargetSqlitePath(data.sqlitePath || './data/data.db')
+      if (data.supportsFileBackups) {
+        fetchBackups()
+      } else {
+        setBackups([])
+      }
+    } catch (err) {
+      console.error('获取数据库信息失败:', err)
+    } finally {
+      setDatabaseInfoLoading(false)
+    }
+  }
 
   const fetchBackups = async () => {
     try {
@@ -188,8 +225,9 @@ export default function SystemSettings() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (!file.name.endsWith('.db')) {
-      showMessage('error', '请选择 .db 数据库文件')
+    const expectedExtension = databaseInfo?.currentType === 'postgres' ? '.sql' : '.db'
+    if (!file.name.toLowerCase().endsWith(expectedExtension)) {
+      showMessage('error', `请选择 ${expectedExtension} 数据库文件`)
       return
     }
 
@@ -215,13 +253,66 @@ export default function SystemSettings() {
     setLoading(true)
     try {
       await downloadDatabase()
-      showMessage('success', '数据库下载成功')
+      showMessage('success', databaseInfo?.currentType === 'postgres' ? 'PostgreSQL dump 下载成功' : '数据库下载成功')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '下载失败')
     } finally {
       setLoading(false)
     }
   }
+
+  const handleStartMigration = async () => {
+    if (!databaseInfo) return
+
+    const payload: StartDatabaseMigrationRequest = {
+      clearTarget: migrationClearTarget,
+      targetDatabaseUrl: migrationTargetDatabaseUrl,
+      targetSqlitePath: migrationTargetSqlitePath,
+      targetType: migrationTargetType,
+      withArchive: migrationWithArchive,
+    }
+
+    if (!confirm(`确定要将当前 ${databaseInfo.currentType === 'sqlite' ? 'SQLite' : 'PostgreSQL'} 数据迁移并切换到 ${migrationTargetType === 'sqlite' ? 'SQLite' : 'PostgreSQL'} 吗？`)) {
+      return
+    }
+
+    setMigrationStarting(true)
+    try {
+      const task = await startDatabaseMigration(payload)
+      setMigrationTask(task)
+      showMessage('success', '数据库迁移任务已启动')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '启动迁移失败')
+    } finally {
+      setMigrationStarting(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!migrationTask || migrationTask.status === 'succeeded' || migrationTask.status === 'failed') {
+      return
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const latestTask = await getDatabaseMigrationTask(migrationTask.id)
+        const previousStatus = migrationTask.status
+        setMigrationTask(latestTask)
+
+        if (latestTask.status !== previousStatus && latestTask.status === 'succeeded') {
+          showMessage('success', '数据库迁移并切换完成；如果重启服务，请同步环境变量或启动脚本配置')
+          fetchDatabaseInfo()
+        }
+        if (latestTask.status !== previousStatus && latestTask.status === 'failed') {
+          showMessage('error', latestTask.error || '数据库迁移失败')
+        }
+      } catch (err) {
+        console.error('获取数据库迁移进度失败:', err)
+      }
+    }, 1500)
+
+    return () => window.clearInterval(timer)
+  }, [migrationTask])
 
   const handleRestore = async (filename: string) => {
     if (!confirm(`确定要恢复备份 ${filename} 吗？当前数据将被备份。`)) {
@@ -329,8 +420,163 @@ export default function SystemSettings() {
             <>
               <Card>
                 <CardHeader>
-                  <CardTitle>数据库管理</CardTitle>
-                  <CardDescription>上传、下载和管理系统数据库</CardDescription>
+                  <CardTitle>数据库模式</CardTitle>
+                  <CardDescription>查看当前运行数据库、归档方式和可用的导入导出能力</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {databaseInfoLoading ? (
+                    <div className="text-center text-muted-foreground py-4">加载中...</div>
+                  ) : databaseInfo ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg border p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">当前模式</span>
+                            <Badge variant={databaseInfo.currentType === 'postgres' ? 'default' : 'secondary'}>
+                              {databaseInfo.currentType === 'postgres' ? 'PostgreSQL' : 'SQLite'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {databaseInfo.currentType === 'postgres'
+                              ? databaseInfo.databaseURLMasked || '未暴露连接串'
+                              : databaseInfo.sqlitePath}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">请求详情归档</span>
+                            <Badge variant="outline">{databaseInfo.archiveMode}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {databaseInfo.supportsFileBackups
+                              ? '支持文件级下载、上传、备份和恢复。'
+                              : '当前模式使用 PostgreSQL dump 导入导出。'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Alert>
+                        <AlertDescription>
+                          数据库切换会立即影响当前运行实例；如果之后重启服务，请同步修改环境变量或开发脚本中的数据库配置。
+                        </AlertDescription>
+                      </Alert>
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">数据库信息加载失败</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {databaseInfo && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>迁移并切换数据库</CardTitle>
+                    <CardDescription>直接在前端触发 SQLite ↔ PostgreSQL 迁移，后端会执行任务并实时回报进度</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>目标数据库类型</Label>
+                        <Select value={migrationTargetType} onValueChange={(value: 'sqlite' | 'postgres') => setMigrationTargetType(value)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择目标数据库" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sqlite">SQLite</SelectItem>
+                            <SelectItem value="postgres">PostgreSQL</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{migrationTargetType === 'postgres' ? '目标 PostgreSQL 连接串' : '目标 SQLite 文件路径'}</Label>
+                        {migrationTargetType === 'postgres' ? (
+                          <Input
+                            value={migrationTargetDatabaseUrl}
+                            onChange={(e) => setMigrationTargetDatabaseUrl(e.target.value)}
+                            placeholder="postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable"
+                          />
+                        ) : (
+                          <Input
+                            value={migrationTargetSqlitePath}
+                            onChange={(e) => setMigrationTargetSqlitePath(e.target.value)}
+                            placeholder="./data/data.db"
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>迁移请求详情归档</Label>
+                          <p className="text-sm text-muted-foreground">同时复制请求详情归档表或归档库中的数据</p>
+                        </div>
+                        <Switch checked={migrationWithArchive} onCheckedChange={setMigrationWithArchive} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>清空目标数据库</Label>
+                          <p className="text-sm text-muted-foreground">迁移前先清空目标数据库的业务表，避免重复数据</p>
+                        </div>
+                        <Switch checked={migrationClearTarget} onCheckedChange={setMigrationClearTarget} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-sm text-muted-foreground">
+                        当前会从 {databaseInfo.currentType === 'sqlite' ? 'SQLite' : 'PostgreSQL'} 迁移到 {migrationTargetType === 'sqlite' ? 'SQLite' : 'PostgreSQL'}。
+                      </p>
+                      <Button onClick={handleStartMigration} disabled={migrationStarting || migrationTask?.status === 'running'}>
+                        {migrationStarting ? '启动中...' : '开始迁移并切换'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {migrationTask && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>迁移任务进度</CardTitle>
+                    <CardDescription>
+                      {migrationTask.sourceType.toUpperCase()} → {migrationTask.targetType.toUpperCase()} · 状态：{migrationTask.status}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{migrationTask.message}</span>
+                        <span className="text-muted-foreground">{migrationTask.progress}%</span>
+                      </div>
+                      <Progress value={migrationTask.progress} />
+                    </div>
+
+                    {migrationTask.error && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{migrationTask.error}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label>任务日志</Label>
+                      <Textarea
+                        readOnly
+                        value={migrationTask.logs.join('\n')}
+                        className="min-h-[180px] font-mono text-xs"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{databaseInfo?.currentType === 'postgres' ? 'PostgreSQL dump 导入导出' : '数据库导入导出'}</CardTitle>
+                  <CardDescription>
+                    {databaseInfo?.currentType === 'postgres'
+                      ? '使用 PostgreSQL dump 导出当前库，或上传 .sql dump 恢复数据库'
+                      : '上传、下载和管理 SQLite 数据库文件'}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex flex-wrap gap-4">
@@ -338,7 +584,7 @@ export default function SystemSettings() {
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept=".db"
+                        accept={databaseInfo?.currentType === 'postgres' ? '.sql' : '.db'}
                         onChange={handleUpload}
                         className="hidden"
                         id="db-upload"
@@ -346,79 +592,83 @@ export default function SystemSettings() {
                       />
                       <Button asChild disabled={loading}>
                         <label htmlFor="db-upload" className="cursor-pointer">
-                          上传数据库
+                          {databaseInfo?.currentType === 'postgres' ? '导入 dump' : '上传数据库'}
                         </label>
                       </Button>
                     </div>
                     <Button variant="secondary" onClick={handleDownload} disabled={loading}>
-                      下载当前数据库
+                      {databaseInfo?.currentType === 'postgres' ? '导出当前 dump' : '下载当前数据库'}
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    上传新数据库将自动备份当前数据库。更改生效需要重启服务。
+                    {databaseInfo?.currentType === 'postgres'
+                      ? '导入前会临时断开当前数据库连接，恢复后自动重新连接。'
+                      : '上传新数据库将自动备份当前数据库。更改生效需要重启服务。'}
                   </p>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>备份列表</CardTitle>
-                  <CardDescription>查看和管理数据库备份</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {backups.length === 0 ? (
-                    <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
-                      暂无备份
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>文件名</TableHead>
-                            <TableHead>大小</TableHead>
-                            <TableHead>备份时间</TableHead>
-                            <TableHead>操作</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {backups.map((backup) => (
-                            <TableRow key={backup.filename}>
-                              <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline">{formatSize(backup.size)}</Badge>
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {formatDate(backup.modTime)}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleRestore(backup.filename)}
-                                    disabled={loading}
-                                  >
-                                    恢复
-                                  </Button>
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => handleDelete(backup.filename)}
-                                    disabled={loading}
-                                  >
-                                    删除
-                                  </Button>
-                                </div>
-                              </TableCell>
+              {databaseInfo?.supportsFileBackups && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>备份列表</CardTitle>
+                    <CardDescription>查看和管理 SQLite 数据库备份</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {backups.length === 0 ? (
+                      <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
+                        暂无备份
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>文件名</TableHead>
+                              <TableHead>大小</TableHead>
+                              <TableHead>备份时间</TableHead>
+                              <TableHead>操作</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                          </TableHeader>
+                          <TableBody>
+                            {backups.map((backup) => (
+                              <TableRow key={backup.filename}>
+                                <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">{formatSize(backup.size)}</Badge>
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {formatDate(backup.modTime)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleRestore(backup.filename)}
+                                      disabled={loading}
+                                    >
+                                      恢复
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => handleDelete(backup.filename)}
+                                      disabled={loading}
+                                    >
+                                      删除
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
 

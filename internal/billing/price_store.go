@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +16,28 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
+
+type wholeNumber int64
+
+func (n *wholeNumber) UnmarshalJSON(data []byte) error {
+	var integerValue int64
+	if err := json.Unmarshal(data, &integerValue); err == nil {
+		*n = wholeNumber(integerValue)
+		return nil
+	}
+
+	var floatValue float64
+	if err := json.Unmarshal(data, &floatValue); err == nil {
+		rounded := math.Round(floatValue)
+		if math.Abs(floatValue-rounded) > 1e-9 {
+			return fmt.Errorf("expected whole number, got %v", floatValue)
+		}
+		*n = wholeNumber(int64(rounded))
+		return nil
+	}
+
+	return fmt.Errorf("invalid whole number: %s", string(data))
+}
 
 const (
 	// LiteLLM 官方价格表 URL
@@ -36,8 +60,8 @@ type LiteLLMPricing struct {
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost,omitempty"`
 	SupportsPromptCaching       *bool    `json:"supports_prompt_caching,omitempty"`
 
-	MaxInputTokens  *int `json:"max_input_tokens,omitempty"`
-	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
+	MaxInputTokens  *wholeNumber `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens *wholeNumber `json:"max_output_tokens,omitempty"`
 }
 
 // PriceStore 管理模型价格表
@@ -190,8 +214,8 @@ func (s *PriceStore) FetchFromLiteLLM(ctx context.Context) error {
 			Provider: lp.LiteLLMProvider,
 			Source:   "litellm",
 			PriceData: PriceData{
-				InputCostPerToken:     ptrFloat64(lp.InputCostPerToken),
-				OutputCostPerToken:    ptrFloat64(lp.OutputCostPerToken),
+				InputCostPerToken:      ptrFloat64(lp.InputCostPerToken),
+				OutputCostPerToken:     ptrFloat64(lp.OutputCostPerToken),
 				CacheReadInputPerToken: ptrFloat64(lp.CacheReadInputTokenCost),
 				CacheCreationPerToken:  ptrFloat64(lp.CacheCreationInputTokenCost),
 			},

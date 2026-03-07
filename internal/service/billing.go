@@ -223,7 +223,7 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 		}
 		if _, err := tx.Exec(
 			`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
-			chargedBalance, chargedBalance, now.Format(time.RFC3339), userID,
+			chargedBalance, chargedBalance, now, userID,
 		); err != nil {
 			return fmt.Errorf("billing: deduct balance: %w", err)
 		}
