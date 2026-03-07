@@ -476,6 +476,19 @@ func createTables() error {
 	`
 	if dbType == DBTypePostgres {
 		schema = strings.ReplaceAll(schema, "DATETIME", "TIMESTAMPTZ")
+		replacer := strings.NewReplacer(
+			"balance_micros INTEGER NOT NULL DEFAULT 0", "balance_micros BIGINT NOT NULL DEFAULT 0",
+			"input_tokens INTEGER,", "input_tokens BIGINT,",
+			"output_tokens INTEGER,", "output_tokens BIGINT,",
+			"cache_read_input_tokens INTEGER,", "cache_read_input_tokens BIGINT,",
+			"cache_creation_input_tokens INTEGER,", "cache_creation_input_tokens BIGINT,",
+			"cost_micros INTEGER,", "cost_micros BIGINT,",
+			"charged_subscription_micros INTEGER NOT NULL DEFAULT 0", "charged_subscription_micros BIGINT NOT NULL DEFAULT 0",
+			"charged_balance_micros INTEGER NOT NULL DEFAULT 0", "charged_balance_micros BIGINT NOT NULL DEFAULT 0",
+			"limit_micros INTEGER NOT NULL CHECK (limit_micros >= 0)", "limit_micros BIGINT NOT NULL CHECK (limit_micros >= 0)",
+			"amount_micros INTEGER NOT NULL CHECK (amount_micros >= 0)", "amount_micros BIGINT NOT NULL CHECK (amount_micros >= 0)",
+		)
+		schema = replacer.Replace(schema)
 		schema += `
 		CREATE TABLE IF NOT EXISTS request_log_details_archive (
 			request_id TEXT PRIMARY KEY,
@@ -706,6 +719,31 @@ func runMigrations() error {
 			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC)`,
 		},
 		{
+			name: "postgres_widen_users_balance_micros",
+			sql:  `ALTER TABLE users ALTER COLUMN balance_micros TYPE BIGINT`,
+		},
+		{
+			name: "postgres_widen_request_logs_micros_columns",
+			sql: `ALTER TABLE request_logs ALTER COLUMN cost_micros TYPE BIGINT;
+				ALTER TABLE request_logs ALTER COLUMN charged_subscription_micros TYPE BIGINT;
+				ALTER TABLE request_logs ALTER COLUMN charged_balance_micros TYPE BIGINT`,
+		},
+		{
+			name: "postgres_widen_request_logs_token_columns",
+			sql: `ALTER TABLE request_logs ALTER COLUMN input_tokens TYPE BIGINT;
+				ALTER TABLE request_logs ALTER COLUMN output_tokens TYPE BIGINT;
+				ALTER TABLE request_logs ALTER COLUMN cache_read_input_tokens TYPE BIGINT;
+				ALTER TABLE request_logs ALTER COLUMN cache_creation_input_tokens TYPE BIGINT`,
+		},
+		{
+			name: "postgres_widen_subscription_plan_limits_limit_micros",
+			sql:  `ALTER TABLE subscription_plan_limits ALTER COLUMN limit_micros TYPE BIGINT`,
+		},
+		{
+			name: "postgres_widen_billing_events_amount_micros",
+			sql:  `ALTER TABLE billing_events ALTER COLUMN amount_micros TYPE BIGINT`,
+		},
+		{
 			name: "drop_legacy_users_group_id",
 			sql:  `ALTER TABLE users DROP COLUMN group_id`,
 		},
@@ -776,6 +814,26 @@ func adaptMigrationSQL(name string, sqlText string) string {
 	switch name {
 	case "add_request_detail_retention_default":
 		adapted = `INSERT INTO system_config (key, value, updated_at) VALUES ('request_detail_retention_days', '30', CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING`
+	case "add_user_balance_micros":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE users ADD COLUMN balance_micros BIGINT NOT NULL DEFAULT 0`
+		}
+	case "add_request_logs_cost_micros":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE request_logs ADD COLUMN cost_micros BIGINT`
+		}
+	case "add_request_logs_charged_subscription_micros":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE request_logs ADD COLUMN charged_subscription_micros BIGINT NOT NULL DEFAULT 0`
+		}
+	case "add_request_logs_charged_balance_micros":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE request_logs ADD COLUMN charged_balance_micros BIGINT NOT NULL DEFAULT 0`
+		}
+	case "postgres_widen_users_balance_micros", "postgres_widen_request_logs_micros_columns", "postgres_widen_request_logs_token_columns", "postgres_widen_subscription_plan_limits_limit_micros", "postgres_widen_billing_events_amount_micros":
+		if dbType != DBTypePostgres {
+			adapted = ""
+		}
 	}
 
 	return adapted
@@ -852,6 +910,12 @@ func shouldIgnoreMigrationError(name string, err error) bool {
 
 	if name == "drop_legacy_users_group_id" || name == "drop_legacy_channels_group_id" {
 		if strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot drop") || strings.Contains(msg, "syntax error") || strings.Contains(msg, "does not exist") {
+			return true
+		}
+	}
+
+	if strings.HasPrefix(name, "postgres_widen_") {
+		if strings.Contains(msg, "does not exist") || strings.Contains(msg, "cannot be cast automatically") {
 			return true
 		}
 	}
