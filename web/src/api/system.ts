@@ -6,6 +6,7 @@ export interface DatabaseInfo {
   currentType: 'sqlite' | 'postgres'
   supportsFileBackups: boolean
   sqlitePath: string
+  databaseURL: string
   databaseURLMasked: string
   archiveMode: string
 }

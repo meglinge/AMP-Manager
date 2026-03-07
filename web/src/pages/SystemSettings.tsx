@@ -93,6 +93,9 @@ export default function SystemSettings() {
       setDatabaseInfo(data)
       setMigrationTargetType(data.currentType === 'sqlite' ? 'postgres' : 'sqlite')
       setMigrationTargetSqlitePath(data.sqlitePath || './data/data.db')
+      if (data.databaseURL) {
+        setMigrationTargetDatabaseUrl(data.databaseURL)
+      }
       if (data.supportsFileBackups) {
         fetchBackups()
       } else {

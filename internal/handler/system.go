@@ -75,6 +75,7 @@ func (h *SystemHandler) GetDatabaseInfo(c *gin.Context) {
 		"currentType":         database.GetType(),
 		"supportsFileBackups": database.SupportsFileBackups(),
 		"sqlitePath":          sqlitePath,
+		"databaseURL":         databaseURL,
 		"databaseURLMasked":   maskDatabaseURL(databaseURL),
 		"archiveMode":         archiveMode,
 	})
